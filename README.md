@@ -91,13 +91,14 @@ npm start
 | Метод | Путь | Описание |
 | --- | --- | --- |
 | GET | `/` | UI — board view (читает `.sdd-board/state.json`) |
-| GET | `/changes/[name]` | Детальная страница change-proposal: структура папки, сводка, действия |
+| GET | `/changes/[name]` | Детальная страница change-proposal: структура папки, сводка, действия, форма «Начать» |
 | GET | `/api/health` | Backend-заглушка: `{ "status": "ok", "service": "sdd-sessions-board", "time": "..." }` |
 | GET | `/api/config` | Текущие настройки: `{ "openspecDir": "..." }` |
 | PUT | `/api/config` | Обновить настройки, тело `{ "openspecDir": "<абсолютный путь>" }` |
 | GET | `/api/changes` | Список tasks из state |
 | GET | `/api/changes/[name]` | Полные данные одного change (с распарсенными proposal/design/specs) |
-| POST | `/api/changes/[name]/open` | Открыть файл/папку в системном менеджере. Тело `{ "path": "<относительный путь>" }` (опц., пусто = корень change). Возвращает `{ opened, path }`. 400 если path вне change-root, 404 если change не найден |
+| POST | `/api/changes/[name]/open` | Открыть файл/папку в системном менеджере. Тело `{ "path": "<относительный путь>" }` (опц., пусто = корень change). 400 если path вне change-root, 404 если change не найден |
+| POST | `/api/changes/[name]/start` | Запустить change: создать 2 git worktree (openspec + код), обновить state, запустить `qwen /opsx:plan`. Тело `{ "jiraUrl": "...", "codeRepoPath": "/abs/path" }`. Возвращает `{ jiraId, openspecWorktree, codeWorktree, changePath, qwenPid, stage }`. Только для stage=backlog, иначе 409 |
 | POST | `/api/refresh` | Сканирует `openspecDir/changes/`, мерджит в `.sdd-board/state.json`. Возвращает `{ scanned, total, tasks }`. Сканирование **только** через эту кнопку |
 
 ## Настройки
@@ -115,11 +116,32 @@ npm start
 5. После рестарта сервера state.json восстанавливается без скана — доска показывает то, что было на момент последнего refresh
 6. change'ы из `archive/` пропускаются при скане
 
+## Запуск change'а в работу
+
+На детальной странице change'а в статусе «Бэклог» доступна форма «Начать работу» с двумя обязательными полями:
+
+- **Jira-тикет** — полный URL (`https://acme.atlassian.net/browse/ENG-123`) или просто `ENG-123`. Извлекается `ticket-id` регуляркой
+- **Путь к репозиторию с кодом** — абсолютный путь к существующему git-репо
+
+По нажатию «Начать»:
+
+1. Валидация (непустые поля, извлекаемый ticket-id, существующий change в backlog)
+2. Создаются два git-worktree:
+   - `<openspecDirParent>/<openspecDirBasename>.worktrees/<jira-id>/`
+   - `<codeRepoPathParent>/<codeRepoBasename>.worktrees/<jira-id>/`
+   - Оба на ветке `<jira-id>` (`-b` если ветки ещё нет)
+3. Если openspec worktree создан, а code упал — openspec откатывается (`git worktree remove --force`)
+4. State обновляется: `stage: "decomposition"`, сохраняются `jiraUrl`, `codeRepoPath`, пути обоих worktree, `startedAt`, `qwenPid`
+5. Спавнится `qwen /opsx:plan <changePathInWorktree>` через `child_process.spawn` с `detached: true`. Если `qwen` нет в PATH — поле `qwenPid: null` и лог в console
+
+После успешного Start:
+- На карточке появляются бейджи `ENG-123` (синий) и `<repo-basename>` (серый)
+- Кнопка «Начать» пропадает (заменяется блоком с путями worktree и PID qwen)
+- Повторный Start возвращает 409
+
 ## Что дальше
 
-Карточка на доске → детальная страница со структурой папки, сводкой и действиями «Открыть в Finder» / «Скопировать путь». Клик по любому узлу дерева открывает его в стандартном файловом менеджере через `POST /api/changes/[name]/open`.
+Сейчас не реализовано:
 
-Сейчас не реализовано: drag&drop между колонками (stage у всех `backlog`), визуализация содержимого спек внутри детальной страницы (сейчас только структура папки). Следующие шаги по запросу:
-
-- drag&drop между колонками с записью нового stage в `state.json`
-- рендер содержимого proposal/design/specs на детальной странице (Markdown-вкладки)
+- drag&drop между колонками (все задачи остаются в той колонке, куда их переместил Start)
+- рендер содержимого proposal/design/specs на детальной странице (сейчас только структура папки)

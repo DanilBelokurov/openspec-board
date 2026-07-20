@@ -10,6 +10,13 @@ export interface TaskEntry {
   stage: Stage;
   lastScannedAt: string;
   summary: ChangeSummary;
+  // Set after "Start" action
+  jiraUrl?: string;
+  codeRepoPath?: string;
+  openspecWorktreePath?: string;
+  codeWorktreePath?: string;
+  qwenPid?: number | null;
+  startedAt?: string;
 }
 
 export interface AppState {
@@ -61,8 +68,7 @@ export async function mergeScanWithState(
     const prev = tasks.get(summary.changeName);
     if (prev) {
       tasks.set(summary.changeName, {
-        id: prev.id,
-        stage: prev.stage,
+        ...prev,
         lastScannedAt: now,
         summary: { ...summary, id: prev.id, stage: prev.stage },
       });
@@ -80,4 +86,17 @@ export async function mergeScanWithState(
   const merged: AppState = { tasks: Object.fromEntries(tasks) };
   await writeState(merged);
   return merged;
+}
+
+export async function updateTask(
+  changeName: string,
+  patch: Partial<TaskEntry>,
+): Promise<TaskEntry | null> {
+  const state = await readState();
+  const existing = state.tasks[changeName];
+  if (!existing) return null;
+  const updated: TaskEntry = { ...existing, ...patch };
+  state.tasks[changeName] = updated;
+  await writeState(state);
+  return updated;
 }

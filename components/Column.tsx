@@ -8,14 +8,14 @@ import {
   CheckCircle2,
   type LucideIcon,
 } from "lucide-react";
-import type { ChangeSummary, Stage } from "@/lib/openspec";
+import type { BoardItem, Stage } from "@/lib/openspec";
 import type { StageMeta } from "@/lib/types";
 import { SessionCard } from "./SessionCard";
 
 interface ColumnProps {
   stage: Stage;
   meta: StageMeta;
-  items: ChangeSummary[];
+  items: BoardItem[];
 }
 
 const ICON_MAP: Record<string, LucideIcon> = {

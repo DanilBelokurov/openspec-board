@@ -85,6 +85,12 @@ export interface Change extends ChangeSummary {
   specs: DeltaSpec[];
 }
 
+// What we render on the board: scan result + optional state fields
+export interface BoardItem extends ChangeSummary {
+  jiraUrl?: string;
+  codeRepoPath?: string;
+}
+
 // ============================================================================
 // Markdown helpers
 // ============================================================================

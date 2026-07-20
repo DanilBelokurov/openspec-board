@@ -10,6 +10,7 @@ import {
 } from "@/lib/openspec";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
+import { StartForm } from "@/components/StartForm";
 
 export default async function ChangePage({
   params,
@@ -89,6 +90,54 @@ export default async function ChangePage({
               {task.summary.modifiedCapabilities.length} modified capabilities
             </span>
           </div>
+
+          {task.stage === "backlog" && (
+            <section className="mt-5">
+              <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+                Начать работу
+              </h2>
+              <div className="rounded-md border border-border bg-white px-4 py-3">
+                <StartForm
+                  changeName={task.summary.changeName}
+                  initialJiraUrl={task.jiraUrl}
+                  initialCodeRepoPath={task.codeRepoPath}
+                />
+              </div>
+            </section>
+          )}
+
+          {task.stage !== "backlog" && task.jiraUrl && (
+            <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
+              <div className="font-semibold text-slate-800">Запущено</div>
+              {task.startedAt && (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {new Date(task.startedAt).toLocaleString("ru-RU")}
+                </div>
+              )}
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                {task.openspecWorktreePath && (
+                  <>
+                    <dt className="text-slate-500">Openspec worktree</dt>
+                    <dd className="font-mono text-[10px] break-all">
+                      {task.openspecWorktreePath}
+                    </dd>
+                  </>
+                )}
+                {task.codeWorktreePath && (
+                  <>
+                    <dt className="text-slate-500">Code worktree</dt>
+                    <dd className="font-mono text-[10px] break-all">
+                      {task.codeWorktreePath}
+                    </dd>
+                  </>
+                )}
+                <dt className="text-slate-500">qwen PID</dt>
+                <dd className="font-mono text-[10px]">
+                  {task.qwenPid ?? "не запущен (qwen не в PATH?)"}
+                </dd>
+              </dl>
+            </section>
+          )}
 
           <div className="mt-3 flex gap-2">
             <OpenInFinderForm changeName={task.summary.changeName} />

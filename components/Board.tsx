@@ -1,9 +1,9 @@
-import type { ChangeSummary } from "@/lib/openspec";
+import type { BoardItem } from "@/lib/openspec";
 import { STAGES_ORDER, STAGE_META } from "@/lib/mock-data";
 import { Column } from "./Column";
 
 interface BoardProps {
-  items: ChangeSummary[];
+  items: BoardItem[];
 }
 
 export function Board({ items }: BoardProps) {
