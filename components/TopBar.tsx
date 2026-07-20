@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Settings, RefreshCw } from "lucide-react";
+import { Settings, RefreshCw } from "lucide-react";
 import { SettingsDialog } from "./SettingsDialog";
 
 export function TopBar() {
@@ -43,14 +43,6 @@ export function TopBar() {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center justify-end gap-2 border-b border-border bg-surface-raised px-4">
-        <button
-          type="button"
-          className="flex h-7 items-center gap-1 rounded-md bg-slate-900 px-2.5 text-[12px] font-medium text-white hover:bg-slate-800"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <span>Новая сессия</span>
-        </button>
-
         <button
           type="button"
           aria-label="Открыть настройки"

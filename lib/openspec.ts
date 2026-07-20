@@ -526,3 +526,78 @@ export async function readChange(
     specs,
   };
 }
+
+// ============================================================================
+// File tree
+// ============================================================================
+
+export interface TreeNode {
+  name: string;
+  relativePath: string;
+  absolutePath: string;
+  type: "file" | "directory";
+  size: number;
+  children?: TreeNode[];
+}
+
+const SKIP_DOTFILES = true;
+const SKIP_FILES = new Set(["tasks.md"]);
+
+async function buildTreeNode(
+  absPath: string,
+  relPath: string,
+): Promise<TreeNode | null> {
+  const stat = await fs.stat(absPath);
+
+  if (stat.isDirectory()) {
+    const entries = await fs.readdir(absPath, { withFileTypes: true });
+    const children: TreeNode[] = [];
+    let totalSize = 0;
+
+    for (const entry of entries) {
+      if (SKIP_DOTFILES && entry.name.startsWith(".")) continue;
+      if (SKIP_FILES.has(entry.name)) continue;
+      const childRel = relPath ? `${relPath}/${entry.name}` : entry.name;
+      const childAbs = path.join(absPath, entry.name);
+      const node = await buildTreeNode(childAbs, childRel);
+      if (node) {
+        children.push(node);
+        totalSize += node.size;
+      }
+    }
+
+    children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return {
+      name: path.basename(absPath),
+      relativePath: relPath,
+      absolutePath: absPath,
+      type: "directory",
+      size: totalSize,
+      children,
+    };
+  }
+
+  return {
+    name: path.basename(absPath),
+    relativePath: relPath,
+    absolutePath: absPath,
+    type: "file",
+    size: stat.size,
+  };
+}
+
+export async function listChangeTree(changePath: string): Promise<TreeNode> {
+  const root = await buildTreeNode(changePath, "");
+  if (!root) throw new Error(`Cannot read change folder: ${changePath}`);
+  return root;
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}

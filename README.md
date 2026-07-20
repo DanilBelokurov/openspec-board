@@ -19,24 +19,29 @@ sdd/
 │   ├── layout.tsx              # Корневой layout
 │   ├── page.tsx                # Главная — board view
 │   ├── globals.css             # Tailwind + scrollbar-стили
+│   ├── changes/
+│   │   └── [name]/page.tsx     # Детальная страница change-proposal (структура папки)
 │   └── api/
 │       ├── health/route.ts     # Backend health-stub (single port)
 │       ├── config/route.ts     # GET / PUT — чтение и запись настроек
 │       ├── changes/route.ts    # GET — список change-proposal из стейта
 │       ├── changes/[name]/route.ts  # GET — полные данные одного change
+│       ├── changes/[name]/open/route.ts  # POST — открыть в Finder (relative path внутри change)
 │       └── refresh/route.ts    # POST — scan + merge в .sdd-board/state.json
 ├── components/
-│   ├── TopBar.tsx              # Хедер: New session, settings, refresh (refresh → POST /api/refresh + router.refresh)
+│   ├── TopBar.tsx              # Хедер: settings, refresh (refresh → POST /api/refresh + router.refresh)
 │   ├── SettingsDialog.tsx      # Модалка настроек (openspecDir)
 │   ├── Board.tsx               # Контейнер с 7 колонками
 │   ├── Column.tsx              # Одна колонка
-│   └── SessionCard.tsx         # Карточка: title + changeName
+│   ├── SessionCard.tsx         # Карточка-линк → /changes/[changeName]
+│   ├── FileTree.tsx            # Рекурсивное дерево файлов (клик → POST /api/changes/[name]/open)
+│   └── CopyPathButton.tsx      # Кнопка копирования пути в буфер
 ├── lib/
 │   ├── types.ts                # StageMeta
 │   ├── mock-data.ts            # STAGES_ORDER, STAGE_META (русские лейблы)
 │   ├── config.ts               # read/write .sdd-board/config.json
 │   ├── state.ts                # read/write/mergeScanWithState для .sdd-board/state.json
-│   └── openspec.ts             # парсеры proposal.md / design.md / specs/*.md + scanChanges / readChange
+│   └── openspec.ts             # парсеры proposal.md / design.md / specs/*.md + scanChanges / readChange + listChangeTree + formatBytes
 ├── docs/
 │   └── sdd-directory.md        # Описание структуры OpenSpec-каталога
 ├── tailwind.config.ts
@@ -86,9 +91,13 @@ npm start
 | Метод | Путь | Описание |
 | --- | --- | --- |
 | GET | `/` | UI — board view (читает `.sdd-board/state.json`) |
+| GET | `/changes/[name]` | Детальная страница change-proposal: структура папки, сводка, действия |
 | GET | `/api/health` | Backend-заглушка: `{ "status": "ok", "service": "sdd-sessions-board", "time": "..." }` |
 | GET | `/api/config` | Текущие настройки: `{ "openspecDir": "..." }` |
 | PUT | `/api/config` | Обновить настройки, тело `{ "openspecDir": "<абсолютный путь>" }` |
+| GET | `/api/changes` | Список tasks из state |
+| GET | `/api/changes/[name]` | Полные данные одного change (с распарсенными proposal/design/specs) |
+| POST | `/api/changes/[name]/open` | Открыть файл/папку в системном менеджере. Тело `{ "path": "<относительный путь>" }` (опц., пусто = корень change). Возвращает `{ opened, path }`. 400 если path вне change-root, 404 если change не найден |
 | POST | `/api/refresh` | Сканирует `openspecDir/changes/`, мерджит в `.sdd-board/state.json`. Возвращает `{ scanned, total, tasks }`. Сканирование **только** через эту кнопку |
 
 ## Настройки
@@ -108,8 +117,9 @@ npm start
 
 ## Что дальше
 
-Сейчас каркас без интерактива: задачи попадают на доску только через кнопку Обновить, stage у всех `backlog`, drag&drop и ручная смена колонки не реализованы. Следующие шаги по запросу:
+Карточка на доске → детальная страница со структурой папки, сводкой и действиями «Открыть в Finder» / «Скопировать путь». Клик по любому узлу дерева открывает его в стандартном файловом менеджере через `POST /api/changes/[name]/open`.
+
+Сейчас не реализовано: drag&drop между колонками (stage у всех `backlog`), визуализация содержимого спек внутри детальной страницы (сейчас только структура папки). Следующие шаги по запросу:
 
 - drag&drop между колонками с записью нового stage в `state.json`
-- детальная страница `/changes/[name]` с табами Описание / Спека / Дизайн (read-only рендер Markdown)
-- кнопка «Новая сессия» (сейчас только визуальная)
+- рендер содержимого proposal/design/specs на детальной странице (Markdown-вкладки)
