@@ -1,6 +1,4 @@
 import {
-  Plus,
-  MoreHorizontal,
   Inbox,
   GitBranch,
   ClipboardList,
@@ -52,22 +50,6 @@ export function Column({ stage, meta, sessions }: ColumnProps) {
         <span className="ml-1 rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
           {sessions.length}
         </span>
-        <div className="ml-auto flex items-center gap-0.5">
-          <button
-            type="button"
-            aria-label="Add session"
-            className="flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-slate-200/70"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Column options"
-            className="flex h-5 w-5 items-center justify-center rounded text-slate-500 hover:bg-slate-200/70"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </div>
       </header>
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2 scrollbar-thin">
