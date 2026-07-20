@@ -24,7 +24,12 @@ export default async function Home() {
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
       <TopBar mode={config.mode} />
       <main className="flex-1 overflow-hidden">
-        <Board items={items} stages={mode.stages} meta={mode.meta} />
+        <Board
+          items={items}
+          stages={mode.stages}
+          meta={mode.meta}
+          mode={config.mode}
+        />
       </main>
     </div>
   );

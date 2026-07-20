@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { ExternalLink, FolderGit2, Loader2, CheckCircle2 } from "lucide-react";
 import type { BoardItem } from "@/lib/openspec";
+import type { BoardModeId } from "@/lib/modes";
 import { extractJiraId, repoBasename } from "@/lib/git";
 
 interface SessionCardProps {
   item: BoardItem;
+  mode: BoardModeId;
 }
 
-export function SessionCard({ item }: SessionCardProps) {
+export function SessionCard({ item, mode }: SessionCardProps) {
   const missing: string[] = [];
   if (!item.hasProposal) missing.push("proposal.md");
   if (!item.hasDesign) missing.push("design.md");
@@ -25,7 +27,9 @@ export function SessionCard({ item }: SessionCardProps) {
         <h3 className="text-[13px] font-medium leading-snug text-slate-900">
           {item.title}
         </h3>
-        <code className="text-[10px] text-slate-500">{item.changeName}</code>
+        <code className="break-all text-[10px] text-slate-500">
+          {item.changeName}
+        </code>
         <div className="flex flex-wrap gap-1">
           {item.qwenStatus === "running" && (
             <span
@@ -63,7 +67,7 @@ export function SessionCard({ item }: SessionCardProps) {
             </span>
           )}
         </div>
-        {missing.length > 0 && (
+        {missing.length > 0 && mode === "developer" && (
           <div className="rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-[10px] text-amber-800">
             ⚠ Нет артефактов: {missing.join(", ")}
           </div>
