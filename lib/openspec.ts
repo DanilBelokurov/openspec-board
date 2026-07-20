@@ -13,7 +13,7 @@ export type Stage =
   | "tests"
   | "deploy"
   | "done"
-  | "intent"
+  | "proposal"
   | "delta-spec"
   | "design"
   | "adr";
@@ -93,6 +93,7 @@ export interface Change extends ChangeSummary {
 export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
   codeRepoPath?: string;
+  qwenStatus?: "running" | "stopped" | "none";
 }
 
 // ============================================================================
@@ -600,10 +601,11 @@ async function buildTreeNode(
   };
 }
 
-export async function listChangeTree(changePath: string): Promise<TreeNode> {
-  const root = await buildTreeNode(changePath, "");
-  if (!root) throw new Error(`Cannot read change folder: ${changePath}`);
-  return root;
+export async function listChangeTree(
+  changePath: string,
+): Promise<TreeNode | null> {
+  if (!(await exists(changePath))) return null;
+  return await buildTreeNode(changePath, "");
 }
 
 export function formatBytes(n: number): string {

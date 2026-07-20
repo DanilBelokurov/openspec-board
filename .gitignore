@@ -12,6 +12,10 @@ dist
 # app state
 .sdd-board/
 
+# qwen side-effects (created when qwen spawns in cwd without openspecDir passed)
+.qwen/
+openspec/
+
 # misc
 .DS_Store
 *.pem

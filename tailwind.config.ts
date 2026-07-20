@@ -24,7 +24,7 @@ const config: Config = {
           tests: "#06b6d4",
           deploy: "#10b981",
           done: "#22c55e",
-          intent: "#facc15",
+          proposal: "#facc15",
           "delta-spec": "#14b8a6",
           design: "#a855f7",
           adr: "#ec4899",

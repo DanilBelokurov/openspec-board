@@ -10,13 +10,16 @@ export interface TaskEntry {
   stage: Stage;
   lastScannedAt: string;
   summary: ChangeSummary;
-  // Set after "Start" action
+  // Set after "Start" action (developer mode)
   jiraUrl?: string;
   codeRepoPath?: string;
   openspecWorktreePath?: string;
   codeWorktreePath?: string;
   qwenPid?: number | null;
   startedAt?: string;
+  // Set after "Новый proposal" (analyst mode)
+  description?: string;
+  qwenStartedAt?: string;
 }
 
 export interface AppState {

@@ -6,7 +6,7 @@ import {
   TestTube2,
   Rocket,
   CheckCircle2,
-  Lightbulb,
+  FilePlus,
   FileText,
   Layers,
   BookMarked,
@@ -54,9 +54,9 @@ export const MODES: Record<BoardModeId, BoardMode> = {
   analyst: {
     id: "analyst",
     label: "Аналитик",
-    stages: ["intent", "delta-spec", "design", "adr", "done"],
+    stages: ["proposal", "delta-spec", "design", "adr", "done"],
     meta: {
-      intent: { label: "Намерение", icon: Lightbulb },
+      proposal: { label: "Proposal", icon: FilePlus },
       "delta-spec": { label: "Дельта-спецификация", icon: FileText },
       design: { label: "Дизайн", icon: Layers },
       adr: { label: "ADR", icon: BookMarked },

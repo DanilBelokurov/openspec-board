@@ -16,7 +16,7 @@ const STAGE_DOT: Record<Stage, string> = {
   tests: "bg-stage-tests",
   deploy: "bg-stage-deploy",
   done: "bg-stage-done",
-  intent: "bg-stage-intent",
+  proposal: "bg-stage-proposal",
   "delta-spec": "bg-stage-delta-spec",
   design: "bg-stage-design",
   adr: "bg-stage-adr",

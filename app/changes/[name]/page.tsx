@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FolderOpen } from "lucide-react";
+import {
+  ArrowLeft,
+  FolderOpen,
+  Loader2,
+  CheckCircle2,
+  type LucideIcon,
+} from "lucide-react";
 import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
 import {
@@ -8,6 +14,7 @@ import {
   formatBytes,
   type TreeNode,
 } from "@/lib/openspec";
+import { isProcessAlive } from "@/lib/process";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
@@ -27,8 +34,9 @@ export default async function ChangePage({
 
   const changePath = `${openspecDir}/changes/${params.name}`;
   const tree = await listChangeTree(changePath);
-  const fileCount = countFiles(tree);
-  const totalSize = tree.size;
+  const folderExists = tree !== null;
+  const fileCount = tree ? countFiles(tree) : 0;
+  const totalSize = tree ? tree.size : 0;
   const lastScanned = new Date(task.lastScannedAt);
   const dateStr = lastScanned.toLocaleString("ru-RU", {
     day: "2-digit",
@@ -38,6 +46,8 @@ export default async function ChangePage({
     minute: "2-digit",
   });
   const relPath = `openspec/changes/${task.summary.changeName}`;
+
+  const qwenAlive = task.qwenPid ? isProcessAlive(task.qwenPid) : false;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
@@ -70,13 +80,39 @@ export default async function ChangePage({
               </span>
               <span>·</span>
               <span>Обновлено {dateStr}</span>
+              {task.qwenPid && (
+                <>
+                  <span>·</span>
+                  <QwenBadge pid={task.qwenPid} alive={qwenAlive} />
+                </>
+              )}
             </div>
           </header>
+
+          {task.description && (
+            <section className="mb-5">
+              <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
+                Описание
+              </h2>
+              <div className="rounded-md border border-border bg-white px-4 py-3 text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                {task.description}
+              </div>
+            </section>
+          )}
 
           <section className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
             Структура
           </section>
-          <FileTree root={tree} changeName={task.summary.changeName} />
+          {folderExists ? (
+            <FileTree root={tree!} changeName={task.summary.changeName} />
+          ) : (
+            <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
+              Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{task.summary.changeName}</code> ещё не создана.
+              {task.qwenPid && qwenAlive && (
+                <> Подождите, пока qwen-процесс создаст файлы.</>
+              )}
+            </div>
+          )}
 
           <div className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
             <span className="font-semibold text-slate-800">
@@ -90,6 +126,32 @@ export default async function ChangePage({
               {task.summary.modifiedCapabilities.length} modified capabilities
             </span>
           </div>
+
+          {task.qwenPid && (
+            <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
+              <div className="flex items-center gap-2 font-semibold text-slate-800">
+                <QwenStatusIcon alive={qwenAlive} />
+                <span>
+                  qwen-процесс: {qwenAlive ? "выполняется" : "завершён"}
+                </span>
+              </div>
+              {task.qwenStartedAt && (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Запущен: {new Date(task.qwenStartedAt).toLocaleString("ru-RU")}
+                </div>
+              )}
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                <dt className="text-slate-500">PID</dt>
+                <dd className="font-mono text-[10px]">{task.qwenPid}</dd>
+                <dt className="text-slate-500">Команда</dt>
+                <dd className="font-mono text-[10px]">
+                  {task.jiraUrl
+                    ? `qwen /opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}`
+                    : `qwen /opsx-new "<описание>"`}
+                </dd>
+              </dl>
+            </section>
+          )}
 
           {task.stage === "backlog" && (
             <section className="mt-5">
@@ -140,13 +202,34 @@ export default async function ChangePage({
           )}
 
           <div className="mt-3 flex gap-2">
-            <OpenInFinderForm changeName={task.summary.changeName} />
+            {folderExists && <OpenInFinderForm changeName={task.summary.changeName} />}
             <CopyPathButton path={relPath} />
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function QwenBadge({ pid, alive }: { pid: number; alive: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+        alive
+          ? "bg-emerald-50 text-emerald-700"
+          : "bg-slate-100 text-slate-600"
+      }`}
+      title={alive ? "qwen-процесс выполняется" : "qwen-процесс завершён"}
+    >
+      <QwenStatusIcon alive={alive} />
+      <span>qwen · {pid}</span>
+    </span>
+  );
+}
+
+function QwenStatusIcon({ alive }: { alive: boolean }) {
+  const Icon: LucideIcon = alive ? Loader2 : CheckCircle2;
+  return <Icon className={`h-2.5 w-2.5 ${alive ? "animate-spin" : ""}`} />;
 }
 
 function countFiles(node: TreeNode): number {
