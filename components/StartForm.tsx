@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Play, ExternalLink, Loader2, FolderSearch } from "lucide-react";
+import { Play, ExternalLink, Loader2 } from "lucide-react";
 
 interface StartFormProps {
   changeName: string;
@@ -26,26 +26,14 @@ export function StartForm({
   initialCodeRepoPath = "",
 }: StartFormProps) {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [jiraUrl, setJiraUrl] = useState(initialJiraUrl);
   const [codeRepoPath, setCodeRepoPath] = useState(initialCodeRepoPath);
-  const [pickedName, setPickedName] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StartSuccess | null>(null);
 
   const canSubmit =
     jiraUrl.trim().length > 0 && codeRepoPath.trim().length > 0 && !submitting;
-
-  function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const first = files[0] as File & { webkitRelativePath?: string };
-    const rel = first.webkitRelativePath ?? "";
-    const top = rel.split("/")[0] ?? "";
-    setPickedName(top || first.name);
-    e.target.value = "";
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -130,41 +118,17 @@ export function StartForm({
         <span className="text-[12px] font-medium text-slate-800">
           Путь к репозиторию с кодом
         </span>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={codeRepoPath}
-            onChange={(e) => setCodeRepoPath(e.target.value)}
-            placeholder="/Users/you/projects/myapp"
-            className="h-8 flex-1 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-            style={{ display: "none" }}
-            onChange={handleFolderPick}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            title="Открыть выбор папки — браузер отдаст только её имя, абсолютный путь нужно ввести вручную"
-            className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <FolderSearch className="h-3.5 w-3.5" />
-            <span>Обзор…</span>
-          </button>
-        </div>
-        {pickedName && (
-          <span className="text-[11px] text-slate-500">
-            Выбрана папка:{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
-              {pickedName}
-            </code>{" "}
-            — вставьте полный абсолютный путь в поле выше.
-          </span>
-        )}
+        <input
+          type="text"
+          value={codeRepoPath}
+          onChange={(e) => setCodeRepoPath(e.target.value)}
+          placeholder="/Users/you/projects/myapp"
+          className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+        />
+        <span className="text-[11px] text-slate-500">
+          Абсолютный путь к git-репозиторию с кодом. Должен существовать и быть
+          git-репо (содержать <code className="font-mono">.git</code>).
+        </span>
       </label>
 
       {error && (
