@@ -1,12 +1,12 @@
-import { Session } from "@/lib/types";
+import type { ChangeSummary } from "@/lib/openspec";
 import { STAGES_ORDER, STAGE_META } from "@/lib/mock-data";
 import { Column } from "./Column";
 
 interface BoardProps {
-  sessions: Session[];
+  items: ChangeSummary[];
 }
 
-export function Board({ sessions }: BoardProps) {
+export function Board({ items }: BoardProps) {
   return (
     <div className="flex h-full gap-4 overflow-x-auto px-6 py-4 scrollbar-thin">
       {STAGES_ORDER.map((stage) => (
@@ -14,7 +14,7 @@ export function Board({ sessions }: BoardProps) {
           key={stage}
           stage={stage}
           meta={STAGE_META[stage]}
-          sessions={sessions.filter((s) => s.stage === stage)}
+          items={items.filter((it) => it.stage === stage)}
         />
       ))}
     </div>
