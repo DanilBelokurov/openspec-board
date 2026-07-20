@@ -21,17 +21,22 @@ sdd/
 │   ├── globals.css             # Tailwind + scrollbar-стили
 │   └── api/
 │       ├── health/route.ts     # Backend health-stub (single port)
-│       └── config/route.ts     # GET / PUT — чтение и запись настроек
+│       ├── config/route.ts     # GET / PUT — чтение и запись настроек
+│       ├── changes/route.ts    # GET — список change-proposal из стейта
+│       ├── changes/[name]/route.ts  # GET — полные данные одного change
+│       └── refresh/route.ts    # POST — scan + merge в .sdd-board/state.json
 ├── components/
-│   ├── TopBar.tsx              # Хедер: New session, settings, refresh
+│   ├── TopBar.tsx              # Хедер: New session, settings, refresh (refresh → POST /api/refresh + router.refresh)
 │   ├── SettingsDialog.tsx      # Модалка настроек (openspecDir)
 │   ├── Board.tsx               # Контейнер с 7 колонками
 │   ├── Column.tsx              # Одна колонка
-│   └── SessionCard.tsx         # Карточка сессии
+│   └── SessionCard.tsx         # Карточка: title + changeName
 ├── lib/
-│   ├── types.ts                # Session, Stage, Priority, Label, Assignee
-│   ├── mock-data.ts            # 10 мок-сессий, распределённых по колонкам
-│   └── config.ts               # read/write .sdd-board/config.json
+│   ├── types.ts                # StageMeta
+│   ├── mock-data.ts            # STAGES_ORDER, STAGE_META (русские лейблы)
+│   ├── config.ts               # read/write .sdd-board/config.json
+│   ├── state.ts                # read/write/mergeScanWithState для .sdd-board/state.json
+│   └── openspec.ts             # парсеры proposal.md / design.md / specs/*.md + scanChanges / readChange
 ├── docs/
 │   └── sdd-directory.md        # Описание структуры OpenSpec-каталога
 ├── tailwind.config.ts
@@ -80,10 +85,11 @@ npm start
 
 | Метод | Путь | Описание |
 | --- | --- | --- |
-| GET | `/` | UI — board view |
+| GET | `/` | UI — board view (читает `.sdd-board/state.json`) |
 | GET | `/api/health` | Backend-заглушка: `{ "status": "ok", "service": "sdd-sessions-board", "time": "..." }` |
 | GET | `/api/config` | Текущие настройки: `{ "openspecDir": "..." }` |
 | PUT | `/api/config` | Обновить настройки, тело `{ "openspecDir": "<абсолютный путь>" }` |
+| POST | `/api/refresh` | Сканирует `openspecDir/changes/`, мерджит в `.sdd-board/state.json`. Возвращает `{ scanned, total, tasks }`. Сканирование **только** через эту кнопку |
 
 ## Настройки
 
@@ -91,12 +97,19 @@ npm start
 
 Поле ввода поддерживает ручной ввод; рядом кнопка **Browse…** открывает нативный фолдер-пикер (`webkitdirectory`) — браузер отдаст только имя выбранной папки, абсолютный путь нужно дописать/вставить вручную (ограничение безопасности браузера).
 
+## Жизненный цикл задач
+
+1. При первом открытии доски — пусто (state.json ещё нет или пуст)
+2. Пользователь нажимает **Обновить** (↻ в TopBar) → `POST /api/refresh` сканирует `<openspecDir>/changes/`, мерджит в `.sdd-board/state.json` и триггерит `router.refresh()`
+3. Каждый change получает стабильный `OS-NNN` (по changeName как ключ), stage = `backlog` по умолчанию
+4. При повторном refresh существующие change'ы обновляют `summary` и `lastScannedAt`, новые получают следующий ID
+5. После рестарта сервера state.json восстанавливается без скана — доска показывает то, что было на момент последнего refresh
+6. change'ы из `archive/` пропускаются при скане
+
 ## Что дальше
 
-Это визуальный каркас — без интерактива, без drag&drop, без CRUD. Мок-данные лежат в `lib/mock-data.ts`. Следующие шаги по запросу:
+Сейчас каркас без интерактива: задачи попадают на доску только через кнопку Обновить, stage у всех `backlog`, drag&drop и ручная смена колонки не реализованы. Следующие шаги по запросу:
 
-- drag&drop между колонками (`@dnd-kit/core`)
-- API `GET /api/sessions`, `PATCH /api/sessions/:id/stage`
-- Чтение реальных `openspec/changes/*` с диска
-- SQLite-персистентность через Prisma
-- Детальная страница сессии с proposal/design/tasks
+- drag&drop между колонками с записью нового stage в `state.json`
+- детальная страница `/changes/[name]` с табами Описание / Спека / Дизайн (read-only рендер Markdown)
+- кнопка «Новая сессия» (сейчас только визуальная)

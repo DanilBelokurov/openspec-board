@@ -1,16 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Settings, RefreshCw } from "lucide-react";
 import { SettingsDialog } from "./SettingsDialog";
 
 export function TopBar() {
+  const router = useRouter();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
-  function handleRefresh() {
+  async function handleRefresh() {
     setRefreshing(true);
-    window.setTimeout(() => setRefreshing(false), 700);
+    setRefreshError(null);
+    const start = Date.now();
+    try {
+      const res = await fetch("/api/refresh", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setRefreshError(body.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      startTransition(() => {
+        router.refresh();
+      });
+      const elapsed = Date.now() - start;
+      const minDuration = 700;
+      if (elapsed < minDuration) {
+        await new Promise((r) => setTimeout(r, minDuration - elapsed));
+      }
+    } catch (e) {
+      setRefreshError(String(e));
+    } finally {
+      setRefreshing(false);
+      if (refreshError) setTimeout(() => setRefreshError(null), 4000);
+    }
   }
 
   return (
@@ -46,6 +73,15 @@ export function TopBar() {
           />
         </button>
       </header>
+
+      {refreshError && (
+        <div
+          role="alert"
+          className="fixed right-4 top-16 z-40 max-w-sm rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700 shadow-cardHover"
+        >
+          ⚠ {refreshError}
+        </div>
+      )}
 
       <SettingsDialog
         open={settingsOpen}
