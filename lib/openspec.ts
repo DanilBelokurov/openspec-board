@@ -12,7 +12,11 @@ export type Stage =
   | "develop"
   | "tests"
   | "deploy"
-  | "done";
+  | "done"
+  | "intent"
+  | "delta-spec"
+  | "design"
+  | "adr";
 
 export interface Scenario {
   name: string;

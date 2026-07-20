@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { X, FolderSearch } from "lucide-react";
+import { MODES, type BoardModeId } from "@/lib/modes";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -11,9 +13,12 @@ interface SettingsDialogProps {
 type Status = "idle" | "saving" | "saved" | "error";
 
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
+  const router = useRouter();
   const [path, setPath] = useState("");
   const [initialPath, setInitialPath] = useState("");
   const [pickedName, setPickedName] = useState<string | null>(null);
+  const [mode, setMode] = useState<BoardModeId>("developer");
+  const [initialMode, setInitialMode] = useState<BoardModeId>("developer");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,6 +34,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         const v = data?.openspecDir ?? "";
         setPath(v);
         setInitialPath(v);
+        const m: BoardModeId = data?.mode === "analyst" ? "analyst" : "developer";
+        setMode(m);
+        setInitialMode(m);
       })
       .catch((e) => setError(String(e)));
   }, [open]);
@@ -51,7 +59,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       const res = await fetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openspecDir: path.trim() }),
+        body: JSON.stringify({
+          openspecDir: path.trim(),
+          mode,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -59,7 +70,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       }
       const data = await res.json();
       setInitialPath(data.openspecDir ?? "");
+      setInitialMode(data.mode ?? mode);
       setStatus("saved");
+      router.refresh();
     } catch (e) {
       setStatus("error");
       setError(e instanceof Error ? e.message : String(e));
@@ -76,7 +89,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     e.target.value = "";
   }
 
-  const dirty = path !== initialPath;
+  const dirty = path !== initialPath || mode !== initialMode;
 
   return (
     <div
@@ -109,6 +122,42 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         </header>
 
         <div className="flex flex-col gap-4 px-4 py-4">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-slate-800">
+              Режим доски
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Режим доски"
+              className="flex rounded-md border border-border bg-slate-50 p-0.5"
+            >
+              {Object.values(MODES).map((m) => {
+                const active = mode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setMode(m.id)}
+                    className={`flex-1 rounded px-2.5 py-1 text-[12px] font-medium transition ${
+                      active
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-[11px] text-slate-500">
+              «Разработчик» — 7 этапов реализации (бэклог → готово). «Аналитик» —
+              5 этапов подготовки change-proposal (намерение → готово). Задачи
+              отображаются только если их stage входит в выбранный режим.
+            </span>
+          </div>
+
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-slate-800">
               Директория OpenSpec store

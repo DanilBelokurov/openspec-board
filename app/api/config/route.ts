@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readConfig, writeConfig } from "@/lib/config";
+import { isBoardModeId } from "@/lib/modes";
 
 export async function GET() {
   const config = await readConfig();
@@ -24,14 +25,30 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  const { openspecDir } = body as Record<string, unknown>;
-  if (typeof openspecDir !== "string") {
-    return NextResponse.json(
-      { error: "openspecDir must be a string" },
-      { status: 400 },
-    );
+  const { openspecDir, mode } = body as Record<string, unknown>;
+
+  const patch: { openspecDir?: string; mode?: "developer" | "analyst" } = {};
+
+  if (openspecDir !== undefined) {
+    if (typeof openspecDir !== "string") {
+      return NextResponse.json(
+        { error: "openspecDir must be a string" },
+        { status: 400 },
+      );
+    }
+    patch.openspecDir = openspecDir;
   }
 
-  const next = await writeConfig({ openspecDir });
+  if (mode !== undefined) {
+    if (!isBoardModeId(mode)) {
+      return NextResponse.json(
+        { error: 'mode must be "developer" or "analyst"' },
+        { status: 400 },
+      );
+    }
+    patch.mode = mode;
+  }
+
+  const next = await writeConfig(patch);
   return NextResponse.json(next);
 }

@@ -1,15 +1,5 @@
-import {
-  Inbox,
-  GitBranch,
-  ClipboardList,
-  Code2,
-  TestTube2,
-  Rocket,
-  CheckCircle2,
-  type LucideIcon,
-} from "lucide-react";
 import type { BoardItem, Stage } from "@/lib/openspec";
-import type { StageMeta } from "@/lib/types";
+import type { StageMeta } from "@/lib/modes";
 import { SessionCard } from "./SessionCard";
 
 interface ColumnProps {
@@ -17,16 +7,6 @@ interface ColumnProps {
   meta: StageMeta;
   items: BoardItem[];
 }
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  Inbox,
-  GitBranch,
-  ClipboardList,
-  Code2,
-  TestTube2,
-  Rocket,
-  CheckCircle2,
-};
 
 const STAGE_DOT: Record<Stage, string> = {
   backlog: "bg-stage-backlog",
@@ -36,10 +16,14 @@ const STAGE_DOT: Record<Stage, string> = {
   tests: "bg-stage-tests",
   deploy: "bg-stage-deploy",
   done: "bg-stage-done",
+  intent: "bg-stage-intent",
+  "delta-spec": "bg-stage-delta-spec",
+  design: "bg-stage-design",
+  adr: "bg-stage-adr",
 };
 
 export function Column({ stage, meta, items }: ColumnProps) {
-  const Icon = ICON_MAP[meta.icon];
+  const Icon = meta.icon;
   return (
     <section className="flex h-full w-[290px] shrink-0 flex-col rounded-lg bg-slate-100/60">
       <header className="flex items-center gap-2 px-3 py-2.5">
