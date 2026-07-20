@@ -58,7 +58,7 @@ export function Column({ stage, meta, sessions }: ColumnProps) {
         ))}
         {sessions.length === 0 && (
           <div className="flex h-20 items-center justify-center rounded-md border border-dashed border-border text-[11px] text-slate-400">
-            No sessions
+            Нет сессий
           </div>
         )}
       </div>

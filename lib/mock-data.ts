@@ -158,11 +158,11 @@ export const STAGES_ORDER: Stage[] = [
 ];
 
 export const STAGE_META: Record<Stage, StageMeta> = {
-  backlog: { label: "Backlog", icon: "Inbox" },
-  decomposition: { label: "Decomposition", icon: "GitBranch" },
-  plan: { label: "Plan", icon: "ClipboardList" },
-  develop: { label: "Develop", icon: "Code2" },
-  tests: { label: "Tests", icon: "TestTube2" },
-  deploy: { label: "Deploy", icon: "Rocket" },
-  done: { label: "Done", icon: "CheckCircle2" },
+  backlog: { label: "Бэклог", icon: "Inbox" },
+  decomposition: { label: "Декомпозиция", icon: "GitBranch" },
+  plan: { label: "План", icon: "ClipboardList" },
+  develop: { label: "Разработка", icon: "Code2" },
+  tests: { label: "Тесты", icon: "TestTube2" },
+  deploy: { label: "Деплой", icon: "Rocket" },
+  done: { label: "Готово", icon: "CheckCircle2" },
 };

@@ -9,6 +9,9 @@ out/
 build
 dist
 
+# app state
+.sdd-board/
+
 # misc
 .DS_Store
 *.pem
@@ -25,3 +28,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+docs/**
+example/** 

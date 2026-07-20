@@ -19,15 +19,19 @@ sdd/
 │   ├── layout.tsx              # Корневой layout
 │   ├── page.tsx                # Главная — board view
 │   ├── globals.css             # Tailwind + scrollbar-стили
-│   └── api/health/route.ts     # Backend-заглушка (single port)
+│   └── api/
+│       ├── health/route.ts     # Backend health-stub (single port)
+│       └── config/route.ts     # GET / PUT — чтение и запись настроек
 ├── components/
-│   ├── TopBar.tsx              # Хедер: New session, settings (dropdown), refresh
+│   ├── TopBar.tsx              # Хедер: New session, settings, refresh
+│   ├── SettingsDialog.tsx      # Модалка настроек (openspecDir)
 │   ├── Board.tsx               # Контейнер с 7 колонками
 │   ├── Column.tsx              # Одна колонка
 │   └── SessionCard.tsx         # Карточка сессии
 ├── lib/
 │   ├── types.ts                # Session, Stage, Priority, Label, Assignee
-│   └── mock-data.ts            # 10 мок-сессий, распределённых по колонкам
+│   ├── mock-data.ts            # 10 мок-сессий, распределённых по колонкам
+│   └── config.ts               # read/write .sdd-board/config.json
 ├── docs/
 │   └── sdd-directory.md        # Описание структуры OpenSpec-каталога
 ├── tailwind.config.ts
@@ -78,6 +82,14 @@ npm start
 | --- | --- | --- |
 | GET | `/` | UI — board view |
 | GET | `/api/health` | Backend-заглушка: `{ "status": "ok", "service": "sdd-sessions-board", "time": "..." }` |
+| GET | `/api/config` | Текущие настройки: `{ "openspecDir": "..." }` |
+| PUT | `/api/config` | Обновить настройки, тело `{ "openspecDir": "<абсолютный путь>" }` |
+
+## Настройки
+
+Кнопка ⚙ в TopBar открывает модалку с единственной настройкой — `OpenSpec store directory` (абсолютный путь к папке OpenSpec-стора). Значение сохраняется в `.sdd-board/config.json` в корне проекта (папка гитигнорится) и переживает рестарт.
+
+Поле ввода поддерживает ручной ввод; рядом кнопка **Browse…** открывает нативный фолдер-пикер (`webkitdirectory`) — браузер отдаст только имя выбранной папки, абсолютный путь нужно дописать/вставить вручную (ограничение безопасности браузера).
 
 ## Что дальше
 

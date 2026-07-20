@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SDD Sessions Board",
-  description: "OpenSpec implementation sessions board",
+  title: "SDD — Доска сессий",
+  description: "Доска сессий имплементации OpenSpec",
 };
 
 export default function RootLayout({
