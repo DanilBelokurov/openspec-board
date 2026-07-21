@@ -29,7 +29,7 @@ function openInOS(target: string): Promise<void> {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { name: string } },
+  { params }: { params: { tag: string } },
 ) {
   const config = await readConfig();
   if (!config.openspecDir) {
@@ -40,15 +40,15 @@ export async function POST(
   }
 
   const state = await readState();
-  const task = state.tasks[params.name];
+  const task = state.tasks[params.tag];
   if (!task) {
     return NextResponse.json(
-      { error: `Задача "${params.name}" не найдена` },
+      { error: `Задача "${params.tag}" не найдена` },
       { status: 404 },
     );
   }
 
-  const changeRoot = path.join(config.openspecDir, "changes", params.name);
+  const changeRoot = path.join(config.openspecDir, "changes", params.tag);
 
   let body: { path?: string } = {};
   try {

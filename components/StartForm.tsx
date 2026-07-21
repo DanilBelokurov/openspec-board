@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Play, ExternalLink, Loader2 } from "lucide-react";
 
 interface StartFormProps {
-  changeName: string;
+  tag: string;
   initialJiraUrl?: string;
   initialCodeRepoPath?: string;
 }
@@ -21,7 +21,7 @@ interface StartSuccess {
 }
 
 export function StartForm({
-  changeName,
+  tag,
   initialJiraUrl = "",
   initialCodeRepoPath = "",
 }: StartFormProps) {
@@ -41,7 +41,7 @@ export function StartForm({
     setError(null);
     try {
       const res = await fetch(
-        `/api/changes/${encodeURIComponent(changeName)}/start`,
+        `/api/changes/${encodeURIComponent(tag)}/start`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

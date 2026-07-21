@@ -5,7 +5,7 @@ import type { TreeNode } from "@/lib/openspec";
 
 interface FileTreeProps {
   root: TreeNode;
-  changeName: string;
+  tag: string;
 }
 
 function getFileIcon(name: string) {
@@ -16,13 +16,13 @@ function getFileIcon(name: string) {
 
 function TreeRow({
   node,
-  changeName,
+  tag,
   depth,
   isLast,
   ancestors,
 }: {
   node: TreeNode;
-  changeName: string;
+  tag: string;
   depth: number;
   isLast: boolean;
   ancestors: boolean[];
@@ -31,7 +31,7 @@ function TreeRow({
 
   async function handleClick() {
     try {
-      await fetch(`/api/changes/${encodeURIComponent(changeName)}/open`, {
+      await fetch(`/api/changes/${encodeURIComponent(tag)}/open`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: node.relativePath }),
@@ -84,7 +84,7 @@ function TreeRow({
         <TreeRow
           key={child.relativePath}
           node={child}
-          changeName={changeName}
+          tag={tag}
           depth={depth + 1}
           isLast={i === node.children!.length - 1}
           ancestors={[...ancestors, !isLast]}
@@ -100,12 +100,12 @@ function formatSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function FileTree({ root, changeName }: FileTreeProps) {
+export function FileTree({ root, tag }: FileTreeProps) {
   return (
     <div className="rounded-md border border-border bg-white px-2 py-2">
       <TreeRow
         node={root}
-        changeName={changeName}
+        tag={tag}
         depth={0}
         isLast
         ancestors={[]}

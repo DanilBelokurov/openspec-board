@@ -31,7 +31,7 @@ import { ConfirmButton } from "@/components/ConfirmButton";
 export default async function ChangePage({
   params,
 }: {
-  params: { name: string };
+  params: { tag: string };
 }) {
   const config = await readConfig();
   const openspecDir = config.openspecDir;
@@ -42,10 +42,11 @@ export default async function ChangePage({
   await triggerContinueIfNeeded(openspecDir);
 
   const state = await readState();
-  const task = state.tasks[params.name];
+  const task = state.tasks[params.tag];
   if (!task) notFound();
 
-  const changePath = `${openspecDir}/changes/${params.name}`;
+  const tag = task.summary.changeName;
+  const changePath = `${openspecDir}/changes/${tag}`;
   const tree = await listChangeTree(changePath);
   const folderExists = tree !== null;
   const fileCount = tree ? countFiles(tree) : 0;
@@ -53,7 +54,7 @@ export default async function ChangePage({
   const proposalReady = await checkProposalExists(changePath);
   const lastScanned = new Date(task.lastScannedAt);
   const dateStr = formatDateTime(task.lastScannedAt);
-  const relPath = `openspec/changes/${task.summary.changeName}`;
+  const relPath = `openspec/changes/${tag}`;
 
   const gigacodeAlive = task.gigacodePid
     ? isProcessAlive(task.gigacodePid)
@@ -99,11 +100,6 @@ export default async function ChangePage({
             <code className="mt-1 block text-[12px] text-slate-500">
               {relPath}
             </code>
-            {task.tag && (
-              <div className="mt-1 text-[11px] font-mono text-slate-500">
-                #{task.tag}
-              </div>
-            )}
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-700">
                 {task.id}
@@ -141,7 +137,7 @@ export default async function ChangePage({
           {showConfirmButton && (
             <section className="mb-5">
               <ConfirmButton
-                changeName={task.summary.changeName}
+                tag={tag}
                 taskTitle={task.summary.title}
               />
             </section>
@@ -162,10 +158,10 @@ export default async function ChangePage({
             Структура
           </section>
           {folderExists ? (
-            <FileTree root={tree!} changeName={task.summary.changeName} />
+            <FileTree root={tree!} tag={tag} />
           ) : (
             <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
-              Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{task.summary.changeName}</code> ещё не создана.
+              Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{tag}</code> ещё не создана.
               {task.gigacodePid && gigacodeAlive && (
                 <> Подождите, пока gigacode-процесс создаст файлы.</>
               )}
@@ -211,7 +207,7 @@ export default async function ChangePage({
                 <dd className="font-mono text-[10px]">{task.gigacodePid}</dd>
                 <dt className="text-slate-500">Команда</dt>
                 <dd className="font-mono text-[10px] break-all">
-                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-new ${task.tag ?? task.summary.changeName}"`}
+                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-new ${tag}"`}
                 </dd>
                 {task.gigacodeLogPath && (
                   <>
@@ -271,7 +267,7 @@ export default async function ChangePage({
               </h2>
               <div className="rounded-md border border-border bg-white px-4 py-3">
                 <StartForm
-                  changeName={task.summary.changeName}
+                  tag={tag}
                   initialJiraUrl={task.jiraUrl}
                   initialCodeRepoPath={task.codeRepoPath}
                 />
@@ -314,7 +310,7 @@ export default async function ChangePage({
 
           <div className="mt-3 flex gap-2">
             {folderExists && (
-              <OpenInFinderForm changeName={task.summary.changeName} />
+              <OpenInFinderForm tag={tag} />
             )}
             <CopyPathButton path={relPath} />
           </div>
@@ -359,10 +355,10 @@ function pluralFiles(n: number): string {
   return "файлов";
 }
 
-function OpenInFinderForm({ changeName }: { changeName: string }) {
+function OpenInFinderForm({ tag }: { tag: string }) {
   return (
     <form
-      action={`/api/changes/${encodeURIComponent(changeName)}/open`}
+      action={`/api/changes/${encodeURIComponent(tag)}/open`}
       method="post"
     >
       <button

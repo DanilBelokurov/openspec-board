@@ -65,7 +65,6 @@ export default async function Home() {
           gigacodeContinueStatus: gigacodeContinueStatusFor(
             t.gigacodeContinuePid,
           ),
-          tag: t.tag,
           proposalReady,
           gigacodeError: gigacodeError || undefined,
         };

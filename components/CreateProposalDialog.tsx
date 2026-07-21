@@ -41,9 +41,13 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
 
   if (!open) return null;
 
+  // Tag is required: it is the change identifier used as folder name,
+  // state key, log filename and the value passed to gigacode.
+  const tagValid = /^[A-Za-z0-9-]{1,40}$/.test(tag.trim());
   const canSubmit =
     title.trim().length > 0 &&
     description.trim().length > 0 &&
+    tagValid &&
     status !== "saving";
 
   async function handleSubmit(e: React.FormEvent) {
@@ -57,7 +61,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim(),
-          tag: tag.trim() || undefined,
+          tag: tag.trim(),
           jiraUrl: jiraUrl.trim() || undefined,
         }),
       });
@@ -127,8 +131,8 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-slate-800">
               Tag
-              <span className="ml-1 text-[11px] font-normal text-slate-500">
-                (опционально, латиница, цифры, дефис)
+              <span className="ml-1 text-[11px] font-normal text-red-600">
+                (обязательно)
               </span>
             </span>
             <input
@@ -136,11 +140,17 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               value={tag}
               onChange={(e) => setTag(e.target.value)}
               placeholder="add-oauth2-auth"
+              required
               className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
             <span className="text-[11px] text-slate-500">
-              Короткое английское название (например <code>add-oauth2-auth</code>) — отображается на карточке и в заголовке задачи.
+              Уникальный идентификатор change-папки (используется как имя папки в openspec/changes/, ключ в state.json, имя лог-файла и параметр gigacode). Латиница/цифры/дефис, 1-40 символов.
             </span>
+            {tag.length > 0 && !tagValid && (
+              <span className="text-[11px] text-red-600">
+                Неверный формат: только латиница, цифры и дефис (1-40 символов).
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1.5">

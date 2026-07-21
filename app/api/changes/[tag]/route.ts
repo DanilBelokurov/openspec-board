@@ -4,7 +4,7 @@ import { readChange } from "@/lib/openspec";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { name: string } },
+  { params }: { params: { tag: string } },
 ) {
   const config = await readConfig();
   if (!config.openspecDir) {
@@ -14,11 +14,11 @@ export async function GET(
     );
   }
   try {
-    const change = await readChange(config.openspecDir, params.name);
+    const change = await readChange(config.openspecDir, params.tag);
     return NextResponse.json(change);
   } catch (e) {
     return NextResponse.json(
-      { error: `Failed to read ${params.name}: ${String(e)}` },
+      { error: `Failed to read ${params.tag}: ${String(e)}` },
       { status: 500 },
     );
   }

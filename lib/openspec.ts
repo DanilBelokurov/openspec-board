@@ -96,7 +96,6 @@ export interface BoardItem extends ChangeSummary {
   codeRepoPath?: string;
   gigacodeStatus?: "running" | "stopped" | "none";
   gigacodeContinueStatus?: "running" | "stopped" | "none";
-  tag?: string;
   proposalReady?: boolean;
   gigacodeError?: boolean;
 }

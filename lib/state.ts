@@ -22,7 +22,11 @@ export interface TaskEntry {
   startedAt?: string;
   // Set after "Новый proposal" (analyst mode)
   description?: string;
-  tag?: string;
+  // The proposal's tag is the change folder name, exposed externally as
+  // summary.changeName (OpenSpec's term for the change identifier). It is
+  // intentionally NOT a separate field on TaskEntry — keep one source of
+  // truth for "the change identifier" (used as state key, folder, log
+  // filename, URL segment, and gigacode prompt).
   gigacodeStartedAt?: string;
   gigacodeContinuePid?: number | null;
   gigacodeContinueStartedAt?: string;

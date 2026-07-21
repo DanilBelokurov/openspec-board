@@ -3,13 +3,14 @@ import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
 import { readState, updateTask, writeState } from "@/lib/state";
 import { gigacodeStatusFor } from "@/lib/process";
-import { slugify, uniqueSlug } from "@/lib/slug";
 import { extractJiraId } from "@/lib/jira";
 import {
   ensureLogDir,
   processLogPath,
   spawnGigacodeWithLog,
 } from "@/lib/process-logger";
+
+const TAG_RE = /^[A-Za-z0-9-]{1,40}$/;
 
 function nextTaskId(tasks: Record<string, unknown>): string {
   let max = 0;
@@ -20,15 +21,13 @@ function nextTaskId(tasks: Record<string, unknown>): string {
       if (Number.isFinite(n) && n > max) max = n;
     }
   }
-  // Also scan task.id fields (more reliable)
-  // (already covered by map keys, but kept for clarity if keys change later)
   return `OS-${String(max + 1).padStart(3, "0")}`;
 }
 
-function makeEmptySummary(changeName: string, title: string, id: string) {
+function makeEmptySummary(tag: string, title: string, id: string) {
   return {
     id,
-    changeName,
+    changeName: tag,
     path: "",
     title,
     stage: "proposal" as const,
@@ -91,10 +90,19 @@ export async function POST(req: NextRequest) {
 
   const title = (body.title ?? "").trim();
   const description = (body.description ?? "").trim();
-  // Tag is optional. If provided, must be ASCII (a-z, 0-9, '-') and short
-  // — used as a short English label on the card and in detail page header.
-  const rawTag = (body.tag ?? "").trim();
-  if (rawTag && !/^[A-Za-z0-9-]{1,40}$/.test(rawTag)) {
+  // Tag is the canonical identifier for the change: it becomes the change
+  // folder name, the state.json key, the URL segment, the log filename,
+  // and the identifier passed to gigacode. Because it lands in
+  // <openspecDir>/changes/<tag>/ as a directory name, it must be a
+  // filesystem-safe slug: ASCII letters/digits/dashes, 1-40 chars.
+  const tag = (body.tag ?? "").trim();
+  if (!tag) {
+    return NextResponse.json(
+      { error: "Укажите tag — короткое название латиницей (например add-oauth2-auth)" },
+      { status: 400 },
+    );
+  }
+  if (!TAG_RE.test(tag)) {
     return NextResponse.json(
       {
         error:
@@ -103,7 +111,6 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const tag = rawTag || undefined;
 
   // jiraUrl is optional. If provided, must extract a ticket id.
   const rawJiraUrl = (body.jiraUrl ?? "").trim();
@@ -133,13 +140,18 @@ export async function POST(req: NextRequest) {
   }
 
   const state = await readState();
-  const base = slugify(title) || `proposal-${Date.now()}`;
-  const taken = new Set(Object.keys(state.tasks));
-  const changeName = uniqueSlug(base, taken);
+  if (state.tasks[tag]) {
+    return NextResponse.json(
+      {
+        error: `Change с тегом "${tag}" уже существует. Тег должен быть уникальным.`,
+      },
+      { status: 409 },
+    );
+  }
 
   const id = nextTaskId(state.tasks);
   const now = new Date().toISOString();
-  const summary = makeEmptySummary(changeName, title, id);
+  const summary = makeEmptySummary(tag, title, id);
 
   const newTask = {
     id,
@@ -147,37 +159,34 @@ export async function POST(req: NextRequest) {
     lastScannedAt: now,
     summary,
     description,
-    tag,
     jiraUrl,
     gigacodePid: null,
     gigacodeStartedAt: now,
   };
 
   const next = {
-    tasks: { ...state.tasks, [changeName]: newTask },
+    tasks: { ...state.tasks, [tag]: newTask },
   };
   await writeState(next);
 
-  // Spawn gigacode headless. Per user spec:
-  //   gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-new <tag>"
-  // If user didn't provide a tag, fall back to the ASCII changeName so
-  // gigacode always gets a machine-readable identifier.
-  // The second step (--add-dir <openspecDir> -p "/opsx-continue ...") is
-  // triggered later from /api/refresh / page loads / background watcher.
-  const gigacodeIdentifier = tag ?? changeName;
-  const gigacodePrompt = `/opsx-new ${gigacodeIdentifier}`;
-  const logFile = processLogPath(changeName, "new");
+  // Spawn gigacode headless. The identifier passed to /opsx-new is exactly
+  // the same string we used as folder name, state key, and log filename —
+  // no second naming convention to drift.
+  // The second step (/opsx-continue) is triggered later from /api/refresh /
+  // page loads / background watcher.
+  const gigacodePrompt = `/opsx-new ${tag}`;
+  const logFile = processLogPath(tag, "new");
   await ensureLogDir();
 
   const gigacodePid = await spawnProposalGigacode(
-    changeName,
+    tag,
     gigacodePrompt,
     logFile,
     config.openspecDir,
   );
 
   if (gigacodePid != null) {
-    next.tasks[changeName] = {
+    next.tasks[tag] = {
       ...newTask,
       gigacodePid,
       gigacodeLogPath: logFile,
@@ -188,7 +197,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       created: true,
-      task: next.tasks[changeName],
+      task: next.tasks[tag],
       gigacodePrompt,
       gigacodeStatus: gigacodeStatusFor(gigacodePid),
     },
@@ -197,7 +206,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function spawnProposalGigacode(
-  changeName: string,
+  tag: string,
   prompt: string,
   logFile: string,
   openspecDir: string,
@@ -206,14 +215,14 @@ async function spawnProposalGigacode(
     const result = spawnGigacodeWithLog({
       argv: ["--prompt", prompt],
       logFile,
-      header: `gigacode /opsx-new for ${changeName}`,
+      header: `gigacode /opsx-new for ${tag}`,
       addDir: openspecDir,
       approvalMode: "auto-edit",
     });
     // Fire-and-forget: when gigacode exits, write exit code/signal back to state
     result.promise
       .then(async ({ exitCode, signal }) => {
-        await updateTask(changeName, {
+        await updateTask(tag, {
           gigacodeExitCode: exitCode,
           gigacodeExitSignal: signal,
         });

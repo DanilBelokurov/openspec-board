@@ -3,13 +3,13 @@ import { readState, updateTask } from "@/lib/state";
 
 export async function POST(
   _req: NextRequest,
-  { params }: { params: { name: string } },
+  { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  const task = state.tasks[params.name];
+  const task = state.tasks[params.tag];
   if (!task) {
     return NextResponse.json(
-      { error: `Задача "${params.name}" не найдена` },
+      { error: `Задача "${params.tag}" не найдена` },
       { status: 404 },
     );
   }
@@ -22,6 +22,6 @@ export async function POST(
 
   // Advance to the next analyst-mode stage (delta-spec). Subsequent
   // /opsx-continue invocations will create the delta-spec files.
-  const updated = await updateTask(params.name, { stage: "delta-spec" });
+  const updated = await updateTask(params.tag, { stage: "delta-spec" });
   return NextResponse.json({ ok: true, task: updated });
 }

@@ -16,7 +16,7 @@ import {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { name: string } },
+  { params }: { params: { tag: string } },
 ) {
   const config = await readConfig();
   if (!config.openspecDir) {
@@ -27,10 +27,10 @@ export async function POST(
   }
 
   const state = await readState();
-  const task = state.tasks[params.name];
+  const task = state.tasks[params.tag];
   if (!task) {
     return NextResponse.json(
-      { error: `Задача "${params.name}" не найдена` },
+      { error: `Задача "${params.tag}" не найдена` },
       { status: 404 },
     );
   }
@@ -118,14 +118,14 @@ export async function POST(
 
   // Update state
   // The worktree mirrors openspecDir's contents, so the change folder lives at
-  // `<worktree>/changes/<name>/`, NOT `<worktree>/openspec/changes/<name>/`.
+  // `<worktree>/changes/<tag>/`, NOT `<worktree>/openspec/changes/<tag>/`.
   const changePathInWorktree = path.join(
     openspecWorktree,
     "changes",
-    params.name,
+    params.tag,
   );
 
-  const updated = await updateTask(params.name, {
+  const updated = await updateTask(params.tag, {
     stage: "decomposition",
     jiraUrl,
     codeRepoPath,
@@ -136,7 +136,7 @@ export async function POST(
   });
 
   // Spawn gigacode detached
-  const logFile = processLogPath(params.name, "new");
+  const logFile = processLogPath(params.tag, "new");
   await ensureLogDir();
   const gigacodePid = spawnPlanGigacode(
     changePathInWorktree,
@@ -144,7 +144,7 @@ export async function POST(
     config.openspecDir,
   );
   if (updated && gigacodePid != null) {
-    await updateTask(params.name, { gigacodePid, gigacodeLogPath: logFile });
+    await updateTask(params.tag, { gigacodePid, gigacodeLogPath: logFile });
   }
 
   return NextResponse.json({

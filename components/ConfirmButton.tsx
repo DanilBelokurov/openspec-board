@@ -5,11 +5,11 @@ import { useRouter } from "next/navigation";
 import { CheckCheck, Loader2 } from "lucide-react";
 
 interface ConfirmButtonProps {
-  changeName: string;
+  tag: string;
   taskTitle: string;
 }
 
-export function ConfirmButton({ changeName, taskTitle }: ConfirmButtonProps) {
+export function ConfirmButton({ tag, taskTitle }: ConfirmButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function ConfirmButton({ changeName, taskTitle }: ConfirmButtonProps) {
     setError(null);
     try {
       const res = await fetch(
-        `/api/changes/${encodeURIComponent(changeName)}/confirm`,
+        `/api/changes/${encodeURIComponent(tag)}/confirm`,
         { method: "POST" },
       );
       const data = await res.json();
@@ -44,7 +44,7 @@ export function ConfirmButton({ changeName, taskTitle }: ConfirmButtonProps) {
           <div className="mt-0.5 text-[11px] text-emerald-800/80">
             Файл <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">proposal.md</code> создан в{" "}
             <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">
-              {changeName}
+              {tag}
             </code>
             . Подтвердите, чтобы перейти к следующему шагу.
           </div>
