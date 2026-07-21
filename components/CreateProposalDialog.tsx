@@ -16,6 +16,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tag, setTag] = useState("");
+  const [jiraUrl, setJiraUrl] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +27,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
     setTitle("");
     setDescription("");
     setTag("");
+    setJiraUrl("");
   }, [open]);
 
   useEffect(() => {
@@ -56,6 +58,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           title: title.trim(),
           description: description.trim(),
           tag: tag.trim() || undefined,
+          jiraUrl: jiraUrl.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -151,6 +154,25 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               rows={5}
               className="rounded-md border border-border bg-white px-2 py-1.5 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-slate-800">
+              Ссылка на Jira
+              <span className="ml-1 text-[11px] font-normal text-slate-500">
+                (опционально)
+              </span>
+            </span>
+            <input
+              type="text"
+              value={jiraUrl}
+              onChange={(e) => setJiraUrl(e.target.value)}
+              placeholder="https://company.atlassian.net/browse/ENG-123"
+              className="h-8 rounded-md border border-border bg-white px-2 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+            />
+            <span className="text-[11px] text-slate-500">
+              Если указана, на карточке и в заголовке задачи появится бейдж Jira-id.
+            </span>
           </label>
 
           {error && (

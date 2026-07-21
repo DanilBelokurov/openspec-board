@@ -15,3 +15,10 @@ export function gigacodeStatusFor(pid: number | null | undefined): GigacodeStatu
   if (!pid) return "none";
   return isProcessAlive(pid) ? "running" : "stopped";
 }
+
+export function gigacodeContinueStatusFor(
+  pid: number | null | undefined,
+): GigacodeStatus {
+  if (!pid) return "none";
+  return isProcessAlive(pid) ? "running" : "stopped";
+}

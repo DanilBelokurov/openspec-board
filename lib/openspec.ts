@@ -92,9 +92,24 @@ export interface Change extends ChangeSummary {
 // What we render on the board: scan result + optional state fields
 export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
+  jiraId?: string;
   codeRepoPath?: string;
   gigacodeStatus?: "running" | "stopped" | "none";
+  gigacodeContinueStatus?: "running" | "stopped" | "none";
   tag?: string;
+  proposalReady?: boolean;
+  gigacodeError?: boolean;
+}
+
+export async function checkProposalExists(
+  changePath: string,
+): Promise<boolean> {
+  try {
+    await fs.access(path.join(changePath, "proposal.md"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================

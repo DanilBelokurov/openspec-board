@@ -153,30 +153,51 @@ npm start
 
 ## Создание proposal в режиме Аналитик
 
-В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с тремя полями:
+В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с четырьмя полями:
 
 - **Название** — заголовок proposal (человекочитаемое, может быть на любом языке)
-- **Tag** (опционально) — короткое английское название (например, `add-oauth2-auth`), только латиница/цифры/дефис до 40 символов. Отображается на карточке и в заголовке задачи
-- **Краткое описание** — текст, который передаётся gigacode как содержимое proposal'а
+- **Tag** (опционально) — короткое английское название (например, `add-oauth2-auth`), только латиница/цифры/дефис до 40 символов. Отображается на карточке и в заголовке задачи. **Передаётся в gigacode /opsx-new** (если не задан — используется changeName)
+- **Краткое описание** — текст, который передаётся в gigacode /opsx-continue как содержимое proposal'а
+- **Ссылка на Jira** (опционально) — URL задачи, из которого извлекается `JIRA-id` и отображается кликабельным бейджем на карточке и в заголовке детальной страницы (открывается в новой вкладке)
 
 По нажатию «Создать»:
 
-1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), оба поля непустые. Tag опционален; если есть — regex `^[A-Za-z0-9-]{1,40}$`
-2. Slug из названия (ASCII-only, NFKD + strip non a-z0-9) — избегает non-ASCII в URL-сегментах (Next.js плохо матчит Cyrillic в `[name]`). При коллизии добавляется `-2`, `-3` …
-3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `tag?`, `gigacodePid: null`, `gigacodeStartedAt`
-4. Спавнится `gigacode /opsx-new <title>` через `spawnGigacodeWithLog` detached (с флагами `--approval-mode=auto-edit --add-dir <openspecDir>`)
+1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), title и description непустые. Tag опционален; если есть — regex `^[A-Za-z0-9-]{1,40}$`. jiraUrl опционален; если есть — извлекается ticket id (иначе 400)
+2. Slug из названия (ASCII-only, NFKD + strip non a-z0-9) — избегает non-ASCII в URL-сегментах. При коллизии добавляется `-2`, `-3` …
+3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `tag?`, `jiraUrl?`, `gigacodePid: null`, `gigacodeStartedAt`
+4. Спавнится `gigacode /opsx-new <tag || changeName>` через `spawnGigacodeWithLog` detached (с флагами `--approval-mode=auto-edit --add-dir <openspecDir>`)
 5. State обновляется с `gigacodePid`
 
-Когда qwen 1 заканчивает работу (создаёт `<openspecDir>/changes/<slug>/.openspec.yaml`), watcher (`lib/watcher.ts`, polling 5s) или любая загрузка страницы автоматически вызывает `triggerContinueIfNeeded`, который спавнит второй gigacode:
+Когда gigacode 1 заканчивает работу (создаёт `<openspecDir>/changes/<slug>/.openspec.yaml`), watcher (`lib/watcher.ts`, polling 5s) или любая загрузка страницы автоматически вызывает `triggerContinueIfNeeded`, который спавнит второй gigacode:
 
 ```
 gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-continue <description>"
 ```
 
 Второй процесс получает **описание задачи** (а не путь к change), находит активный change в `--add-dir` и создаёт `proposal.md`.
-6. Возвращает 201 `{ created, task, gigacodeStatus }`, board перерисовывается
+6. Возвращает 201 `{ created, task, gigacodePrompt, gigacodeStatus }`, board перерисовывается
 
-Пока gigacode не создал папку `openspec/changes/<slug>/` на диске, детальная страница показывает плейсхолдер «Папка ещё не создана. Подождите, пока gigacode-процесс создаст файлы.» и скрывает кнопку «Открыть в Finder». После следующего Refresh, если gigacode успел — папка появится.
+### Кнопка «Подтверждено» (analyst → delta-spec)
+
+Когда оба gigacode-процесса завершены и `proposal.md` существует на диске, в детальной странице задачи появляется зелёная панель с кнопкой **«Подтверждено»**. По нажатию:
+
+- POST `/api/changes/[name]/confirm` → `stage: "proposal"` → `stage: "delta-spec"`
+- Кнопка скрывается (нет смысла подтверждать дважды)
+- Карточка по-прежнему показывает бейдж «Ожидает» (proposal.md есть, ждём следующего шага)
+
+Кнопка НЕ показывается, если хотя бы один gigacode завершился с ненулевым exit code (сначала разберитесь с ошибкой).
+
+### Бейджи на карточке (по состоянию)
+
+| Условие | Бейдж |
+| --- | --- |
+| `gigacodeStatus === "running"` | `gigacode` зелёный (Loader-спиннер) |
+| `gigacodeStatus === "stopped" && !proposalReady && !gigacodeError` | `gigacode` серый (галочка) |
+| `proposalReady && !gigacodeError` | `Ожидает` фиолетовый (Hourglass) |
+| `gigacodeError` (любой gigacode exited non-zero) | `ошибка gigacode` красный (AlertCircle) |
+| `jiraUrl` задан | `JIRA-id` синий (ExternalLink) — кликабельный, открывает в новой вкладке |
+
+В детальной странице `JIRA-id` бейдж расположен в шапке между `stage`-бейджем и `Обновлено` (как просил пользователь).
 
 ## Статус gigacode-процесса
 

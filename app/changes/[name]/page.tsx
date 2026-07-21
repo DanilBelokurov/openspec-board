@@ -5,6 +5,10 @@ import {
   FolderOpen,
   Loader2,
   CheckCircle2,
+  CircleAlert,
+  Hourglass,
+  ExternalLink,
+  CheckCheck,
   type LucideIcon,
 } from "lucide-react";
 import { readConfig } from "@/lib/config";
@@ -12,13 +16,16 @@ import { readState } from "@/lib/state";
 import {
   listChangeTree,
   formatBytes,
+  checkProposalExists,
   type TreeNode,
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
+import { extractJiraId } from "@/lib/git";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
+import { ConfirmButton } from "@/components/ConfirmButton";
 
 export default async function ChangePage({
   params,
@@ -42,6 +49,7 @@ export default async function ChangePage({
   const folderExists = tree !== null;
   const fileCount = tree ? countFiles(tree) : 0;
   const totalSize = tree ? tree.size : 0;
+  const proposalReady = await checkProposalExists(changePath);
   const lastScanned = new Date(task.lastScannedAt);
   const dateStr = lastScanned.toLocaleString("ru-RU", {
     day: "2-digit",
@@ -58,6 +66,22 @@ export default async function ChangePage({
   const gigacodeContinueAlive = task.gigacodeContinuePid
     ? isProcessAlive(task.gigacodeContinuePid)
     : false;
+  const jiraId = task.jiraUrl
+    ? extractJiraId(task.jiraUrl)
+    : null;
+
+  // "Подтверждено" button is shown when:
+  //  - task is still in proposal stage (after click, stage → delta-spec)
+  //  - proposal.md is on disk (proposalReady)
+  //  - no gigacode error (otherwise user must fix first)
+  const showConfirmButton =
+    task.stage === "proposal" &&
+    proposalReady &&
+    !(
+      (task.gigacodeExitCode != null && task.gigacodeExitCode !== 0) ||
+      (task.gigacodeContinueExitCode != null &&
+        task.gigacodeContinueExitCode !== 0)
+    );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
@@ -93,6 +117,21 @@ export default async function ChangePage({
               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-700">
                 {task.stage}
               </span>
+              {jiraId && (
+                <>
+                  <span>·</span>
+                  <a
+                    href={task.jiraUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+                    title={task.jiraUrl}
+                  >
+                    {jiraId}
+                    <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </>
+              )}
               <span>·</span>
               <span>Обновлено {dateStr}</span>
               {task.gigacodePid && (
@@ -103,6 +142,15 @@ export default async function ChangePage({
               )}
             </div>
           </header>
+
+          {showConfirmButton && (
+            <section className="mb-5">
+              <ConfirmButton
+                changeName={task.summary.changeName}
+                taskTitle={task.summary.title}
+              />
+            </section>
+          )}
 
           {task.description && (
             <section className="mb-5">
@@ -168,7 +216,7 @@ export default async function ChangePage({
                 <dd className="font-mono text-[10px]">{task.gigacodePid}</dd>
                 <dt className="text-slate-500">Команда</dt>
                 <dd className="font-mono text-[10px] break-all">
-                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-new ${task.summary.title}"`}
+                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-new ${task.tag ?? task.summary.changeName}"`}
                 </dd>
                 {task.gigacodeLogPath && (
                   <>
@@ -210,7 +258,7 @@ export default async function ChangePage({
                 <dd className="font-mono text-[10px]">{task.gigacodeContinuePid}</dd>
                 <dt className="text-slate-500">Команда</dt>
                 <dd className="font-mono text-[10px] break-all">
-                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-continue ${task.summary.changeName}"`}
+                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-continue ${(task.description ?? "").replace(/\n/g, " ")}"`}
                 </dd>
                 {task.gigacodeContinueLogPath && (
                   <>
@@ -298,10 +346,6 @@ function GigacodeBadge({ pid, alive }: { pid: number; alive: boolean }) {
       <span>gigacode · {pid}</span>
     </span>
   );
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 function GigacodeStatusIcon({ alive }: { alive: boolean }) {

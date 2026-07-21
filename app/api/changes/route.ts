@@ -4,6 +4,7 @@ import { readConfig } from "@/lib/config";
 import { readState, updateTask, writeState } from "@/lib/state";
 import { gigacodeStatusFor } from "@/lib/process";
 import { slugify, uniqueSlug } from "@/lib/slug";
+import { extractJiraId } from "@/lib/git";
 import {
   ensureLogDir,
   processLogPath,
@@ -76,7 +77,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { title?: string; description?: string; tag?: string } = {};
+  let body: {
+    title?: string;
+    description?: string;
+    tag?: string;
+    jiraUrl?: string;
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -98,6 +104,20 @@ export async function POST(req: NextRequest) {
     );
   }
   const tag = rawTag || undefined;
+
+  // jiraUrl is optional. If provided, must extract a ticket id.
+  const rawJiraUrl = (body.jiraUrl ?? "").trim();
+  let jiraUrl: string | undefined;
+  if (rawJiraUrl) {
+    const jiraId = extractJiraId(rawJiraUrl);
+    if (!jiraId) {
+      return NextResponse.json(
+        { error: `Не удалось извлечь Jira ticket id из "${rawJiraUrl}"` },
+        { status: 400 },
+      );
+    }
+    jiraUrl = rawJiraUrl;
+  }
 
   if (!title) {
     return NextResponse.json(
@@ -128,6 +148,7 @@ export async function POST(req: NextRequest) {
     summary,
     description,
     tag,
+    jiraUrl,
     gigacodePid: null,
     gigacodeStartedAt: now,
   };
@@ -138,10 +159,13 @@ export async function POST(req: NextRequest) {
   await writeState(next);
 
   // Spawn gigacode headless. Per user spec:
-  //   gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-new <название задачи>"
-  // The second step (--add-dir <openspecDir> -p "/opsx-continue ...") is triggered
-  // later from /api/refresh / page loads / background watcher.
-  const gigacodePrompt = `/opsx-new ${title}`;
+  //   gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-new <tag>"
+  // If user didn't provide a tag, fall back to the ASCII changeName so
+  // gigacode always gets a machine-readable identifier.
+  // The second step (--add-dir <openspecDir> -p "/opsx-continue ...") is
+  // triggered later from /api/refresh / page loads / background watcher.
+  const gigacodeIdentifier = tag ?? changeName;
+  const gigacodePrompt = `/opsx-new ${gigacodeIdentifier}`;
   const logFile = processLogPath(changeName, "new");
   await ensureLogDir();
 
