@@ -62,6 +62,12 @@ export default async function ChangePage({
   const gigacodeContinueAlive = task.gigacodeContinuePid
     ? isProcessAlive(task.gigacodeContinuePid)
     : false;
+  // Step 2b (analyst mode): proposal-update gigacode re-run, triggered
+  // by the pencil button on ConfirmButton. Independent from
+  // gigacodeContinuePid (a separate spawn).
+  const proposalUpdateAlive = task.proposalUpdatePid
+    ? isProcessAlive(task.proposalUpdatePid)
+    : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
     : null;
@@ -220,6 +226,47 @@ export default async function ChangePage({
                     <dt className="text-slate-500">Лог</dt>
                     <dd className="font-mono text-[10px] break-all text-slate-500">
                       {task.gigacodeContinueLogPath}
+                    </dd>
+                  </>
+                )}
+              </dl>
+            </section>
+          )}
+
+          {task.proposalUpdatePid && (
+            <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
+              <div className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon alive={proposalUpdateAlive} />
+                <span>
+                  Обновление proposal.md:{" "}
+                  {proposalUpdateAlive
+                    ? "выполняется"
+                    : task.proposalUpdateExitCode != null && task.proposalUpdateExitCode !== 0
+                      ? `ошибка (exit ${task.proposalUpdateExitCode})`
+                      : "завершено"}
+                </span>
+              </div>
+              {task.proposalUpdateStartedAt && (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Запущено: {formatDateTime(task.proposalUpdateStartedAt)}
+                </div>
+              )}
+              {task.proposalUpdateComments && (
+                <div className="mt-1 text-[11px] text-slate-600">
+                  <span className="text-slate-500">Комментарий:</span>{" "}
+                  <span className="whitespace-pre-wrap">
+                    {task.proposalUpdateComments}
+                  </span>
+                </div>
+              )}
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                <dt className="text-slate-500">PID</dt>
+                <dd className="font-mono text-[10px]">{task.proposalUpdatePid}</dd>
+                {task.proposalUpdateLogPath && (
+                  <>
+                    <dt className="text-slate-500">Лог</dt>
+                    <dd className="font-mono text-[10px] break-all text-slate-500">
+                      {task.proposalUpdateLogPath}
                     </dd>
                   </>
                 )}
