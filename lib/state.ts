@@ -76,9 +76,19 @@ export async function readState(): Promise<AppState> {
   try {
     const raw = await fs.readFile(STATE_FILE, "utf-8");
     const parsed = JSON.parse(raw) as Partial<AppState>;
-    return {
-      tasks: parsed.tasks ?? {},
-    };
+    const tasks = parsed.tasks ?? {};
+    // In-memory only: keep summary.stage in lockstep with task.stage
+    // for tasks where they drifted (typically after a confirm before
+    // updateTask started syncing them). The board reads BoardItem.stage
+    // from summary.stage; without this the task stays visually stuck
+    // in its old column. The next writeState call (from updateTask or
+    // mergeScanWithState) persists the corrected value.
+    for (const task of Object.values(tasks)) {
+      if (task.summary.stage !== task.stage) {
+        task.summary = { ...task.summary, stage: task.stage };
+      }
+    }
+    return { tasks };
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     if (err.code === "ENOENT") return EMPTY_STATE;
@@ -138,6 +148,13 @@ export async function updateTask(
   const existing = state.tasks[changeName];
   if (!existing) return null;
   const updated: TaskEntry = { ...existing, ...patch };
+  // Keep `summary.stage` in lockstep with `task.stage` — the board
+  // reads `BoardItem.stage` from `summary.stage`, not `task.stage`,
+  // so a stage-only patch would otherwise leave the task visually
+  // stuck in its old column after a successful confirm.
+  if (patch.stage !== undefined) {
+    updated.summary = { ...updated.summary, stage: patch.stage };
+  }
   state.tasks[changeName] = updated;
   await writeState(state);
   return updated;
