@@ -144,10 +144,10 @@ export default async function ChangePage({
                 <dt className="text-slate-500">PID</dt>
                 <dd className="font-mono text-[10px]">{task.qwenPid}</dd>
                 <dt className="text-slate-500">Команда</dt>
-                <dd className="font-mono text-[10px]">
+                <dd className="font-mono text-[10px] break-all">
                   {task.jiraUrl
-                    ? `qwen /opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}`
-                    : `qwen /opsx-new "<описание>"`}
+                    ? `qwen -p "/opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}"`
+                    : `qwen -p "/opsx-new ${openspecDir} ${task.summary.changeName} ${truncate(task.description ?? "", 60)}"`}
                 </dd>
               </dl>
             </section>
@@ -225,6 +225,10 @@ function QwenBadge({ pid, alive }: { pid: number; alive: boolean }) {
       <span>qwen · {pid}</span>
     </span>
   );
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
 function QwenStatusIcon({ alive }: { alive: boolean }) {

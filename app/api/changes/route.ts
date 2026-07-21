@@ -64,6 +64,12 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  if (!config.openspecDir) {
+    return NextResponse.json(
+      { error: "Укажите директорию OpenSpec store в настройках" },
+      { status: 400 },
+    );
+  }
 
   let body: { title?: string; description?: string } = {};
   try {
@@ -112,8 +118,10 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn qwen headless with the proposal description
-  const qwenPid = spawnProposalQwen(description);
+  // Spawn qwen headless with the proposal description.
+  // Form: qwen -p "/opsx-new <openspecDir> <changeName> <description>"
+  const qwenPrompt = `/opsx-new ${config.openspecDir} ${changeName} ${description}`;
+  const qwenPid = spawnProposalQwen(qwenPrompt);
 
   if (qwenPid != null) {
     next.tasks[changeName] = { ...newTask, qwenPid };
@@ -124,25 +132,26 @@ export async function POST(req: NextRequest) {
     {
       created: true,
       task: next.tasks[changeName],
+      qwenPrompt,
       qwenStatus: qwenStatusFor(qwenPid),
     },
     { status: 201 },
   );
 }
 
-function spawnProposalQwen(description: string): number | null {
+function spawnProposalQwen(prompt: string): number | null {
   try {
-    const child = spawn("qwen", ["/opsx-new", description], {
+    const child = spawn("qwen", ["-p", prompt], {
       detached: true,
       stdio: "ignore",
     });
     child.on("error", (err) => {
-      console.error(`qwen /opsx-new spawn error:`, err.message);
+      console.error(`qwen -p spawn error:`, err.message);
     });
     child.unref();
     return child.pid ?? null;
   } catch (e) {
-    console.error(`qwen /opsx-new spawn threw:`, e);
+    console.error(`qwen -p spawn threw:`, e);
     return null;
   }
 }

@@ -152,17 +152,17 @@ export async function POST(
 
 function spawnQwen(changePath: string): number | null {
   try {
-    const child = spawn("qwen", ["/opsx:plan", changePath], {
+    const child = spawn("qwen", ["-p", `/opsx:plan ${changePath}`], {
       detached: true,
       stdio: "ignore",
     });
     child.on("error", (err) => {
-      console.error(`qwen spawn error for ${changePath}:`, err.message);
+      console.error(`qwen -p spawn error for ${changePath}:`, err.message);
     });
     child.unref();
     return child.pid ?? null;
   } catch (e) {
-    console.error(`qwen spawn threw for ${changePath}:`, e);
+    console.error(`qwen -p spawn threw for ${changePath}:`, e);
     return null;
   }
 }
