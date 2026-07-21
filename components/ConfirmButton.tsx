@@ -86,7 +86,12 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
         setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      router.refresh();
+      // On success the API has already committed the worktree and
+      // advanced stage → delta-spec. Bounce back to the board so
+      // the analyst sees the task in its new column, instead of
+      // staying on the detail page where stage and process cards
+      // are already stale.
+      router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
