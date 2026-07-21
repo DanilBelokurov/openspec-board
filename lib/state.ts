@@ -16,12 +16,18 @@ export interface TaskEntry {
   openspecWorktreePath?: string;
   codeWorktreePath?: string;
   qwenPid?: number | null;
+  qwenExitCode?: number | null;
+  qwenExitSignal?: string | null;
+  qwenLogPath?: string;
   startedAt?: string;
   // Set after "Новый proposal" (analyst mode)
   description?: string;
   qwenStartedAt?: string;
   qwenContinuePid?: number | null;
   qwenContinueStartedAt?: string;
+  qwenContinueExitCode?: number | null;
+  qwenContinueExitSignal?: string | null;
+  qwenContinueLogPath?: string;
 }
 
 export interface AppState {

@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
+import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
-import { readState, writeState } from "@/lib/state";
+import { readState, updateTask, writeState } from "@/lib/state";
 import { qwenStatusFor } from "@/lib/process";
 import { slugify, uniqueSlug } from "@/lib/slug";
+import {
+  ensureLogDir,
+  qwenLogPath,
+  spawnQwenWithLog,
+} from "@/lib/qwen-logger";
 
 function nextTaskId(tasks: Record<string, unknown>): string {
   let max = 0;
@@ -121,12 +126,15 @@ export async function POST(req: NextRequest) {
   // Spawn qwen headless. Per user spec:
   //   qwen -p "/opsx-new <название задачи>"
   // The second step (qwen -p "/opsx-continue" after .openspec.yaml exists)
-  // is triggered later from /api/refresh.
+  // is triggered later from /api/refresh / page loads / background watcher.
   const qwenPrompt = `/opsx-new ${title}`;
-  const qwenPid = spawnProposalQwen(qwenPrompt);
+  const logFile = qwenLogPath(changeName, "new");
+  await ensureLogDir();
+
+  const qwenPid = await spawnProposalQwen(changeName, qwenPrompt, logFile);
 
   if (qwenPid != null) {
-    next.tasks[changeName] = { ...newTask, qwenPid };
+    next.tasks[changeName] = { ...newTask, qwenPid, qwenLogPath: logFile };
     await writeState(next);
   }
 
@@ -141,17 +149,25 @@ export async function POST(req: NextRequest) {
   );
 }
 
-function spawnProposalQwen(prompt: string): number | null {
+async function spawnProposalQwen(
+  changeName: string,
+  prompt: string,
+  logFile: string,
+): Promise<number | null> {
   try {
-    const child = spawn("qwen", ["-p", prompt], {
-      detached: true,
-      stdio: "ignore",
+    const result = spawnQwenWithLog({
+      argv: ["-p", prompt],
+      logFile,
+      header: `qwen /opsx-new for ${changeName}`,
     });
-    child.on("error", (err) => {
-      console.error(`qwen -p spawn error:`, err.message);
-    });
-    child.unref();
-    return child.pid ?? null;
+    // Fire-and-forget: when qwen exits, write exit code/signal back to state
+    result.promise.then(async ({ exitCode, signal }) => {
+      await updateTask(changeName, {
+        qwenExitCode: exitCode,
+        qwenExitSignal: signal,
+      });
+    }).catch((e) => console.error(`qwen-new exit handler error:`, e));
+    return result.pid || null;
   } catch (e) {
     console.error(`qwen -p spawn threw:`, e);
     return null;

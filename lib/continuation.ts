@@ -1,7 +1,11 @@
 import fs from "fs/promises";
 import path from "path";
-import { spawn } from "child_process";
 import { readState, updateTask } from "./state";
+import {
+  ensureLogDir,
+  qwenLogPath,
+  spawnQwenWithLog,
+} from "./qwen-logger";
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -12,32 +16,14 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-function spawnContinueQwen(changePath: string): number | null {
-  try {
-    const child = spawn("qwen", ["-p", `/opsx-continue ${changePath}`], {
-      detached: true,
-      stdio: "ignore",
-    });
-    child.on("error", (err) => {
-      console.error(
-        `qwen -p /opsx-continue spawn error for ${changePath}:`,
-        err.message,
-      );
-    });
-    child.unref();
-    return child.pid ?? null;
-  } catch (e) {
-    console.error(`qwen -p /opsx-continue spawn threw for ${changePath}:`, e);
-    return null;
-  }
-}
-
 /**
  * For each task in stage="proposal" whose qwen /opsx-new has finished
  * (we just check that .openspec.yaml exists but proposal.md doesn't yet),
- * spawn qwen /opsx-continue and record its pid.
+ * spawn qwen /opsx-continue with stdout/stderr piped to a log file, and
+ * record its pid + exit code/signal back to state.
  *
- * Safe to call on every render: qwenContinuePid flag makes it idempotent.
+ * Safe to call on every render (and from a background watcher):
+ * qwenContinuePid flag makes it idempotent.
  *
  * Returns the list of changeNames for which continue was spawned.
  */
@@ -47,6 +33,7 @@ export async function triggerContinueIfNeeded(
   const state = await readState();
   const triggered: string[] = [];
   const now = new Date().toISOString();
+  await ensureLogDir();
 
   for (const [changeName, task] of Object.entries(state.tasks)) {
     if (task.stage !== "proposal") continue;
@@ -57,11 +44,34 @@ export async function triggerContinueIfNeeded(
     if (!(await exists(path.join(changePath, ".openspec.yaml")))) continue;
     if (await exists(path.join(changePath, "proposal.md"))) continue;
 
-    const pid = spawnContinueQwen(changePath);
+    const logFile = qwenLogPath(changeName, "continue");
+    let pid: number | null = null;
+    try {
+      const result = spawnQwenWithLog({
+        argv: ["-p", `/opsx-continue ${changePath}`],
+        logFile,
+        header: `qwen /opsx-continue for ${changeName}`,
+      });
+      pid = result.pid || null;
+      result.promise
+        .then(async ({ exitCode, signal }) => {
+          await updateTask(changeName, {
+            qwenContinueExitCode: exitCode,
+            qwenContinueExitSignal: signal,
+          });
+        })
+        .catch((e) =>
+          console.error(`qwen-continue exit handler error:`, e),
+        );
+    } catch (e) {
+      console.error(`qwen /opsx-continue spawn threw for ${changeName}:`, e);
+    }
+
     if (pid != null) {
       await updateTask(changeName, {
         qwenContinuePid: pid,
         qwenContinueStartedAt: now,
+        qwenContinueLogPath: logFile,
       });
       triggered.push(changeName);
     } else {

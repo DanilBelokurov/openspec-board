@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
 import { scanChanges } from "@/lib/openspec";
 import { mergeScanWithState } from "@/lib/state";

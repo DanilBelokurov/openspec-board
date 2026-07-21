@@ -140,7 +140,14 @@ export default async function ChangePage({
               <div className="flex items-center gap-2 font-semibold text-slate-800">
                 <QwenStatusIcon alive={qwenAlive} />
                 <span>
-                  qwen /opsx-new: {qwenAlive ? "выполняется" : "завершён"}
+                  qwen /opsx-new:{" "}
+                  {!qwenAlive && task.qwenExitCode != null
+                    ? task.qwenExitCode === 0
+                      ? "завершён (exit 0)"
+                      : `ошибка (exit ${task.qwenExitCode})`
+                    : qwenAlive
+                      ? "выполняется"
+                      : "завершён"}
                 </span>
               </div>
               {task.qwenStartedAt && (
@@ -157,6 +164,14 @@ export default async function ChangePage({
                     ? `qwen -p "/opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}"`
                     : `qwen -p "/opsx-new ${task.summary.title}"`}
                 </dd>
+                {task.qwenLogPath && (
+                  <>
+                    <dt className="text-slate-500">Лог</dt>
+                    <dd className="font-mono text-[10px] break-all text-slate-500">
+                      {task.qwenLogPath}
+                    </dd>
+                  </>
+                )}
               </dl>
             </section>
           )}
@@ -166,7 +181,14 @@ export default async function ChangePage({
               <div className="flex items-center gap-2 font-semibold text-slate-800">
                 <QwenStatusIcon alive={qwenContinueAlive} />
                 <span>
-                  qwen /opsx-continue: {qwenContinueAlive ? "выполняется" : "завершён"}
+                  qwen /opsx-continue:{" "}
+                  {!qwenContinueAlive && task.qwenContinueExitCode != null
+                    ? task.qwenContinueExitCode === 0
+                      ? "завершён (exit 0)"
+                      : `ошибка (exit ${task.qwenContinueExitCode})`
+                    : qwenContinueAlive
+                      ? "выполняется"
+                      : "завершён"}
                 </span>
               </div>
               {task.qwenContinueStartedAt && (
@@ -182,6 +204,14 @@ export default async function ChangePage({
                 <dd className="font-mono text-[10px] break-all">
                   {`qwen -p "/opsx-continue ${openspecDir}/changes/${task.summary.changeName}"`}
                 </dd>
+                {task.qwenContinueLogPath && (
+                  <>
+                    <dt className="text-slate-500">Лог</dt>
+                    <dd className="font-mono text-[10px] break-all text-slate-500">
+                      {task.qwenContinueLogPath}
+                    </dd>
+                  </>
+                )}
               </dl>
             </section>
           )}
