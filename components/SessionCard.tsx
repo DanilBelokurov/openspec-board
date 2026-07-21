@@ -87,17 +87,22 @@ export function SessionCard({ item, mode }: SessionCardProps) {
             </span>
           )}
           {jiraId && (
-            <a
-              href={item.jiraUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            // Use <button> not <a> here: nested <a> inside the outer <Link>
+            // causes the browser's "active formatting elements" rule to close
+            // the outer <a> early, which breaks the DOM structure that React
+            // expects and triggers a hydration mismatch error.
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(item.jiraUrl!, "_blank", "noopener,noreferrer");
+              }}
               className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
               title={item.jiraUrl}
             >
               {jiraId}
               <ExternalLink className="h-2.5 w-2.5" />
-            </a>
+            </button>
           )}
           {repoName && (
             <span
