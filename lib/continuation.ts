@@ -161,12 +161,34 @@ async function spawnProposalGigacode(
   );
 
   const logFile = processLogPath(changeName, "continue");
+  // Persist the parameters and full prompt to the log file BEFORE
+  // spawning gigacode — gigacode's stdout/stderr will be appended
+  // after this block. Useful for post-mortem: re-read which exact
+  // arguments and prompt the assistant saw.
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (proposal) for ${changeName}`,
+      `# add-dir: ${worktree}`,
+      `# approval-mode: auto-edit`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# prompt-length: ${prompt.length} chars`,
+      `# openspec instructions output-length: ${instructionsJson.length} chars`,
+      "",
+      "# ----- prompt ----->",
+      prompt,
+      "# <----- prompt -----",
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
   let pid: number | null = null;
   try {
     const result = spawnGigacodeWithLog({
       argv: ["--prompt", prompt],
       logFile,
-      header: `gigacode --prompt (proposal) for ${changeName}`,
+      header: undefined,
       addDir: worktree,
       approvalMode: "auto-edit",
     });
