@@ -4,7 +4,7 @@ import { readConfig } from "@/lib/config";
 import { readState, updateTask, writeState } from "@/lib/state";
 import { gigacodeStatusFor } from "@/lib/process";
 import { slugify, uniqueSlug } from "@/lib/slug";
-import { extractJiraId } from "@/lib/git";
+import { extractJiraId } from "@/lib/jira";
 import {
   ensureLogDir,
   processLogPath,

@@ -21,7 +21,7 @@ import {
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
-import { extractJiraId } from "@/lib/git";
+import { extractJiraId } from "@/lib/jira";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";

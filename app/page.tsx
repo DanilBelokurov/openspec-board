@@ -10,7 +10,7 @@ import {
   gigacodeContinueStatusFor,
   gigacodeStatusFor,
 } from "@/lib/process";
-import { extractJiraId } from "@/lib/git";
+import { extractJiraId } from "@/lib/jira";
 import {
   checkProposalExists,
   type BoardItem,

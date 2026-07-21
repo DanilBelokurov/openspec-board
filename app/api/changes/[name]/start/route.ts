@@ -4,10 +4,10 @@ import { readConfig } from "@/lib/config";
 import { readState, updateTask } from "@/lib/state";
 import {
   createWorktree,
-  extractJiraId,
   removeWorktree,
-  repoBasename,
 } from "@/lib/git";
+import { extractJiraId } from "@/lib/jira";
+import { repoBasename } from "@/lib/path-utils";
 import {
   ensureLogDir,
   processLogPath,

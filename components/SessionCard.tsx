@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   ExternalLink,
@@ -9,7 +11,8 @@ import {
 } from "lucide-react";
 import type { BoardItem } from "@/lib/openspec";
 import type { BoardModeId } from "@/lib/modes";
-import { extractJiraId, repoBasename } from "@/lib/git";
+import { extractJiraId } from "@/lib/jira";
+import { repoBasename } from "@/lib/path-utils";
 
 interface SessionCardProps {
   item: BoardItem;
