@@ -20,12 +20,14 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Inline edit-mode: pencil button toggles a textarea where the
-  // analyst can request changes to the generated proposal. The
-  // "Отправить" submit is currently a no-op — wiring the request
-  // into the gigacode --prompt payload will land in a follow-up
-  // change.
+  // analyst can request changes to the generated proposal. Submit
+  // POSTs to /api/changes/<tag>/update-proposal which spawns the
+  // proposal-update pipeline (openspec instructions + gigacode
+  // --prompt with {proposal}/{json}/{comments} substituted from
+  // templates/proposal/proposal-update-prompt-template.md).
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   function openEditor() {
     setEditing(true);
@@ -38,12 +40,37 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
     setEditValue("");
   }
 
-  function submitEdit() {
-    // TODO: pass editValue into the gigacode --prompt for the
-    // proposal-edit step (planned follow-up change). For now this is
-    // a no-op so we can iterate on the UI before wiring the pipeline.
-    // eslint-disable-next-line no-console
-    console.log("submit edit (no-op):", { tag, editValue });
+  async function submitEdit() {
+    const trimmed = editValue.trim();
+    if (!trimmed) return;
+    setUpdating(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/changes/${encodeURIComponent(tag)}/update-proposal`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ comments: trimmed }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      // Collapse the editor; the proposal-update pipeline runs in
+      // the background and writes the updated proposal.md to the
+      // worktree. router.refresh() makes the new file content show
+      // up immediately in the file tree on the detail page.
+      setEditing(false);
+      setEditValue("");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUpdating(false);
+    }
   }
 
   async function handleClick() {
@@ -122,13 +149,15 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
             placeholder="Например: «добавь раздел про риски», «уточни scope», «опиши как мы будем мерять успех»"
             rows={3}
             autoFocus
-            className="w-full rounded-md border border-emerald-300 bg-white px-2 py-1.5 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-300"
+            disabled={updating}
+            className="w-full rounded-md border border-emerald-300 bg-white px-2 py-1.5 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-300 disabled:bg-slate-50"
           />
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={cancelEdit}
-              className="flex h-7 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
+              disabled={updating}
+              className="flex h-7 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               <X className="h-3.5 w-3.5" />
               <span>Отмена</span>
@@ -136,10 +165,14 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
             <button
               type="button"
               onClick={submitEdit}
-              disabled={editValue.trim().length === 0}
+              disabled={updating || editValue.trim().length === 0}
               className="flex h-7 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-[12px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              <Send className="h-3.5 w-3.5" />
+              {updating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
               <span>Отправить</span>
             </button>
           </div>

@@ -58,20 +58,41 @@ const PROPOSAL_PROMPT_TEMPLATE_PATH = path.join(
   "proposal-prompt-template.md",
 );
 
-// In-memory cache for the template content. Keyed by the file's mtime
-// so edits are picked up on the next invocation without a server
-// restart. The template file is read at most once per mtime change.
-let cachedTemplate: { mtimeMs: number; content: string } | null = null;
+// Path to the prompt template used by the proposal-update step
+// (analyst-initiated re-run after editing the request). Substitutes
+// {proposal} (current file content), {json} (openspec instructions),
+// and {comments} (the analyst's free-form request).
+const PROPOSAL_UPDATE_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "proposal",
+  "proposal-update-prompt-template.md",
+);
 
-async function loadProposalPromptTemplate(): Promise<string> {
-  const stat = await fs.stat(PROPOSAL_PROMPT_TEMPLATE_PATH);
-  if (cachedTemplate && cachedTemplate.mtimeMs === stat.mtimeMs) {
-    return cachedTemplate.content;
+// In-memory cache for template content. Keyed by absolute path +
+// file's mtime so edits are picked up on the next invocation without
+// a server restart. The template file is read at most once per
+// mtime change per path.
+const templateCache = new Map<
+  string,
+  { mtimeMs: number; content: string }
+>();
+
+async function loadTemplate(absolutePath: string): Promise<string> {
+  const stat = await fs.stat(absolutePath);
+  const cached = templateCache.get(absolutePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs) {
+    return cached.content;
   }
-  const content = await fs.readFile(PROPOSAL_PROMPT_TEMPLATE_PATH, "utf-8");
-  cachedTemplate = { mtimeMs: stat.mtimeMs, content };
+  const content = await fs.readFile(absolutePath, "utf-8");
+  templateCache.set(absolutePath, { mtimeMs: stat.mtimeMs, content });
   return content;
 }
+
+const loadProposalPromptTemplate = () =>
+  loadTemplate(PROPOSAL_PROMPT_TEMPLATE_PATH);
+const loadProposalUpdatePromptTemplate = () =>
+  loadTemplate(PROPOSAL_UPDATE_PROMPT_TEMPLATE_PATH);
 
 /**
  * Drive the analyst-mode proposal-creation pipeline to completion.
@@ -288,4 +309,162 @@ function buildCommitMessage(
   if (jira) lines.push(`Jira: ${jira}`);
   lines.push("", "Description:", description);
   return lines.join("\n");
+}
+
+// ============================================================================
+// Proposal update — analyst-initiated re-run after editing the request
+// ============================================================================
+
+export interface ProposalUpdateResult {
+  ok: boolean;
+  pid?: number | null;
+  logFile?: string;
+  error?: string;
+}
+
+/**
+ * Re-run the proposal-generation step with the analyst's free-form
+ * request folded in. Reads the existing proposal.md, fetches fresh
+ * openspec instructions, builds the update prompt from
+ * templates/proposal/proposal-update-prompt-template.md and spawns
+ * gigacode --prompt.
+ *
+ * The result is written to the same `proposal.md` path (gigacode
+ * decides from `resolvedOutputPath` in the JSON). Updates
+ * `task.proposalUpdatePid/StartedAt/ExitCode/ExitSignal/LogPath`
+ * on state for UI visibility; idempotent re-runs are guarded by
+ * `proposalUpdatePid` — if a previous run is still alive we skip.
+ */
+export async function runProposalUpdate(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  comments: string,
+): Promise<ProposalUpdateResult> {
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "Не задан worktree задачи" };
+  }
+  const worktree = task.openspecWorktreePath;
+
+  // Idempotency: if a previous run is still alive, refuse to spawn
+  // a duplicate. The user can wait for it to finish or check the log.
+  if (task.proposalUpdatePid && isProcessAliveByPid(task.proposalUpdatePid)) {
+    return {
+      ok: false,
+      error:
+        "Предыдущая итерация обновления ещё выполняется — дождитесь завершения",
+    };
+  }
+
+  const changePath = path.join(worktree, "openspec", "changes", changeName);
+  const proposalPath = path.join(changePath, "proposal.md");
+
+  // Read existing proposal.md so we can include its current content
+  // in the prompt.
+  let proposalText: string;
+  try {
+    proposalText = await fs.readFile(proposalPath, "utf-8");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Не удалось прочитать текущий proposal.md: ${(e as Error).message}`,
+    };
+  }
+
+  // Fresh openspec instructions — same JSON the original step used,
+  // so gigacode gets the same template/rules/resolvedOutputPath.
+  let instructionsJson: string;
+  try {
+    const { stdout } = await run(
+      "openspec",
+      [
+        "instructions",
+        "proposal",
+        "--change",
+        changeName,
+        "--json",
+        "--schema",
+        SCHEMA,
+      ],
+      { cwd: worktree },
+    );
+    instructionsJson = stdout;
+  } catch (e) {
+    return {
+      ok: false,
+      error: `openspec instructions proposal: ${(e as Error).message}`,
+    };
+  }
+
+  const template = await loadProposalUpdatePromptTemplate();
+  const prompt = template
+    .replace("{proposal}", proposalText)
+    .replace("{json}", instructionsJson)
+    .replace("{comments}", comments);
+
+  const logFile = processLogPath(changeName, "update");
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (proposal update) for ${changeName}`,
+      `# add-dir: ${worktree}`,
+      `# approval-mode: auto-edit`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# proposal-length: ${proposalText.length} chars`,
+      `# comments-length: ${comments.length} chars`,
+      `# openspec instructions output-length: ${instructionsJson.length} chars`,
+      "",
+      "# ----- prompt ----->",
+      prompt,
+      "# <----- prompt -----",
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: undefined,
+      addDir: worktree,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    result.promise
+      .then(async ({ exitCode, signal }) => {
+        await updateTask(changeName, {
+          proposalUpdateExitCode: exitCode,
+          proposalUpdateExitSignal: signal,
+        });
+      })
+      .catch((e) =>
+        console.error(`gigacode-update exit handler error:`, e),
+      );
+  } catch (e) {
+    return {
+      ok: false,
+      error: `gigacode spawn: ${(e as Error).message}`,
+    };
+  }
+
+  if (pid == null) {
+    return { ok: false, error: "Не удалось получить PID gigacode" };
+  }
+  await updateTask(changeName, {
+    proposalUpdatePid: pid,
+    proposalUpdateStartedAt: new Date().toISOString(),
+    proposalUpdateLogPath: logFile,
+    proposalUpdateComments: comments,
+  });
+  return { ok: true, pid, logFile };
+}
+
+function isProcessAliveByPid(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }

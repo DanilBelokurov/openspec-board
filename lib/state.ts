@@ -52,6 +52,18 @@ export interface TaskEntry {
   committedAt?: string;
   commitExitCode?: number | null;
   commitError?: string;
+  // Proposal update step — analyst-initiated re-run that folds a
+  // free-form request into the gigacode --prompt and rewrites the
+  // existing proposal.md. Spawned by the pencil-button on
+  // ConfirmButton; not auto-triggered. Idempotent via
+  // proposalUpdatePid — a live PID blocks a second spawn until it
+  // exits.
+  proposalUpdatePid?: number | null;
+  proposalUpdateStartedAt?: string;
+  proposalUpdateExitCode?: number | null;
+  proposalUpdateExitSignal?: string | null;
+  proposalUpdateLogPath?: string;
+  proposalUpdateComments?: string;
 }
 
 export interface AppState {
