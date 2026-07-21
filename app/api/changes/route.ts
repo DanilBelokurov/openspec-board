@@ -216,6 +216,8 @@ export async function POST(req: NextRequest) {
   //
   // --description writes the body into README.md inside the change folder,
   // preserved as ground truth for the proposal-generation step.
+  // --schema is passed explicitly so the pipeline keeps working even if
+  // the project's openspec/config.yaml gets deleted/renamed.
   const logFile = processLogPath(tag, "new");
   await ensureLogDir();
 
@@ -248,6 +250,11 @@ export async function POST(req: NextRequest) {
   );
 }
 
+// Workflow schema passed explicitly to both openspec invocations in the
+// proposal-generation pipeline. Pinned so the pipeline keeps working if
+// the project's openspec/config.yaml gets deleted/renamed.
+const SCHEMA = "spec-driven-with-adr";
+
 async function spawnProposalOpenspecNew(
   tag: string,
   description: string,
@@ -257,7 +264,15 @@ async function spawnProposalOpenspecNew(
   try {
     const result = spawnDetachedWithLog({
       command: "openspec",
-      argv: ["new", "change", tag, "--description", description],
+      argv: [
+        "new",
+        "change",
+        tag,
+        "--description",
+        description,
+        "--schema",
+        SCHEMA,
+      ],
       logFile,
       header: `openspec new change for ${tag}`,
       cwd,

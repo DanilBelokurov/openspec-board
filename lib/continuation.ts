@@ -42,6 +42,11 @@ function run(
   });
 }
 
+// Workflow schema passed explicitly to the openspec instructions call.
+// Must match the schema used by `openspec new change` in
+// app/api/changes/route.ts.
+const SCHEMA = "spec-driven-with-adr";
+
 // Prompt template from the user spec — the {json} placeholder is
 // substituted with the raw stdout of `openspec instructions proposal
 // --change <tag> --json`. Kept verbatim because the assistant is
@@ -137,7 +142,15 @@ async function spawnProposalGigacode(
   try {
     const { stdout } = await run(
       "openspec",
-      ["instructions", "proposal", "--change", changeName, "--json"],
+      [
+        "instructions",
+        "proposal",
+        "--change",
+        changeName,
+        "--json",
+        "--schema",
+        SCHEMA,
+      ],
       { cwd: worktree },
     );
     instructionsJson = stdout;
