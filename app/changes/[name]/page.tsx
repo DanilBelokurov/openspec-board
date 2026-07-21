@@ -22,6 +22,7 @@ import {
 import { isProcessAlive } from "@/lib/process";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
 import { extractJiraId } from "@/lib/jira";
+import { formatDateTime } from "@/lib/format";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
@@ -51,13 +52,7 @@ export default async function ChangePage({
   const totalSize = tree ? tree.size : 0;
   const proposalReady = await checkProposalExists(changePath);
   const lastScanned = new Date(task.lastScannedAt);
-  const dateStr = lastScanned.toLocaleString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${task.summary.changeName}`;
 
   const gigacodeAlive = task.gigacodePid
@@ -208,7 +203,7 @@ export default async function ChangePage({
               {task.gigacodeStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
                   Запущен:{" "}
-                  {new Date(task.gigacodeStartedAt).toLocaleString("ru-RU")}
+                  {formatDateTime(task.gigacodeStartedAt)}
                 </div>
               )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -247,10 +242,7 @@ export default async function ChangePage({
               </div>
               {task.gigacodeContinueStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
-                  Запущен:{" "}
-                  {new Date(task.gigacodeContinueStartedAt).toLocaleString(
-                    "ru-RU",
-                  )}
+                  Запущен: {formatDateTime(task.gigacodeContinueStartedAt)}
                 </div>
               )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -292,7 +284,7 @@ export default async function ChangePage({
               <div className="font-semibold text-slate-800">Запущено</div>
               {task.startedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
-                  {new Date(task.startedAt).toLocaleString("ru-RU")}
+                  {formatDateTime(task.startedAt)}
                 </div>
               )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
