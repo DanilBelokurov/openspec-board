@@ -139,7 +139,7 @@ export async function POST(
   });
 
   // Spawn gigacode detached
-  const logFile = processLogPath(params.tag, "new");
+  const logFile = processLogPath(params.tag, "new", task.stage);
   await ensureLogDir();
   const gigacodePid = spawnPlanGigacode(
     changePathInWorktree,

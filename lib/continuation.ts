@@ -201,7 +201,7 @@ async function spawnProposalGigacode(
   const template = await loadProposalPromptTemplate();
   const prompt = template.replace("{json}", instructionsJson);
 
-  const logFile = processLogPath(changeName, "continue");
+  const logFile = processLogPath(changeName, "continue", "proposal");
   // Persist the parameters and full prompt to the log file BEFORE
   // spawning gigacode — gigacode's stdout/stderr will be appended
   // after this block. Useful for post-mortem: re-read which exact
@@ -401,7 +401,7 @@ export async function runProposalUpdate(
     .replace("{json}", instructionsJson)
     .replace("{comments}", comments);
 
-  const logFile = processLogPath(changeName, "update");
+  const logFile = processLogPath(changeName, "update", "proposal");
   await fs.writeFile(
     logFile,
     [

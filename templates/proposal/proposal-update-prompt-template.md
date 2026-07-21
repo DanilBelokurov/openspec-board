@@ -2,7 +2,7 @@ Your task is to update the original proposal.md file based on the provided JSON 
 
 You are given:
 - The original document content: {proposal}
-- A JSON object with configuration keys (see below)
+- A JSON object with configuration keys: "{json}"
 - Optional additional comments: {comments}
 
 The JSON contains the following fields (all are required unless noted):

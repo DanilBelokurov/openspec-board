@@ -16,11 +16,16 @@ export async function ensureLogDir(): Promise<void> {
   await fs.mkdir(LOG_DIR, { recursive: true });
 }
 
+// Log filename: `<tag>.<stage>.<step>.log` — the stage segment
+// (proposal / delta-spec / design / adr / backlog / ...) lets the
+// analyst tell at a glance which pipeline stage the file belongs
+// to when several stages accumulate logs for the same change.
 export function processLogPath(
   changeName: string,
   step: ProposalStep,
+  stage: string,
 ): string {
-  return path.join(LOG_DIR, `${changeName}.${step}.log`);
+  return path.join(LOG_DIR, `${changeName}.${stage}.${step}.log`);
 }
 
 export type GigacodeApprovalMode = "auto-edit" | "suggest" | "default";

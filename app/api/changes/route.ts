@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
   // preserved as ground truth for the proposal-generation step.
   // --schema is passed explicitly so the pipeline keeps working even if
   // the project's openspec/config.yaml gets deleted/renamed.
-  const logFile = processLogPath(tag, "new");
+  const logFile = processLogPath(tag, "new", "proposal");
   await ensureLogDir();
 
   const openspecNewPid = await spawnProposalOpenspecNew(
