@@ -5,8 +5,8 @@ import {
   FolderOpen,
   Loader2,
   CheckCircle2,
+  CircleAlert,
   ExternalLink,
-  type LucideIcon,
 } from "lucide-react";
 import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
@@ -181,15 +181,11 @@ export default async function ChangePage({
           {task.openspecNewPid && (
             <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
-                <ProcessStatusIcon alive={openspecNewAlive} />
-                <span>
-                  Создание директории change-proposal:{" "}
-                  {openspecNewAlive
-                    ? "выполняется"
-                    : task.openspecNewExitCode != null && task.openspecNewExitCode !== 0
-                      ? `ошибка (exit ${task.openspecNewExitCode})`
-                      : "завершено"}
-                </span>
+                <ProcessStatusIcon
+                  alive={openspecNewAlive}
+                  exitCode={task.openspecNewExitCode}
+                />
+                <span>Создание директории change-proposal</span>
               </div>
               {task.openspecNewStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
@@ -197,27 +193,37 @@ export default async function ChangePage({
                   {formatDateTime(task.openspecNewStartedAt)}
                 </div>
               )}
+              {!openspecNewAlive &&
+                task.openspecNewExitCode != null &&
+                task.openspecNewExitCode !== 0 && (
+                  <div className="mt-1 text-[11px] text-red-700">
+                    Ошибка (exit {task.openspecNewExitCode}) — см. лог
+                  </div>
+                )}
             </section>
           )}
 
           {task.gigacodeContinuePid && (
             <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
-                <ProcessStatusIcon alive={gigacodeContinueAlive} />
-                <span>
-                  Создание proposal.md:{" "}
-                  {gigacodeContinueAlive
-                    ? "выполняется"
-                    : task.gigacodeContinueExitCode != null && task.gigacodeContinueExitCode !== 0
-                      ? `ошибка (exit ${task.gigacodeContinueExitCode})`
-                      : "завершено"}
-                </span>
+                <ProcessStatusIcon
+                  alive={gigacodeContinueAlive}
+                  exitCode={task.gigacodeContinueExitCode}
+                />
+                <span>Создание proposal.md</span>
               </div>
               {task.gigacodeContinueStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
                   Запущено: {formatDateTime(task.gigacodeContinueStartedAt)}
                 </div>
               )}
+              {!gigacodeContinueAlive &&
+                task.gigacodeContinueExitCode != null &&
+                task.gigacodeContinueExitCode !== 0 && (
+                  <div className="mt-1 text-[11px] text-red-700">
+                    Ошибка (exit {task.gigacodeContinueExitCode}) — см. лог
+                  </div>
+                )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
                 <dt className="text-slate-500">PID</dt>
                 <dd className="font-mono text-[10px]">{task.gigacodeContinuePid}</dd>
@@ -236,21 +242,24 @@ export default async function ChangePage({
           {task.proposalUpdatePid && (
             <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
-                <ProcessStatusIcon alive={proposalUpdateAlive} />
-                <span>
-                  Обновление proposal.md:{" "}
-                  {proposalUpdateAlive
-                    ? "выполняется"
-                    : task.proposalUpdateExitCode != null && task.proposalUpdateExitCode !== 0
-                      ? `ошибка (exit ${task.proposalUpdateExitCode})`
-                      : "завершено"}
-                </span>
+                <ProcessStatusIcon
+                  alive={proposalUpdateAlive}
+                  exitCode={task.proposalUpdateExitCode}
+                />
+                <span>Обновление proposal.md</span>
               </div>
               {task.proposalUpdateStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
                   Запущено: {formatDateTime(task.proposalUpdateStartedAt)}
                 </div>
               )}
+              {!proposalUpdateAlive &&
+                task.proposalUpdateExitCode != null &&
+                task.proposalUpdateExitCode !== 0 && (
+                  <div className="mt-1 text-[11px] text-red-700">
+                    Ошибка (exit {task.proposalUpdateExitCode}) — см. лог
+                  </div>
+                )}
               {task.proposalUpdateComments && (
                 <div className="mt-1 text-[11px] text-slate-600">
                   <span className="text-slate-500">Комментарий:</span>{" "}
@@ -301,9 +310,21 @@ export default async function ChangePage({
   );
 }
 
-function ProcessStatusIcon({ alive }: { alive: boolean }) {
-  const Icon: LucideIcon = alive ? Loader2 : CheckCircle2;
-  return <Icon className={`h-2.5 w-2.5 ${alive ? "animate-spin" : ""}`} />;
+function ProcessStatusIcon({
+  alive,
+  exitCode,
+}: {
+  alive: boolean;
+  exitCode?: number | null;
+}) {
+  if (alive) {
+    return <Loader2 className="h-4 w-4 animate-spin text-slate-500" />;
+  }
+  const failed = exitCode != null && exitCode !== 0;
+  if (failed) {
+    return <CircleAlert className="h-4 w-4 text-red-600" />;
+  }
+  return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
 }
 
 function countFiles(node: TreeNode): number {
