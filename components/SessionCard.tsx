@@ -77,16 +77,21 @@ export function SessionCard({ item, mode }: SessionCardProps) {
             </span>
           )}
           {/* After both analyst-mode CLI steps finished + proposal.md exists
-              → "Ожидает". Per user spec: replaces the process badge. */}
-          {item.proposalReady && !item.gigacodeError && (
-            <span
-              className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
-              title="Proposal создан — ожидает следующего шага"
-            >
-              <Hourglass className="h-2.5 w-2.5" />
-              Ожидает
-            </span>
-          )}
+              and the task hasn't been confirmed yet → "Ожидает". The
+              stage guard hides the badge once the user has moved the
+              task to "delta-spec" — at that point the card already
+              lives in the next column and the badge is just noise. */}
+          {item.proposalReady &&
+            !item.gigacodeError &&
+            item.stage === "proposal" && (
+              <span
+                className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
+                title="Proposal создан — ожидает следующего шага"
+              >
+                <Hourglass className="h-2.5 w-2.5" />
+                Ожидает
+              </span>
+            )}
           {/* If any background step exited with non-zero → red error badge. */}
           {item.gigacodeError && (
             <span
