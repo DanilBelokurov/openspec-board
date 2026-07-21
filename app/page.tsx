@@ -10,6 +10,7 @@ import { processStatusFor } from "@/lib/process";
 import { extractJiraId } from "@/lib/jira";
 import {
   checkProposalExists,
+  resolveProposalRootForTask,
   type BoardItem,
 } from "@/lib/openspec";
 
@@ -36,14 +37,24 @@ export default async function Home() {
   const mode = MODES[config.mode];
 
   // Build BoardItem for each task. proposalReady = does proposal.md exist?
+  // Tasks created via the analyst-mode flow live on a dedicated worktree
+  // (task.openspecWorktreePath) — that's where the proposal.md lands, not
+  // in the main openspecDir. For tasks without a worktree, fall back
+  // to openspecDir; for legacy tasks missing openspecWorktreePath,
+  // resolveProposalRootForTask probes the on-disk convention.
   // This is a per-render disk check, but tasks are limited and the check is
   // a single fs.access so it's cheap enough for a scaffold.
   const items: BoardItem[] = await Promise.all(
     Object.values(state.tasks)
       .filter((t) => mode.stages.includes(t.stage))
       .map(async (t) => {
-        const changePath = path.join(
+        const proposalRoot = await resolveProposalRootForTask(
+          t,
           config.openspecDir!,
+        );
+        const changePath = path.join(
+          proposalRoot,
+          "openspec",
           "changes",
           t.summary.changeName,
         );

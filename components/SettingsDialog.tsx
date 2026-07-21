@@ -19,6 +19,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [pickedName, setPickedName] = useState<string | null>(null);
   const [mode, setMode] = useState<BoardModeId>("developer");
   const [initialMode, setInitialMode] = useState<BoardModeId>("developer");
+  const [defaultBranch, setDefaultBranch] = useState("master");
+  const [initialDefaultBranch, setInitialDefaultBranch] = useState("master");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +39,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         const m: BoardModeId = data?.mode === "analyst" ? "analyst" : "developer";
         setMode(m);
         setInitialMode(m);
+        const b: string =
+          typeof data?.defaultBranch === "string" &&
+          data.defaultBranch.trim().length > 0
+            ? data.defaultBranch
+            : "master";
+        setDefaultBranch(b);
+        setInitialDefaultBranch(b);
       })
       .catch((e) => setError(String(e)));
   }, [open]);
@@ -62,6 +71,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         body: JSON.stringify({
           openspecDir: path.trim(),
           mode,
+          defaultBranch: defaultBranch.trim(),
         }),
       });
       if (!res.ok) {
@@ -71,6 +81,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       const data = await res.json();
       setInitialPath(data.openspecDir ?? "");
       setInitialMode(data.mode ?? mode);
+      setInitialDefaultBranch(data.defaultBranch ?? defaultBranch);
       setStatus("saved");
       router.refresh();
     } catch (e) {
@@ -89,7 +100,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     e.target.value = "";
   }
 
-  const dirty = path !== initialPath || mode !== initialMode;
+  const dirty =
+    path !== initialPath ||
+    mode !== initialMode ||
+    defaultBranch !== initialDefaultBranch;
 
   return (
     <div
@@ -203,6 +217,31 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 .sdd-board/config.json
               </code>{" "}
               и переживает перезапуск.
+            </span>
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-slate-800">
+              Главная ветка OpenSpec store
+            </span>
+            <input
+              type="text"
+              value={defaultBranch}
+              onChange={(e) => setDefaultBranch(e.target.value)}
+              placeholder="master"
+              className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+            />
+            <span className="text-[11px] text-slate-500">
+              Имя ветки в репозитории OpenSpec store, от которой ответвляются
+              feature-ветки при создании proposal. По умолчанию{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                master
+              </code>
+              . Перед созданием worktree эта ветка обновляется из{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                origin/&lt;ветка&gt;
+              </code>
+              .
             </span>
           </label>
 

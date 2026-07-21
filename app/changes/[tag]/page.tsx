@@ -5,11 +5,7 @@ import {
   FolderOpen,
   Loader2,
   CheckCircle2,
-  CircleAlert,
-  Hourglass,
   ExternalLink,
-  CheckCheck,
-  FolderPlus,
   type LucideIcon,
 } from "lucide-react";
 import { readConfig } from "@/lib/config";
@@ -18,6 +14,7 @@ import {
   listChangeTree,
   formatBytes,
   checkProposalExists,
+  resolveProposalRootForTask,
   type TreeNode,
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
@@ -47,13 +44,13 @@ export default async function ChangePage({
   if (!task) notFound();
 
   const tag = task.summary.changeName;
-  const changePath = `${openspecDir}/changes/${tag}`;
+  const proposalRoot = await resolveProposalRootForTask(task, openspecDir);
+  const changePath = `${proposalRoot}/openspec/changes/${tag}`;
   const tree = await listChangeTree(changePath);
   const folderExists = tree !== null;
   const fileCount = tree ? countFiles(tree) : 0;
   const totalSize = tree ? tree.size : 0;
   const proposalReady = await checkProposalExists(changePath);
-  const lastScanned = new Date(task.lastScannedAt);
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
 
@@ -64,10 +61,6 @@ export default async function ChangePage({
   // Step 2 (analyst mode): gigacode /opsx-continue.
   const gigacodeContinueAlive = task.gigacodeContinuePid
     ? isProcessAlive(task.gigacodeContinuePid)
-    : false;
-  // Developer-mode "Start" step: gigacode /opsx:plan.
-  const gigacodeAlive = task.gigacodePid
-    ? isProcessAlive(task.gigacodePid)
     : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
@@ -108,10 +101,6 @@ export default async function ChangePage({
               {relPath}
             </code>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-700">
-                {task.id}
-              </span>
-              <span>·</span>
               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-700">
                 {task.stage}
               </span>
@@ -132,35 +121,12 @@ export default async function ChangePage({
               )}
               <span>·</span>
               <span>Обновлено {dateStr}</span>
-              {task.openspecNewPid && (
-                <>
-                  <span>·</span>
-                  <ProcessBadge
-                    pid={task.openspecNewPid}
-                    alive={openspecNewAlive}
-                    label="openspec new change"
-                  />
-                </>
-              )}
-              {task.gigacodeContinuePid && (
-                <>
-                  <span>·</span>
-                  <ProcessBadge
-                    pid={task.gigacodeContinuePid}
-                    alive={gigacodeContinueAlive}
-                    label="gigacode /opsx-continue"
-                  />
-                </>
-              )}
             </div>
           </header>
 
           {showConfirmButton && (
             <section className="mb-5">
-              <ConfirmButton
-                tag={tag}
-                taskTitle={task.summary.title}
-              />
+              <ConfirmButton tag={tag} />
             </section>
           )}
 
@@ -203,19 +169,19 @@ export default async function ChangePage({
           </div>
 
           {/* First card (analyst mode, step 1): the openspec CLI that
-              creates the change folder. */}
+              creates the change folder. Per user spec: no PID/command/log,
+              no "завершено (exit 0)" suffix. exit code 0 = success, only
+              a non-zero exit code surfaces as an error. */}
           {task.openspecNewPid && (
             <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
                 <ProcessStatusIcon alive={openspecNewAlive} />
                 <span>
                   Создание директории change-proposal:{" "}
-                  {!openspecNewAlive && task.openspecNewExitCode != null
-                    ? task.openspecNewExitCode === 0
-                      ? "завершено (exit 0)"
-                      : `ошибка (exit ${task.openspecNewExitCode})`
-                    : openspecNewAlive
-                      ? "выполняется"
+                  {openspecNewAlive
+                    ? "выполняется"
+                    : task.openspecNewExitCode != null && task.openspecNewExitCode !== 0
+                      ? `ошибка (exit ${task.openspecNewExitCode})`
                       : "завершено"}
                 </span>
               </div>
@@ -225,22 +191,6 @@ export default async function ChangePage({
                   {formatDateTime(task.openspecNewStartedAt)}
                 </div>
               )}
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-                <dt className="text-slate-500">PID</dt>
-                <dd className="font-mono text-[10px]">{task.openspecNewPid}</dd>
-                <dt className="text-slate-500">Команда</dt>
-                <dd className="font-mono text-[10px] break-all">
-                  {`openspec new change ${tag}${task.description ? ` --description "${task.description.replace(/"/g, '\\"').replace(/\n/g, " ")}"` : ""}`}
-                </dd>
-                {task.openspecNewLogPath && (
-                  <>
-                    <dt className="text-slate-500">Лог</dt>
-                    <dd className="font-mono text-[10px] break-all text-slate-500">
-                      {task.openspecNewLogPath}
-                    </dd>
-                  </>
-                )}
-              </dl>
             </section>
           )}
 
@@ -250,12 +200,10 @@ export default async function ChangePage({
                 <ProcessStatusIcon alive={gigacodeContinueAlive} />
                 <span>
                   Создание proposal.md:{" "}
-                  {!gigacodeContinueAlive && task.gigacodeContinueExitCode != null
-                    ? task.gigacodeContinueExitCode === 0
-                      ? "завершено (exit 0)"
-                      : `ошибка (exit ${task.gigacodeContinueExitCode})`
-                    : gigacodeContinueAlive
-                      ? "выполняется"
+                  {gigacodeContinueAlive
+                    ? "выполняется"
+                    : task.gigacodeContinueExitCode != null && task.gigacodeContinueExitCode !== 0
+                      ? `ошибка (exit ${task.gigacodeContinueExitCode})`
                       : "завершено"}
                 </span>
               </div>
@@ -267,10 +215,6 @@ export default async function ChangePage({
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
                 <dt className="text-slate-500">PID</dt>
                 <dd className="font-mono text-[10px]">{task.gigacodeContinuePid}</dd>
-                <dt className="text-slate-500">Команда</dt>
-                <dd className="font-mono text-[10px] break-all">
-                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-continue ${(task.description ?? "").replace(/\n/g, " ")}"`}
-                </dd>
                 {task.gigacodeContinueLogPath && (
                   <>
                     <dt className="text-slate-500">Лог</dt>
@@ -298,39 +242,6 @@ export default async function ChangePage({
             </section>
           )}
 
-          {task.stage !== "backlog" && task.jiraUrl && (
-            <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
-              <div className="font-semibold text-slate-800">Запущено</div>
-              {task.startedAt && (
-                <div className="mt-1 text-[11px] text-slate-500">
-                  {formatDateTime(task.startedAt)}
-                </div>
-              )}
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-                {task.openspecWorktreePath && (
-                  <>
-                    <dt className="text-slate-500">Openspec worktree</dt>
-                    <dd className="font-mono text-[10px] break-all">
-                      {task.openspecWorktreePath}
-                    </dd>
-                  </>
-                )}
-                {task.codeWorktreePath && (
-                  <>
-                    <dt className="text-slate-500">Code worktree</dt>
-                    <dd className="font-mono text-[10px] break-all">
-                      {task.codeWorktreePath}
-                    </dd>
-                  </>
-                )}
-                <dt className="text-slate-500">gigacode PID</dt>
-                <dd className="font-mono text-[10px]">
-                  {task.gigacodePid ?? "не запущен (gigacode не в PATH?)"}
-                </dd>
-              </dl>
-            </section>
-          )}
-
           <div className="mt-3 flex gap-2">
             {folderExists && (
               <OpenInFinderForm tag={tag} />
@@ -340,32 +251,6 @@ export default async function ChangePage({
         </div>
       </div>
     </div>
-  );
-}
-
-function ProcessBadge({
-  pid,
-  alive,
-  label,
-}: {
-  pid: number;
-  alive: boolean;
-  label: string;
-}) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-        alive
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-slate-100 text-slate-600"
-      }`}
-      title={alive ? "процесс выполняется" : "процесс завершён"}
-    >
-      <ProcessStatusIcon alive={alive} />
-      <span>
-        {label} · {pid}
-      </span>
-    </span>
   );
 }
 

@@ -1,5 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
+import { extractJiraId } from "./jira";
+import { repoBasename } from "./path-utils";
 
 // ============================================================================
 // Types
@@ -488,12 +490,112 @@ async function readChangeSummaryFromPath(
   };
 }
 
-export async function scanChanges(openspecDir: string): Promise<ChangeSummary[]> {
-  const changesDir = path.join(openspecDir, "changes");
+// ============================================================================
+// Layout helpers
+// ============================================================================
+
+/**
+ * Standard OpenSpec layout: `<repo>/openspec/changes/<tag>/...`.
+ * The app's `config.openspecDir` points at the REPO ROOT, not at the
+ * inner `openspec/` directory — see docs/sdd-directory.md for the
+ * convention. All change-folder paths are derived from the repo root
+ * via these helpers so they stay correct when the same logic runs
+ * inside a worktree (whose root is also a copy of the repo).
+ */
+export function getChangesDir(rootDir: string): string {
+  return path.join(rootDir, "openspec", "changes");
+}
+
+export function getChangePath(rootDir: string, changeName: string): string {
+  return path.join(rootDir, "openspec", "changes", changeName);
+}
+
+export function getSpecsDir(rootDir: string): string {
+  return path.join(rootDir, "openspec", "specs");
+}
+
+// ============================================================================
+// Worktree resolution
+// ============================================================================
+
+/**
+ * Resolve the on-disk root where the change folder for this task
+ * lives. The analyst-mode proposal-creation flow creates a dedicated
+ * worktree per task (see app/api/changes POST) and stores its path
+ * on `task.openspecWorktreePath`. That field is the canonical source
+ * of truth.
+ *
+ * When it's missing (legacy task, or a state.json that pre-dates the
+ * worktree field), fall back to the on-disk convention:
+ *   <openspecDirParent>/<openspecDirBasename>.worktrees/<jiraId>/
+ * and verify it exists before returning. If even that doesn't pan
+ * out, scan the parent `.worktrees/` directory and look for a
+ * sub-folder that itself contains `changes/<tag>/`. As a last
+ * resort, return openspecDir itself.
+ */
+export async function resolveProposalRootForTask(
+  task: {
+    openspecWorktreePath?: string;
+    jiraUrl?: string | null;
+    summary: { changeName: string };
+  },
+  openspecDir: string,
+): Promise<string> {
+  if (task.openspecWorktreePath) return task.openspecWorktreePath;
+  if (!task.jiraUrl) return openspecDir;
+  const jiraId = extractJiraId(task.jiraUrl);
+  if (!jiraId) return openspecDir;
+  const basename = repoBasename(openspecDir);
+  const parent = path.dirname(openspecDir);
+  const namedCandidate = path.join(parent, `${basename}.worktrees`, jiraId);
+  try {
+    await fs.access(
+      path.join(
+        namedCandidate,
+        "openspec",
+        "changes",
+        task.summary.changeName,
+      ),
+    );
+    return namedCandidate;
+  } catch {
+    /* fall through to directory-scan fallback */
+  }
+  // Scan <basename>.worktrees/* for a sub-folder containing
+  // `openspec/changes/<tag>/`. This is robust to the convention being
+  // slightly off (different jiraId casing, worktree renamed, etc.).
+  const root = path.join(parent, `${basename}.worktrees`);
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const sub = path.join(root, e.name);
+      try {
+        await fs.access(
+          path.join(sub, "openspec", "changes", task.summary.changeName),
+        );
+        return sub;
+      } catch {
+        /* keep scanning */
+      }
+    }
+  } catch {
+    /* root not readable — keep last-resort fallback */
+  }
+  return openspecDir;
+}
+
+/**
+ * Scan one root (a directory containing a `openspec/changes/` folder)
+ * and return ChangeSummary for each change found there. Used
+ * internally by scanChangeRoots.
+ */
+async function scanOneRoot(rootDir: string): Promise<ChangeSummary[]> {
+  const changesDir = getChangesDir(rootDir);
   if (!(await exists(changesDir))) return [];
 
   const entries = await fs.readdir(changesDir, { withFileTypes: true });
-  const summaries: ChangeSummary[] = [];
+  const out: ChangeSummary[] = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -502,23 +604,50 @@ export async function scanChanges(openspecDir: string): Promise<ChangeSummary[]>
       path.join(changesDir, entry.name),
       entry.name,
     );
-    summaries.push(summary);
+    out.push(summary);
+  }
+  return out;
+}
+
+/**
+ * Scan multiple roots and merge results by changeName. Later roots in
+ * the list WIN for a given changeName — this lets callers put the
+ * most-up-to-date root last. Typical use: `[mainRepo, ...worktrees]`
+ * so a worktree's proposal.md / specs / design.md (which are newer
+ * than anything in main) override the main-repo view of the same
+ * change folder.
+ *
+ * In normal use each change lives in exactly one root (state.json
+ * tracks `openspecWorktreePath` per task), but the de-dup by name is
+ * kept as a defensive measure.
+ */
+export async function scanChangeRoots(
+  rootDirs: string[],
+): Promise<ChangeSummary[]> {
+  const merged = new Map<string, ChangeSummary>();
+  for (const root of rootDirs) {
+    const summaries = await scanOneRoot(root);
+    for (const s of summaries) merged.set(s.changeName, s);
   }
 
-  summaries.sort((a, b) => a.changeName.localeCompare(b.changeName));
+  const out = Array.from(merged.values());
+  out.sort((a, b) => a.changeName.localeCompare(b.changeName));
 
-  summaries.forEach((s, i) => {
-    s.id = `OS-${String(i + 1).padStart(3, "0")}`;
-  });
+  // scanChangeRoots is only called via /api/refresh, which then merges
+  // into state.json via mergeScanWithState. There, the id of each
+  // existing entry is preserved and a new id is generated for fresh
+  // entries (UUID via lib/state.ts → nextTaskId). The default `s.id =
+  // ""` is intentional — it's only a placeholder until
+  // mergeScanWithState overrides it.
 
-  return summaries;
+  return out;
 }
 
 export async function readChange(
   openspecDir: string,
   changeName: string,
 ): Promise<Change> {
-  const changePath = path.join(openspecDir, "changes", changeName);
+  const changePath = getChangePath(openspecDir, changeName);
   const summary = await readChangeSummaryFromPath(changePath, changeName);
 
   let proposal: Proposal | null = null;

@@ -6,10 +6,9 @@ import { CheckCheck, Loader2 } from "lucide-react";
 
 interface ConfirmButtonProps {
   tag: string;
-  taskTitle: string;
 }
 
-export function ConfirmButton({ tag, taskTitle }: ConfirmButtonProps) {
+export function ConfirmButton({ tag }: ConfirmButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +67,6 @@ export function ConfirmButton({ tag, taskTitle }: ConfirmButtonProps) {
           {error}
         </div>
       )}
-      <div className="mt-1 text-[10px] text-emerald-800/60">
-        «{taskTitle}»
-      </div>
     </div>
   );
 }

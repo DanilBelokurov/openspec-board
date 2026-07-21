@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, FilePlus, Loader2 } from "lucide-react";
+import { X, FilePlus, Loader2, HelpCircle } from "lucide-react";
 import { isValidOpenspecTag } from "@/lib/tag";
+import { extractJiraId } from "@/lib/jira";
 
 interface CreateProposalDialogProps {
   open: boolean;
@@ -45,10 +46,14 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
   // Tag rules match the shared `lib/tag.ts` validator used by the server
   // (single source of truth for both UI gating and API gating).
   const tagValid = isValidOpenspecTag(tag.trim());
+  // jiraUrl is required — must look like a Jira URL or ticket id from which
+  // we can extract a ticket id. We re-check on the server too.
+  const jiraId = jiraUrl.trim() ? extractJiraId(jiraUrl.trim()) : null;
   const canSubmit =
     title.trim().length > 0 &&
     description.trim().length > 0 &&
     tagValid &&
+    jiraId != null &&
     status !== "saving";
 
   async function handleSubmit(e: React.FormEvent) {
@@ -63,7 +68,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           title: title.trim(),
           description: description.trim(),
           tag: tag.trim(),
-          jiraUrl: jiraUrl.trim() || undefined,
+          jiraUrl: jiraUrl.trim(),
         }),
       });
       const data = await res.json();
@@ -130,12 +135,17 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           </label>
 
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-slate-800">
-              Tag
-              <span className="ml-1 text-[11px] font-normal text-red-600">
-                (обязательно)
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-medium text-slate-800">
+                Tag
               </span>
-            </span>
+              <span
+                title="Lowercase kebab-case (как у `openspec new change`): строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов"
+                className="cursor-help"
+              >
+                <HelpCircle className="h-3 w-3 text-slate-400" />
+              </span>
+            </div>
             <input
               type="text"
               value={tag}
@@ -145,7 +155,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
             <span className="text-[11px] text-slate-500">
-              Уникальный идентификатор change-папки (имя папки в openspec/changes/, ключ в state.json, имя лог-файла и параметр команды). Lowercase kebab-case (как у `openspec new change`): строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов.
+              Уникальный идентификатор change-proposal
             </span>
             {tag.length > 0 && !tagValid && (
               <span className="text-[11px] text-red-600">
@@ -170,9 +180,6 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-slate-800">
               Ссылка на Jira
-              <span className="ml-1 text-[11px] font-normal text-slate-500">
-                (опционально)
-              </span>
             </span>
             <input
               type="text"
@@ -182,8 +189,13 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               className="h-8 rounded-md border border-border bg-white px-2 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
             <span className="text-[11px] text-slate-500">
-              Если указана, на карточке и в заголовке задачи появится бейдж Jira-id.
+              На карточке и в заголовке задачи появится бейдж Jira-id.
             </span>
+            {jiraUrl.trim().length > 0 && jiraId == null && (
+              <span className="text-[11px] text-red-600">
+                Не удалось извлечь Jira ticket id из ссылки.
+              </span>
+            )}
           </label>
 
           {error && (

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
-import { scanChanges } from "@/lib/openspec";
-import { mergeScanWithState } from "@/lib/state";
+import { scanChangeRoots } from "@/lib/openspec";
+import { mergeScanWithState, readState } from "@/lib/state";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
 
 export async function POST() {
@@ -15,8 +15,23 @@ export async function POST() {
   }
 
   try {
-    const summaries = await scanChanges(config.openspecDir);
-    const state = await mergeScanWithState(summaries);
+    // Build the list of roots to scan:
+    //   1. The main openspecDir (legacy / non-worktree changes, plus any
+    //      unmerged feature work that has been pushed/merged).
+    //   2. Every task's openspecWorktreePath (analyst-mode flow — that's
+    //      where proposal.md / specs / design.md actually live).
+    // Order matters: scanChangeRoots makes LATER roots win on
+    // changeName collisions, so we put the main repo FIRST and
+    // worktrees SECOND. Worktrees always reflect the most recent state.
+    const state = await readState();
+    const roots = new Set<string>([config.openspecDir]);
+    for (const task of Object.values(state.tasks)) {
+      if (task.openspecWorktreePath) roots.add(task.openspecWorktreePath);
+    }
+    const rootList = Array.from(roots);
+
+    const summaries = await scanChangeRoots(rootList);
+    await mergeScanWithState(summaries);
 
     // Also trigger /opsx-continue for any proposal-stage task whose
     // .openspec.yaml is on disk but proposal.md isn't yet.
@@ -25,9 +40,7 @@ export async function POST() {
     const continued = await triggerContinueIfNeeded(config.openspecDir);
 
     // Re-read after the continue-trigger updates may have written changes.
-    const final = await mergeScanWithState(
-      await scanChanges(config.openspecDir),
-    );
+    const final = await mergeScanWithState(await scanChangeRoots(rootList));
 
     return NextResponse.json({
       scanned: summaries.length,

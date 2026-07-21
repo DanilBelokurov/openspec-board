@@ -3,6 +3,7 @@ import { execFile } from "child_process";
 import path from "path";
 import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
+import { resolveProposalRootForTask } from "@/lib/openspec";
 
 function openInOS(target: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -48,7 +49,19 @@ export async function POST(
     );
   }
 
-  const changeRoot = path.join(config.openspecDir, "changes", params.tag);
+  // Analyst-mode tasks live on a dedicated worktree; that is where the
+  // change folder (proposal.md, specs/, etc.) is created. The helper
+  // also probes the on-disk worktree convention when the task's
+  // openspecWorktreePath field is missing, so legacy tasks still
+  // resolve to the correct path. The standard OpenSpec layout puts
+  // change folders under `<repo>/openspec/changes/<tag>/`, so we
+  // join the additional "openspec/changes" segments here.
+  const changeRoot = path.join(
+    await resolveProposalRootForTask(task, config.openspecDir),
+    "openspec",
+    "changes",
+    params.tag,
+  );
 
   let body: { path?: string } = {};
   try {

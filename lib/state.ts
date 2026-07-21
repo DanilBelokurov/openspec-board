@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { randomUUID } from "crypto";
 import type { ChangeSummary, Stage } from "./openspec";
 
 const STATE_DIR = path.join(process.cwd(), ".sdd-board");
@@ -45,6 +46,12 @@ export interface TaskEntry {
   gigacodeContinueExitCode?: number | null;
   gigacodeContinueExitSignal?: string | null;
   gigacodeContinueLogPath?: string;
+  // Third proposal-creation step (analyst mode) — synchronous `git add`
+  // + `git commit` on the feature branch, auto-triggered once proposal.md
+  // exists on disk. Idempotent via `committedAt` (set on success).
+  committedAt?: string;
+  commitExitCode?: number | null;
+  commitError?: string;
 }
 
 export interface AppState {
@@ -76,13 +83,8 @@ export async function writeState(state: AppState): Promise<void> {
   );
 }
 
-function nextTaskId(existing: Map<string, TaskEntry>): string {
-  let max = 0;
-  for (const entry of existing.values()) {
-    const n = Number.parseInt(entry.id.replace(/^OS-/, ""), 10);
-    if (Number.isFinite(n) && n > max) max = n;
-  }
-  return `OS-${String(max + 1).padStart(3, "0")}`;
+function nextTaskId(_existing: Map<string, TaskEntry>): string {
+  return randomUUID();
 }
 
 export async function mergeScanWithState(

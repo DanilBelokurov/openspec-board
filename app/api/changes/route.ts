@@ -10,17 +10,14 @@ import {
   processLogPath,
   spawnDetachedWithLog,
 } from "@/lib/process-logger";
+import { randomUUID } from "crypto";
+import path from "path";
+import { repoBasename } from "@/lib/path-utils";
+import { createWorktreeFromBranch } from "@/lib/git-worktree";
+import { isGitRepo } from "@/lib/git";
 
-function nextTaskId(tasks: Record<string, unknown>): string {
-  let max = 0;
-  for (const key of Object.keys(tasks)) {
-    const m = key.match(/^OS-(\d+)$/);
-    if (m) {
-      const n = Number.parseInt(m[1], 10);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return `OS-${String(max + 1).padStart(3, "0")}`;
+function nextTaskId(_tasks: Record<string, unknown>): string {
+  return randomUUID();
 }
 
 function makeEmptySummary(tag: string, title: string, id: string) {
@@ -110,18 +107,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // jiraUrl is optional. If provided, must extract a ticket id.
+  // jiraUrl is REQUIRED — it's used to derive the branch name
+  // (feature/<JIRA-ID>) and the worktree path. The Jira ticket id must
+  // be extractable from the URL.
   const rawJiraUrl = (body.jiraUrl ?? "").trim();
-  let jiraUrl: string | undefined;
-  if (rawJiraUrl) {
-    const jiraId = extractJiraId(rawJiraUrl);
-    if (!jiraId) {
-      return NextResponse.json(
-        { error: `Не удалось извлечь Jira ticket id из "${rawJiraUrl}"` },
-        { status: 400 },
-      );
-    }
-    jiraUrl = rawJiraUrl;
+  if (!rawJiraUrl) {
+    return NextResponse.json(
+      { error: "Укажите ссылку на Jira-тикет — она используется для имени ветки и worktree" },
+      { status: 400 },
+    );
+  }
+  const jiraId = extractJiraId(rawJiraUrl);
+  if (!jiraId) {
+    return NextResponse.json(
+      { error: `Не удалось извлечь Jira ticket id из "${rawJiraUrl}"` },
+      { status: 400 },
+    );
   }
 
   if (!title) {
@@ -147,6 +148,44 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // The sdd-store (config.openspecDir) MUST be a git repo for the
+  // worktree flow. Refuse early with a clear error if not.
+  if (!(await isGitRepo(config.openspecDir))) {
+    return NextResponse.json(
+      {
+        error: `Директория OpenSpec store не является git-репозиторием: ${config.openspecDir}`,
+      },
+      { status: 400 },
+    );
+  }
+
+  // Compute the worktree path: <openspecDirParent>/<openspecDirBasename>.worktrees/<jiraId>/
+  const openspecBasename = repoBasename(config.openspecDir);
+  const openspecParent = path.dirname(config.openspecDir);
+  const openspecWorktree = path.join(
+    openspecParent,
+    `${openspecBasename}.worktrees`,
+    jiraId,
+  );
+  const branch = `feature/${jiraId}`;
+
+  // Update the configured main branch from origin and create the worktree
+  // on the new feature branch. Failure here aborts the create — no state
+  // has been written yet, so nothing to clean up.
+  try {
+    await createWorktreeFromBranch(
+      config.openspecDir,
+      openspecWorktree,
+      branch,
+      config.defaultBranch,
+    );
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Не удалось создать worktree: ${String(e)}` },
+      { status: 500 },
+    );
+  }
+
   const id = nextTaskId(state.tasks);
   const now = new Date().toISOString();
   const summary = makeEmptySummary(tag, title, id);
@@ -157,7 +196,8 @@ export async function POST(req: NextRequest) {
     lastScannedAt: now,
     summary,
     description,
-    jiraUrl,
+    jiraUrl: rawJiraUrl,
+    openspecWorktreePath: openspecWorktree,
     openspecNewPid: null,
     openspecNewStartedAt: now,
   };
@@ -167,18 +207,15 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn `openspec new change` headless. This creates the change
-  // directory and .openspec.yaml metadata file. The next step
-  // (gigacode /opsx-continue) is auto-triggered from lib/continuation.ts
-  // once the watcher or page render sees .openspec.yaml on disk without
+  // Spawn `openspec new change` headless INSIDE the worktree (cwd=<worktree>).
+  // This creates the change directory and .openspec.yaml metadata file.
+  // The next step (openspec instructions proposal + gigacode /opsx-continue
+  // with --prompt) is auto-triggered from lib/continuation.ts once the
+  // watcher or page render sees .openspec.yaml on disk without
   // proposal.md yet.
   //
   // --description writes the body into README.md inside the change folder,
-  // preserved as ground truth for the /opsx-continue step.
-  //
-  // cwd=openspecDir lets the CLI resolve the root via its "nearest
-  // ancestor with openspec/" precedence rule — same effect as --add-dir
-  // for gigacode, without configuring openspec-specific flags.
+  // preserved as ground truth for the proposal-generation step.
   const logFile = processLogPath(tag, "new");
   await ensureLogDir();
 
@@ -186,7 +223,7 @@ export async function POST(req: NextRequest) {
     tag,
     description,
     logFile,
-    config.openspecDir,
+    openspecWorktree,
   );
 
   if (openspecNewPid != null) {
@@ -204,6 +241,8 @@ export async function POST(req: NextRequest) {
       task: next.tasks[tag],
       openspecCommand: `openspec new change ${tag} --description "${description.replace(/"/g, '\\"')}"`,
       openspecNewStatus: processStatusFor(openspecNewPid),
+      worktreePath: openspecWorktree,
+      branch,
     },
     { status: 201 },
   );
@@ -213,7 +252,7 @@ async function spawnProposalOpenspecNew(
   tag: string,
   description: string,
   logFile: string,
-  openspecDir: string,
+  cwd: string,
 ): Promise<number | null> {
   try {
     const result = spawnDetachedWithLog({
@@ -221,10 +260,10 @@ async function spawnProposalOpenspecNew(
       argv: ["new", "change", tag, "--description", description],
       logFile,
       header: `openspec new change for ${tag}`,
-      cwd: openspecDir,
+      cwd,
     });
     // Fire-and-forget: when openspec exits, write exit code/signal back to
-    // state. The /opsx-continue auto-trigger watches for `.openspec.yaml`
+    // state. The continuation auto-trigger watches for `.openspec.yaml`
     // appearing on disk — that's the readiness signal this step produces.
     result.promise
       .then(async ({ exitCode, signal }) => {

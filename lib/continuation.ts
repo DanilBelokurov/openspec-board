@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { execFile } from "child_process";
 import { readState, updateTask } from "./state";
 import {
   ensureLogDir,
@@ -16,17 +17,76 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+function run(
+  cmd: string,
+  args: string[],
+  opts?: { cwd?: string },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      cmd,
+      args,
+      { cwd: opts?.cwd, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(
+            new Error(
+              `${cmd} ${args.join(" ")} failed: ${err.message}\n${stderr}`,
+            ),
+          );
+          return;
+        }
+        resolve({ stdout: String(stdout), stderr: String(stderr) });
+      },
+    );
+  });
+}
+
+// Prompt template from the user spec — the {json} placeholder is
+// substituted with the raw stdout of `openspec instructions proposal
+// --change <tag> --json`. Kept verbatim because the assistant is
+// expected to follow it as-is (parse JSON fields, write to the
+// resolvedOutputPath).
+const PROPOSAL_PROMPT_TEMPLATE = `Parse the JSON. The key fields are:
+  - \`context\`: Project background (constraints for you - do NOT include in output)
+  - \`rules\`: Artifact-specific rules (constraints for you - do NOT include in output)
+  - \`template\`: The structure to use for your output file
+  - \`instruction\`: Schema-specific guidance
+  - \`resolvedOutputPath\`: Resolved path or pattern to write the artifact
+  - \`dependencies\`: Completed artifacts to read for context
+Create the artifact file:
+  - Read any completed dependency files for context
+  - Use \`template\` as the structure - fill in its sections
+  - Apply \`context\` and \`rules\` as constraints when writing - but do NOT copy them into the file
+  - Write to the \`resolvedOutputPath\` specified in instructions. If it is a glob pattern, choose the concrete file path using the schema instruction and the change's context
+"{json}"`;
+
 /**
- * For each task in stage="proposal" whose openspec CLI step has finished
- * (we check that .openspec.yaml exists but proposal.md doesn't yet —
- * `openspec new change` produces the .yaml, gigacode /opsx-continue
- * writes proposal.md), spawn gigacode /opsx-continue with stdout/stderr
- * piped to a log file, and record its pid + exit code/signal back to state.
+ * Drive the analyst-mode proposal-creation pipeline to completion.
  *
- * Safe to call on every render (and from a background watcher):
- * gigacodeContinuePid flag makes it idempotent.
+ * The pipeline is split across three auto-triggered steps, each guarded
+ * by a disk-side-effect flag (per `feedback/auto-trigger-from-observed-lifecycle.md`):
  *
- * Returns the list of changeNames for which continue was spawned.
+ *   step 1 (handled by POST /api/changes):
+ *     `openspec new change <tag> --description <desc>` in worktree.
+ *     produces: <worktree>/changes/<tag>/.openspec.yaml
+ *
+ *   step 2 (this function, when .openspec.yaml present but proposal.md
+ *     not yet):
+ *     `openspec instructions proposal --change <tag> --json` in worktree,
+ *     then `gigacode --approval-mode=auto-edit --add-dir <worktree>
+ *     --prompt <template-with-json>`.
+ *     produces: <worktree>/changes/<tag>/proposal.md
+ *
+ *   step 3 (this function, when proposal.md present but not yet committed):
+ *     synchronous `git -C <worktree> add . && git -C <worktree> commit -m ...`.
+ *     Side-effect: a new commit on the feature branch. Idempotent via
+ *     `committedAt`.
+ *
+ * Safe to call on every render and from the background watcher —
+ * each step has its own idempotency flag.
+ *
+ * Returns the list of changeNames whose state was advanced this tick.
  */
 export async function triggerContinueIfNeeded(
   openspecDir: string,
@@ -38,57 +98,152 @@ export async function triggerContinueIfNeeded(
 
   for (const [changeName, task] of Object.entries(state.tasks)) {
     if (task.stage !== "proposal") continue;
-    if (task.gigacodeContinuePid) continue; // already spawned
-
-    const changePath = path.join(openspecDir, "changes", changeName);
+    if (!task.openspecWorktreePath) continue;
+    const changePath = path.join(
+      task.openspecWorktreePath,
+      "openspec",
+      "changes",
+      changeName,
+    );
     if (!(await exists(changePath))) continue;
     if (!(await exists(path.join(changePath, ".openspec.yaml")))) continue;
-    if (await exists(path.join(changePath, "proposal.md"))) continue;
 
-    const logFile = processLogPath(changeName, "continue");
-    let pid: number | null = null;
-    try {
-      // Per user spec: the second step is gigacode /opsx-continue with the
-      // task description as its prompt. gigacode discovers the active
-      // change from its own context (--add-dir).
-      const description = task.description ?? "";
-      const result = spawnGigacodeWithLog({
-        argv: ["--prompt", `/opsx-continue ${description}`],
-        logFile,
-        header: `gigacode /opsx-continue for ${changeName}`,
-        addDir: openspecDir,
-        approvalMode: "auto-edit",
-      });
-      pid = result.pid || null;
-      result.promise
-        .then(async ({ exitCode, signal }) => {
-          await updateTask(changeName, {
-            gigacodeContinueExitCode: exitCode,
-            gigacodeContinueExitSignal: signal,
-          });
-        })
-        .catch((e) =>
-          console.error(`gigacode-continue exit handler error:`, e),
-        );
-    } catch (e) {
-      console.error(
-        `gigacode /opsx-continue spawn threw for ${changeName}:`,
-        e,
-      );
+    const proposalExists = await exists(path.join(changePath, "proposal.md"));
+
+    if (proposalExists) {
+      // Step 3: commit.
+      if (task.committedAt) continue;
+      const ok = await commitProposalChange(task, changeName);
+      if (ok) triggered.push(changeName);
+      continue;
     }
 
-    if (pid != null) {
-      await updateTask(changeName, {
-        gigacodeContinuePid: pid,
-        gigacodeContinueStartedAt: now,
-        gigacodeContinueLogPath: logFile,
-      });
-      triggered.push(changeName);
-    } else {
-      console.error(
-        `Failed to spawn gigacode /opsx-continue for ${changeName}`,
-      );
-    }
+    // Step 2: openspec instructions → gigacode --prompt.
+    if (task.gigacodeContinuePid) continue;
+    const spawned = await spawnProposalGigacode(task, changeName, changePath);
+    if (spawned) triggered.push(changeName);
   }
   return triggered;
+}
+
+async function spawnProposalGigacode(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  changePath: string,
+): Promise<boolean> {
+  const worktree = task.openspecWorktreePath!;
+  // 2a. Get the proposal-generation instructions as JSON.
+  let instructionsJson: string;
+  try {
+    const { stdout } = await run(
+      "openspec",
+      ["instructions", "proposal", "--change", changeName, "--json"],
+      { cwd: worktree },
+    );
+    instructionsJson = stdout;
+  } catch (e) {
+    console.error(
+      `openspec instructions proposal failed for ${changeName}:`,
+      e,
+    );
+    // Mark as error so the UI surfaces it; don't retry forever (the
+    // openSpec-new step exit code stays unchanged — this is a separate
+    // failure mode we want to make visible).
+    await updateTask(changeName, {
+      commitError: `openspec instructions: ${(e as Error).message}`,
+    });
+    return false;
+  }
+
+  const prompt = PROPOSAL_PROMPT_TEMPLATE.replace(
+    "{json}",
+    instructionsJson,
+  );
+
+  const logFile = processLogPath(changeName, "continue");
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: `gigacode --prompt (proposal) for ${changeName}`,
+      addDir: worktree,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    result.promise
+      .then(async ({ exitCode, signal }) => {
+        await updateTask(changeName, {
+          gigacodeContinueExitCode: exitCode,
+          gigacodeContinueExitSignal: signal,
+        });
+      })
+      .catch((e) =>
+        console.error(`gigacode-continue exit handler error:`, e),
+      );
+  } catch (e) {
+    console.error(
+      `gigacode --prompt spawn threw for ${changeName}:`,
+      e,
+    );
+  }
+
+  if (pid != null) {
+    await updateTask(changeName, {
+      gigacodeContinuePid: pid,
+      gigacodeContinueStartedAt: new Date().toISOString(),
+      gigacodeContinueLogPath: logFile,
+    });
+    return true;
+  }
+  console.error(
+    `Failed to spawn gigacode --prompt for ${changeName}`,
+  );
+  return false;
+}
+
+async function commitProposalChange(
+  task: import("./state").TaskEntry,
+  changeName: string,
+): Promise<boolean> {
+  const worktree = task.openspecWorktreePath!;
+  const message = buildCommitMessage(task, changeName);
+  try {
+    await run("git", ["-C", worktree, "add", "."]);
+    await run("git", ["-C", worktree, "commit", "-m", message]);
+    await updateTask(changeName, {
+      committedAt: new Date().toISOString(),
+      commitExitCode: 0,
+      commitError: undefined,
+    });
+    return true;
+  } catch (e) {
+    const err = e as Error;
+    console.error(`git commit failed for ${changeName}:`, err);
+    // Non-zero exit: surface but DON'T mark as committed — leave the
+    // idempotency flag null so a later trigger can retry once the user
+    // fixes whatever blocked the commit.
+    await updateTask(changeName, {
+      commitExitCode: 1,
+      commitError: err.message,
+    });
+    return false;
+  }
+}
+
+function buildCommitMessage(
+  task: import("./state").TaskEntry,
+  changeName: string,
+): string {
+  const title = task.summary.title;
+  const description = task.description ?? "";
+  const jira = task.jiraUrl ?? "";
+  const lines = [
+    `[openspec] Add change-proposal: ${title}`,
+    "",
+    `Tag: ${changeName}`,
+  ];
+  if (jira) lines.push(`Jira: ${jira}`);
+  lines.push("", "Description:", description);
+  return lines.join("\n");
 }

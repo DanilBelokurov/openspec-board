@@ -117,10 +117,13 @@ export async function POST(
   }
 
   // Update state
-  // The worktree mirrors openspecDir's contents, so the change folder lives at
-  // `<worktree>/changes/<tag>/`, NOT `<worktree>/openspec/changes/<tag>/`.
+  // The worktree mirrors the openspecDir repo (a sibling of it). The
+  // standard OpenSpec layout puts change folders under `<repo>/openspec/`,
+  // so inside the worktree the path is
+  // `<worktree>/openspec/changes/<tag>/`.
   const changePathInWorktree = path.join(
     openspecWorktree,
+    "openspec",
     "changes",
     params.tag,
   );
