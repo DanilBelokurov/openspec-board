@@ -17,10 +17,11 @@ async function exists(p: string): Promise<boolean> {
 }
 
 /**
- * For each task in stage="proposal" whose gigacode /opsx-new has finished
- * (we just check that .openspec.yaml exists but proposal.md doesn't yet),
- * spawn gigacode /opsx-continue with stdout/stderr piped to a log file,
- * and record its pid + exit code/signal back to state.
+ * For each task in stage="proposal" whose openspec CLI step has finished
+ * (we check that .openspec.yaml exists but proposal.md doesn't yet —
+ * `openspec new change` produces the .yaml, gigacode /opsx-continue
+ * writes proposal.md), spawn gigacode /opsx-continue with stdout/stderr
+ * piped to a log file, and record its pid + exit code/signal back to state.
  *
  * Safe to call on every render (and from a background watcher):
  * gigacodeContinuePid flag makes it idempotent.
@@ -47,9 +48,9 @@ export async function triggerContinueIfNeeded(
     const logFile = processLogPath(changeName, "continue");
     let pid: number | null = null;
     try {
-      // Per user spec: second gigacode call passes the task description
-      // (not the change path). gigacode discovers the active change from
-      // its own context (--add-dir + cwd).
+      // Per user spec: the second step is gigacode /opsx-continue with the
+      // task description as its prompt. gigacode discovers the active
+      // change from its own context (--add-dir).
       const description = task.description ?? "";
       const result = spawnGigacodeWithLog({
         argv: ["--prompt", `/opsx-continue ${description}`],

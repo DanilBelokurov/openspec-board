@@ -1,10 +1,14 @@
 import fs from "fs/promises";
 import { createWriteStream } from "fs";
+import { spawn, type SpawnOptions } from "child_process";
 import path from "path";
 
 const LOG_DIR = path.join(process.cwd(), ".sdd-board", "logs");
 
-export type GigacodeStep = "new" | "continue";
+// "new" = first step (now `openspec new change`); "continue" = second step
+// (still `gigacode /opsx-continue`). The step name drives only the log
+// filename, not the command — each caller picks its own binary.
+export type ProposalStep = "new" | "continue";
 
 export async function ensureLogDir(): Promise<void> {
   await fs.mkdir(LOG_DIR, { recursive: true });
@@ -12,7 +16,7 @@ export async function ensureLogDir(): Promise<void> {
 
 export function processLogPath(
   changeName: string,
-  step: GigacodeStep,
+  step: ProposalStep,
 ): string {
   return path.join(LOG_DIR, `${changeName}.${step}.log`);
 }
@@ -20,26 +24,20 @@ export function processLogPath(
 export type GigacodeApprovalMode = "auto-edit" | "suggest" | "default";
 
 interface SpawnWithLogOptions {
+  /** Binary name (e.g. "gigacode", "openspec"). */
+  command: string;
+  /** Extra argv elements after the binary. Each element is passed as-is. */
   argv: string[];
   logFile: string;
   header?: string;
-  /** Absolute path passed to gigacode via --add-dir. Should be the
-   *  sdd-store root from config (config.openspecDir). */
-  addDir: string;
-  /** Approval mode passed to gigacode via --approval-mode. */
-  approvalMode: GigacodeApprovalMode;
-}
-
-interface SpawnWithLogResult {
-  pid: number;
-  promise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+  /** Working directory for the spawned process. When omitted, inherits. */
+  cwd?: string;
 }
 
 /**
- * Spawn gigacode detached with stdout/stderr piped to a log file.
- *
- * Builds the final argv as:
+ * Gigacode-specific wrapper: builds the final argv as
  *   gigacode <caller-argv> --approval-mode=<mode> --add-dir <addDir>
+ * then spawns it detached with stdout/stderr piped to a log file.
  *
  * - caller's argv is the prompt (["--prompt", "<prompt text>"])
  * - `--approval-mode=<mode>` uses the key=value form per user spec
@@ -51,30 +49,65 @@ interface SpawnWithLogResult {
  * The process is unref()'d so it survives parent exit.
  */
 export function spawnGigacodeWithLog(
+  args: {
+    argv: string[];
+    logFile: string;
+    header?: string;
+    /** Absolute path passed to gigacode via --add-dir. Should be the
+     *  sdd-store root from config (config.openspecDir). */
+    addDir: string;
+    /** Approval mode passed to gigacode via --approval-mode. */
+    approvalMode: GigacodeApprovalMode;
+  },
+): SpawnWithLogResult {
+  // Order: prompt first (the actual command), then flags.
+  // Result: gigacode --prompt "<text>" --approval-mode=auto-edit --add-dir <path>
+  const finalArgv = [
+    ...args.argv,
+    `--approval-mode=${args.approvalMode}`,
+    "--add-dir",
+    args.addDir,
+  ];
+  return spawnDetachedWithLog({
+    command: "gigacode",
+    argv: finalArgv,
+    logFile: args.logFile,
+    header: args.header,
+  });
+}
+
+interface SpawnWithLogResult {
+  pid: number;
+  promise: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+}
+
+/**
+ * Spawn any CLI detached with stdout/stderr piped to a log file.
+ * Generic counterpart to `spawnGigacodeWithLog` — used by the openspec CLI
+ * step as well as any future background commands.
+ *
+ * Resolves a promise on the 'close' event with the exit code/signal.
+ * The process is unref()'d so it survives parent exit.
+ */
+export function spawnDetachedWithLog(
   opts: SpawnWithLogOptions,
 ): SpawnWithLogResult {
   const out = createWriteStream(opts.logFile, { flags: "a" });
   const err = createWriteStream(opts.logFile, { flags: "a" });
 
-  // Order: prompt first (the actual command), then flags.
-  // Result: gigacode --prompt "<text>" --approval-mode=auto-edit --add-dir <path>
-  const finalArgv = [
-    ...opts.argv,
-    `--approval-mode=${opts.approvalMode}`,
-    "--add-dir",
-    opts.addDir,
-  ];
-
   if (opts.header) {
     out.write(
-      `# ${opts.header}\n# argv: gigacode ${formatArgv(finalArgv)}\n\n`,
+      `# ${opts.header}\n# argv: ${opts.command} ${formatArgv(opts.argv)}\n\n`,
     );
   }
 
-  const child = require("child_process").spawn("gigacode", finalArgv, {
+  const spawnOpts: SpawnOptions = {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-  });
+  };
+  if (opts.cwd) spawnOpts.cwd = opts.cwd;
+
+  const child = spawn(opts.command, opts.argv, spawnOpts);
 
   if (child.stdout) child.stdout.pipe(out);
   if (child.stderr) child.stderr.pipe(err);

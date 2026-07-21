@@ -10,24 +10,36 @@ export interface TaskEntry {
   stage: Stage;
   lastScannedAt: string;
   summary: ChangeSummary;
-  // Set after "Start" action (developer mode)
+  // Set after "Start" action (developer mode).
   jiraUrl?: string;
   codeRepoPath?: string;
   openspecWorktreePath?: string;
   codeWorktreePath?: string;
+  // PID of the gigacode /opsx:plan process spawned by the Start action
+  // (developer mode). Distinct from the analyst-mode proposal-creation
+  // step PIDs below.
   gigacodePid?: number | null;
   gigacodeExitCode?: number | null;
   gigacodeExitSignal?: string | null;
   gigacodeLogPath?: string;
   startedAt?: string;
-  // Set after "Новый proposal" (analyst mode)
+  // First proposal-creation step (analyst mode) — the openspec CLI
+  // (`openspec new change <tag>`). Creates the change directory and the
+  // .openspec.yaml metadata file.
   description?: string;
   // The proposal's tag is the change folder name, exposed externally as
   // summary.changeName (OpenSpec's term for the change identifier). It is
   // intentionally NOT a separate field on TaskEntry — keep one source of
   // truth for "the change identifier" (used as state key, folder, log
-  // filename, URL segment, and gigacode prompt).
-  gigacodeStartedAt?: string;
+  // filename, URL segment, and CLI command argument).
+  openspecNewPid?: number | null;
+  openspecNewStartedAt?: string;
+  openspecNewExitCode?: number | null;
+  openspecNewExitSignal?: string | null;
+  openspecNewLogPath?: string;
+  // Second proposal-creation step (analyst mode) — gigacode /opsx-continue,
+  // auto-triggered from lib/continuation.ts once the change directory and
+  // .openspec.yaml exist but proposal.md does not.
   gigacodeContinuePid?: number | null;
   gigacodeContinueStartedAt?: string;
   gigacodeContinueExitCode?: number | null;

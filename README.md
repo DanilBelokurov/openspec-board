@@ -156,30 +156,29 @@ npm start
 В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с четырьмя полями:
 
 - **Название** — заголовок proposal (человекочитаемое, может быть на любом языке)
-- **Tag** (опционально) — короткое английское название (например, `add-oauth2-auth`), только латиница/цифры/дефис до 40 символов. Отображается на карточке и в заголовке задачи. **Передаётся в gigacode /opsx-new** (если не задан — используется changeName)
-- **Краткое описание** — текст, который передаётся в gigacode /opsx-continue как содержимое proposal'а
+- **Tag** (обязательно) — короткое английское название в lowercase kebab-case (например, `add-oauth2-auth`), проверяется на стороне клиента и сервера по правилам `openspec new change` (строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов). Отображается на карточке и в заголовке задачи. Передаётся как аргумент `openspec new change <tag>`
+- **Краткое описание** — текст, который передаётся в gigacode /opsx-continue как содержимое proposal'а (через `--description` в `openspec new change` текст попадает в `README.md` внутри папки change)
 - **Ссылка на Jira** (опционально) — URL задачи, из которого извлекается `JIRA-id` и отображается кликабельным бейджем на карточке и в заголовке детальной страницы (открывается в новой вкладке)
 
 По нажатию «Создать»:
 
-1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), title и description непустые. Tag опционален; если есть — regex `^[A-Za-z0-9-]{1,40}$`. jiraUrl опционален; если есть — извлекается ticket id (иначе 400)
-2. Slug из названия (ASCII-only, NFKD + strip non a-z0-9) — избегает non-ASCII в URL-сегментах. При коллизии добавляется `-2`, `-3` …
-3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `tag?`, `jiraUrl?`, `gigacodePid: null`, `gigacodeStartedAt`
-4. Спавнится `gigacode /opsx-new <tag || changeName>` через `spawnGigacodeWithLog` detached (с флагами `--approval-mode=auto-edit --add-dir <openspecDir>`)
-5. State обновляется с `gigacodePid`
+1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), title и description непустые. Tag обязателен — функция `isValidOpenspecTag` из `lib/tag.ts` (одинаковая на клиенте и сервере). jiraUrl опционален; если есть — извлекается ticket id (иначе 400)
+2. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `tag`, `jiraUrl?`, `openspecNewPid: null`, `openspecNewStartedAt`
+3. Спавнится `openspec new change <tag> --description <description>` через `spawnDetachedWithLog` (cwd=<openspecDir>, чтобы CLI самостоятельно нашёл корень OpenSpec через "nearest ancestor with openspec/")
+4. State обновляется с `openspecNewPid`
 
-Когда gigacode 1 заканчивает работу (создаёт `<openspecDir>/changes/<slug>/.openspec.yaml`), watcher (`lib/watcher.ts`, polling 5s) или любая загрузка страницы автоматически вызывает `triggerContinueIfNeeded`, который спавнит второй gigacode:
+Команда openspec создаёт директорию `<openspecDir>/changes/<tag>/` и metadata-файл `.openspec.yaml`. После этого watcher (`lib/watcher.ts`, polling 5s) или любая загрузка страницы автоматически вызывает `triggerContinueIfNeeded`, который спавнит gigacode /opsx-continue:
 
 ```
 gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-continue <description>"
 ```
 
 Второй процесс получает **описание задачи** (а не путь к change), находит активный change в `--add-dir` и создаёт `proposal.md`.
-6. Возвращает 201 `{ created, task, gigacodePrompt, gigacodeStatus }`, board перерисовывается
+5. Возвращает 201 `{ created, task, openspecCommand, openspecNewStatus }`, board перерисовывается
 
 ### Кнопка «Подтверждено» (analyst → delta-spec)
 
-Когда оба gigacode-процесса завершены и `proposal.md` существует на диске, в детальной странице задачи появляется зелёная панель с кнопкой **«Подтверждено»**. По нажатию:
+Когда оба процесса (openspec new change → gigacode /opsx-continue) завершены и `proposal.md` существует на диске, в детальной странице задачи появляется зелёная панель с кнопкой **«Подтверждено»**. По нажатию:
 
 - POST `/api/changes/[name]/confirm` → `stage: "proposal"` → `stage: "delta-spec"`
 - Кнопка скрывается (нет смысла подтверждать дважды)
@@ -191,21 +190,22 @@ gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-continue <d
 
 | Условие | Бейдж |
 | --- | --- |
-| `gigacodeStatus === "running"` | `gigacode` зелёный (Loader-спиннер) |
-| `gigacodeStatus === "stopped" && !proposalReady && !gigacodeError` | `gigacode` серый (галочка) |
+| `openspecNewStatus === "running"` (analyst mode, шаг 1) | `openspec new change` зелёный (Loader-спиннер) |
+| `gigacodeContinueStatus === "running"` (analyst mode, шаг 2) | `gigacode /opsx-continue` зелёный (Loader-спиннер) |
+| `gigacodeStatus === "running"` (developer mode, Start) | `gigacode` зелёный (Loader-спиннер) |
 | `proposalReady && !gigacodeError` | `Ожидает` фиолетовый (Hourglass) |
-| `gigacodeError` (любой gigacode exited non-zero) | `ошибка gigacode` красный (AlertCircle) |
+| `gigacodeError` (любой шаг exited non-zero) | `ошибка` красный (AlertCircle) |
 | `jiraUrl` задан | `JIRA-id` синий (ExternalLink) — кликабельный, открывает в новой вкладке |
 
 В детальной странице `JIRA-id` бейдж расположен в шапке между `stage`-бейджем и `Обновлено` (как просил пользователь).
 
-## Статус gigacode-процесса
+## Статус CLI-процессов (analyst + developer)
 
 | Где | Как отображается |
 | --- | --- |
-| Карточка на доске | Бейдж: «gigacode» с Loader-иконкой (зелёный) пока процесс жив, с галочкой (серый) когда умер |
-| Детальная страница — header | Бейдж «gigacode · PID» рядом с датой |
-| Детальная страница — секция «gigacode-процесс» | Иконка + статус (выполняется/завершён), время запуска, PID, команда |
+| Карточка на доске | Бейдж с названием активного шага: «openspec new change», «gigacode /opsx-continue» или «gigacode» (в developer mode); Loader-спиннер пока процесс жив |
+| Детальная страница — header | Бейдж «<шаг> · PID» рядом с датой |
+| Детальная страница — секции процессов | Иконка + статус (выполняется/завершён), время запуска, PID, полная команда |
 
 Статус определяется через `process.kill(pid, 0)` на каждом SSR-рендере (страница пересчитывает на refresh). Никаких polling'ов или persistent state для статуса нет — каждый refresh страницы проверяет заново.
 

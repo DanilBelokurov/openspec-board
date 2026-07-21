@@ -28,6 +28,14 @@ export function SessionCard({ item, mode }: SessionCardProps) {
   const jiraId = item.jiraId ?? (item.jiraUrl ? extractJiraId(item.jiraUrl) : null);
   const repoName = item.codeRepoPath ? repoBasename(item.codeRepoPath) : null;
 
+  // Pick the currently-running CLI step (if any). In analyst mode both
+  // steps are visible (openspec new change → gigacode /opsx-continue);
+  // in developer mode the only relevant process is the Start action's
+  // gigacode /opsx:plan.
+  const step1Running = item.openspecNewStatus === "running";
+  const step2Running = item.gigacodeContinueStatus === "running";
+  const planRunning = item.gigacodeStatus === "running";
+
   return (
     <Link
       href={`/changes/${encodeURIComponent(item.changeName)}`}
@@ -41,27 +49,35 @@ export function SessionCard({ item, mode }: SessionCardProps) {
           {item.changeName}
         </code>
         <div className="flex flex-wrap gap-1">
-          {/* gigacode status — only when there's a gigacode process for this task */}
-          {item.gigacodeStatus === "running" && (
+          {step1Running && (
             <span
               className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-              title="gigacode-процесс запущен"
+              title="Создание директории change-proposal"
+            >
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              openspec new change
+            </span>
+          )}
+          {step2Running && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+              title="Создание proposal.md — gigacode /opsx-continue"
+            >
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              gigacode /opsx-continue
+            </span>
+          )}
+          {planRunning && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+              title="Планирование декомпозиции — gigacode /opsx:plan"
             >
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
               gigacode
             </span>
           )}
-          {item.gigacodeStatus === "stopped" && !item.gigacodeError && (
-            <span
-              className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
-              title="gigacode-процесс завершён"
-            >
-              <CheckCircle2 className="h-2.5 w-2.5" />
-              gigacode
-            </span>
-          )}
-          {/* After both gigacodes finished + proposal.md exists → "Ожидает".
-              Per user spec: replaces the gigacode badge. */}
+          {/* After both analyst-mode CLI steps finished + proposal.md exists
+              → "Ожидает". Per user spec: replaces the process badge. */}
           {item.proposalReady && !item.gigacodeError && (
             <span
               className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
@@ -71,14 +87,14 @@ export function SessionCard({ item, mode }: SessionCardProps) {
               Ожидает
             </span>
           )}
-          {/* If any gigacode exited with non-zero → red error badge. */}
+          {/* If any background step exited with non-zero → red error badge. */}
           {item.gigacodeError && (
             <span
               className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
-              title="gigacode завершился с ошибкой"
+              title="Один из шагов завершился с ошибкой"
             >
               <CircleAlert className="h-2.5 w-2.5" />
-              ошибка gigacode
+              ошибка
             </span>
           )}
           {jiraId && (

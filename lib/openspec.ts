@@ -94,8 +94,12 @@ export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
   jiraId?: string;
   codeRepoPath?: string;
-  gigacodeStatus?: "running" | "stopped" | "none";
+  // Step 1 (analyst mode): `openspec new change` — creates the change folder.
+  openspecNewStatus?: "running" | "stopped" | "none";
+  // Step 2 (analyst mode): gigacode /opsx-continue — writes proposal.md.
   gigacodeContinueStatus?: "running" | "stopped" | "none";
+  // Developer-mode "Start" step: gigacode /opsx:plan.
+  gigacodeStatus?: "running" | "stopped" | "none";
   proposalReady?: boolean;
   gigacodeError?: boolean;
 }

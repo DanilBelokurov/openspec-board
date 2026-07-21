@@ -6,10 +6,7 @@ import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
 import { MODES } from "@/lib/modes";
-import {
-  gigacodeContinueStatusFor,
-  gigacodeStatusFor,
-} from "@/lib/process";
+import { processStatusFor } from "@/lib/process";
 import { extractJiraId } from "@/lib/jira";
 import {
   checkProposalExists,
@@ -51,22 +48,25 @@ export default async function Home() {
           t.summary.changeName,
         );
         const proposalReady = await checkProposalExists(changePath);
-        const gigacodeError =
-          (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0) ||
+        // In analyst mode, "error" means either CLI step exited non-zero.
+        // In developer mode, gigacodeExitCode tracks /opsx:plan (the only
+        // background step), so including it is still correct there.
+        const stepError =
+          (t.openspecNewExitCode != null && t.openspecNewExitCode !== 0) ||
           (t.gigacodeContinueExitCode != null &&
-            t.gigacodeContinueExitCode !== 0);
+            t.gigacodeContinueExitCode !== 0) ||
+          (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0);
         const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
         return {
           ...t.summary,
           jiraUrl: t.jiraUrl,
           jiraId: jiraId ?? undefined,
           codeRepoPath: t.codeRepoPath,
-          gigacodeStatus: gigacodeStatusFor(t.gigacodePid),
-          gigacodeContinueStatus: gigacodeContinueStatusFor(
-            t.gigacodeContinuePid,
-          ),
+          openspecNewStatus: processStatusFor(t.openspecNewPid),
+          gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
+          gigacodeStatus: processStatusFor(t.gigacodePid),
           proposalReady,
-          gigacodeError: gigacodeError || undefined,
+          gigacodeError: stepError || undefined,
         };
       }),
   );

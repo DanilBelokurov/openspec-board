@@ -9,16 +9,13 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-export type GigacodeStatus = "running" | "stopped" | "none";
+// Generic process status — used for both the openspec CLI run that creates
+// the change directory and the gigacode run that continues with proposal.md.
+export type ProcessStatus = "running" | "stopped" | "none";
 
-export function gigacodeStatusFor(pid: number | null | undefined): GigacodeStatus {
-  if (!pid) return "none";
-  return isProcessAlive(pid) ? "running" : "stopped";
-}
-
-export function gigacodeContinueStatusFor(
+export function processStatusFor(
   pid: number | null | undefined,
-): GigacodeStatus {
+): ProcessStatus {
   if (!pid) return "none";
   return isProcessAlive(pid) ? "running" : "stopped";
 }

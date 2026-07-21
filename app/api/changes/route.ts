@@ -2,15 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
 import { readState, updateTask, writeState } from "@/lib/state";
-import { gigacodeStatusFor } from "@/lib/process";
+import { processStatusFor } from "@/lib/process";
 import { extractJiraId } from "@/lib/jira";
+import { isValidOpenspecTag } from "@/lib/tag";
 import {
   ensureLogDir,
   processLogPath,
-  spawnGigacodeWithLog,
+  spawnDetachedWithLog,
 } from "@/lib/process-logger";
-
-const TAG_RE = /^[A-Za-z0-9-]{1,40}$/;
 
 function nextTaskId(tasks: Record<string, unknown>): string {
   let max = 0;
@@ -92,9 +91,8 @@ export async function POST(req: NextRequest) {
   const description = (body.description ?? "").trim();
   // Tag is the canonical identifier for the change: it becomes the change
   // folder name, the state.json key, the URL segment, the log filename,
-  // and the identifier passed to gigacode. Because it lands in
-  // <openspecDir>/changes/<tag>/ as a directory name, it must be a
-  // filesystem-safe slug: ASCII letters/digits/dashes, 1-40 chars.
+  // and the identifier passed to `openspec new change`. We validate
+  // against that CLI's rules so the spawn can't fail with a name error.
   const tag = (body.tag ?? "").trim();
   if (!tag) {
     return NextResponse.json(
@@ -102,11 +100,11 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  if (!TAG_RE.test(tag)) {
+  if (!isValidOpenspecTag(tag)) {
     return NextResponse.json(
       {
         error:
-          "tag должен быть 1-40 символов: только латиница, цифры и дефис (например add-oauth2)",
+          "tag должен быть в lowercase kebab-case (например add-oauth2): строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов",
       },
       { status: 400 },
     );
@@ -160,8 +158,8 @@ export async function POST(req: NextRequest) {
     summary,
     description,
     jiraUrl,
-    gigacodePid: null,
-    gigacodeStartedAt: now,
+    openspecNewPid: null,
+    openspecNewStartedAt: now,
   };
 
   const next = {
@@ -169,27 +167,33 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn gigacode headless. The identifier passed to /opsx-new is exactly
-  // the same string we used as folder name, state key, and log filename —
-  // no second naming convention to drift.
-  // The second step (/opsx-continue) is triggered later from /api/refresh /
-  // page loads / background watcher.
-  const gigacodePrompt = `/opsx-new ${tag}`;
+  // Spawn `openspec new change` headless. This creates the change
+  // directory and .openspec.yaml metadata file. The next step
+  // (gigacode /opsx-continue) is auto-triggered from lib/continuation.ts
+  // once the watcher or page render sees .openspec.yaml on disk without
+  // proposal.md yet.
+  //
+  // --description writes the body into README.md inside the change folder,
+  // preserved as ground truth for the /opsx-continue step.
+  //
+  // cwd=openspecDir lets the CLI resolve the root via its "nearest
+  // ancestor with openspec/" precedence rule — same effect as --add-dir
+  // for gigacode, without configuring openspec-specific flags.
   const logFile = processLogPath(tag, "new");
   await ensureLogDir();
 
-  const gigacodePid = await spawnProposalGigacode(
+  const openspecNewPid = await spawnProposalOpenspecNew(
     tag,
-    gigacodePrompt,
+    description,
     logFile,
     config.openspecDir,
   );
 
-  if (gigacodePid != null) {
+  if (openspecNewPid != null) {
     next.tasks[tag] = {
       ...newTask,
-      gigacodePid,
-      gigacodeLogPath: logFile,
+      openspecNewPid,
+      openspecNewLogPath: logFile,
     };
     await writeState(next);
   }
@@ -198,39 +202,43 @@ export async function POST(req: NextRequest) {
     {
       created: true,
       task: next.tasks[tag],
-      gigacodePrompt,
-      gigacodeStatus: gigacodeStatusFor(gigacodePid),
+      openspecCommand: `openspec new change ${tag} --description "${description.replace(/"/g, '\\"')}"`,
+      openspecNewStatus: processStatusFor(openspecNewPid),
     },
     { status: 201 },
   );
 }
 
-async function spawnProposalGigacode(
+async function spawnProposalOpenspecNew(
   tag: string,
-  prompt: string,
+  description: string,
   logFile: string,
   openspecDir: string,
 ): Promise<number | null> {
   try {
-    const result = spawnGigacodeWithLog({
-      argv: ["--prompt", prompt],
+    const result = spawnDetachedWithLog({
+      command: "openspec",
+      argv: ["new", "change", tag, "--description", description],
       logFile,
-      header: `gigacode /opsx-new for ${tag}`,
-      addDir: openspecDir,
-      approvalMode: "auto-edit",
+      header: `openspec new change for ${tag}`,
+      cwd: openspecDir,
     });
-    // Fire-and-forget: when gigacode exits, write exit code/signal back to state
+    // Fire-and-forget: when openspec exits, write exit code/signal back to
+    // state. The /opsx-continue auto-trigger watches for `.openspec.yaml`
+    // appearing on disk — that's the readiness signal this step produces.
     result.promise
       .then(async ({ exitCode, signal }) => {
         await updateTask(tag, {
-          gigacodeExitCode: exitCode,
-          gigacodeExitSignal: signal,
+          openspecNewExitCode: exitCode,
+          openspecNewExitSignal: signal,
         });
       })
-      .catch((e) => console.error(`gigacode-new exit handler error:`, e));
+      .catch((e) =>
+        console.error(`openspec-new exit handler error:`, e),
+      );
     return result.pid || null;
   } catch (e) {
-    console.error(`gigacode -p spawn threw:`, e);
+    console.error(`openspec new change spawn threw:`, e);
     return null;
   }
 }

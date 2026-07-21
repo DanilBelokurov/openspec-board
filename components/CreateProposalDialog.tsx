@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, FilePlus, Loader2 } from "lucide-react";
+import { isValidOpenspecTag } from "@/lib/tag";
 
 interface CreateProposalDialogProps {
   open: boolean;
@@ -41,9 +42,9 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
 
   if (!open) return null;
 
-  // Tag is required: it is the change identifier used as folder name,
-  // state key, log filename and the value passed to gigacode.
-  const tagValid = /^[A-Za-z0-9-]{1,40}$/.test(tag.trim());
+  // Tag rules match the shared `lib/tag.ts` validator used by the server
+  // (single source of truth for both UI gating and API gating).
+  const tagValid = isValidOpenspecTag(tag.trim());
   const canSubmit =
     title.trim().length > 0 &&
     description.trim().length > 0 &&
@@ -144,11 +145,11 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
             <span className="text-[11px] text-slate-500">
-              Уникальный идентификатор change-папки (используется как имя папки в openspec/changes/, ключ в state.json, имя лог-файла и параметр gigacode). Латиница/цифры/дефис, 1-40 символов.
+              Уникальный идентификатор change-папки (имя папки в openspec/changes/, ключ в state.json, имя лог-файла и параметр команды). Lowercase kebab-case (как у `openspec new change`): строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов.
             </span>
             {tag.length > 0 && !tagValid && (
               <span className="text-[11px] text-red-600">
-                Неверный формат: только латиница, цифры и дефис (1-40 символов).
+                Неверный формат: lowercase kebab-case (строчные латинские буквы/цифры/одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов).
               </span>
             )}
           </label>
@@ -192,7 +193,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           )}
           {status === "saved" && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
-              Создано. gigacode запущен.
+              Создано. Команда `openspec new change` запущена.
             </div>
           )}
 
