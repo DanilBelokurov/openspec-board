@@ -204,7 +204,7 @@ async function spawnProposalGigacode(
 ): Promise<number | null> {
   try {
     const result = spawnGigacodeWithLog({
-      argv: ["-p", prompt],
+      argv: ["--prompt", prompt],
       logFile,
       header: `gigacode /opsx-new for ${changeName}`,
       addDir: openspecDir,

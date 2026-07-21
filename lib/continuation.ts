@@ -52,7 +52,7 @@ export async function triggerContinueIfNeeded(
       // its own context (--add-dir + cwd).
       const description = task.description ?? "";
       const result = spawnGigacodeWithLog({
-        argv: ["-p", `/opsx-continue ${description}`],
+        argv: ["--prompt", `/opsx-continue ${description}`],
         logFile,
         header: `gigacode /opsx-continue for ${changeName}`,
         addDir: openspecDir,

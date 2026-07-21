@@ -39,10 +39,13 @@ interface SpawnWithLogResult {
  * Spawn gigacode detached with stdout/stderr piped to a log file.
  *
  * Builds the final argv as:
- *   gigacode --approval-mode=<mode> --add-dir <addDir> <caller-argv>
+ *   gigacode <caller-argv> --approval-mode=<mode> --add-dir <addDir>
  *
+ * - caller's argv is the prompt (["--prompt", "<prompt text>"])
  * - `--approval-mode=<mode>` uses the key=value form per user spec
  * - `--add-dir <addDir>` uses a space separator per user spec
+ * - the prompt is always a single argv element (so spaces inside the
+ *   prompt don't split it into multiple args)
  *
  * Resolves a promise on the 'close' event with the exit code/signal.
  * The process is unref()'d so it survives parent exit.
@@ -53,15 +56,19 @@ export function spawnGigacodeWithLog(
   const out = createWriteStream(opts.logFile, { flags: "a" });
   const err = createWriteStream(opts.logFile, { flags: "a" });
 
+  // Order: prompt first (the actual command), then flags.
+  // Result: gigacode --prompt "<text>" --approval-mode=auto-edit --add-dir <path>
   const finalArgv = [
+    ...opts.argv,
     `--approval-mode=${opts.approvalMode}`,
     "--add-dir",
     opts.addDir,
-    ...opts.argv,
   ];
 
   if (opts.header) {
-    out.write(`# ${opts.header}\n# argv: gigacode ${finalArgv.join(" ")}\n\n`);
+    out.write(
+      `# ${opts.header}\n# argv: gigacode ${formatArgv(finalArgv)}\n\n`,
+    );
   }
 
   const child = require("child_process").spawn("gigacode", finalArgv, {
@@ -89,4 +96,20 @@ export function spawnGigacodeWithLog(
 
   child.unref();
   return { pid: child.pid ?? 0, promise };
+}
+
+/**
+ * Format an argv array for human-readable logging. Elements that contain
+ * spaces or quotes are wrapped in double quotes (with embedded quotes
+ * escaped) so the log is unambiguous about where one arg starts/ends.
+ */
+function formatArgv(argv: string[]): string {
+  return argv
+    .map((a) => {
+      if (a === "" || /[\s"\\]/.test(a)) {
+        return `"${a.replace(/(["\\])/g, "\\$1")}"`;
+      }
+      return a;
+    })
+    .join(" ");
 }

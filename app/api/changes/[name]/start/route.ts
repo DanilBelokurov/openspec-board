@@ -167,7 +167,7 @@ function spawnPlanGigacode(
 ): number | null {
   try {
     const result = spawnGigacodeWithLog({
-      argv: ["-p", `/opsx:plan ${changePath}`],
+      argv: ["--prompt", `/opsx:plan ${changePath}`],
       logFile,
       header: `gigacode /opsx:plan for ${changePath}`,
       addDir: openspecDir,
