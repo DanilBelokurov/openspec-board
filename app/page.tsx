@@ -37,6 +37,7 @@ export default async function Home() {
       jiraUrl: t.jiraUrl,
       codeRepoPath: t.codeRepoPath,
       gigacodeStatus: gigacodeStatusFor(t.gigacodePid),
+      tag: t.tag,
     }));
 
   return (

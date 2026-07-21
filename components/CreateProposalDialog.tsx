@@ -15,6 +15,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [tag, setTag] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -24,6 +25,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
     setError(null);
     setTitle("");
     setDescription("");
+    setTag("");
   }, [open]);
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim(),
+          tag: tag.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -116,6 +119,25 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
               autoFocus
               className="h-8 rounded-md border border-border bg-white px-2 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
             />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-slate-800">
+              Tag
+              <span className="ml-1 text-[11px] font-normal text-slate-500">
+                (опционально, латиница, цифры, дефис)
+              </span>
+            </span>
+            <input
+              type="text"
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              placeholder="add-oauth2-auth"
+              className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+            />
+            <span className="text-[11px] text-slate-500">
+              Короткое английское название (например <code>add-oauth2-auth</code>) — отображается на карточке и в заголовке задачи.
+            </span>
           </label>
 
           <label className="flex flex-col gap-1.5">

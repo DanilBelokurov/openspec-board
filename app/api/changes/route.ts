@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { title?: string; description?: string } = {};
+  let body: { title?: string; description?: string; tag?: string } = {};
   try {
     body = await req.json();
   } catch {
@@ -85,6 +85,19 @@ export async function POST(req: NextRequest) {
 
   const title = (body.title ?? "").trim();
   const description = (body.description ?? "").trim();
+  // Tag is optional. If provided, must be ASCII (a-z, 0-9, '-') and short
+  // — used as a short English label on the card and in detail page header.
+  const rawTag = (body.tag ?? "").trim();
+  if (rawTag && !/^[A-Za-z0-9-]{1,40}$/.test(rawTag)) {
+    return NextResponse.json(
+      {
+        error:
+          "tag должен быть 1-40 символов: только латиница, цифры и дефис (например add-oauth2)",
+      },
+      { status: 400 },
+    );
+  }
+  const tag = rawTag || undefined;
 
   if (!title) {
     return NextResponse.json(
@@ -114,6 +127,7 @@ export async function POST(req: NextRequest) {
     lastScannedAt: now,
     summary,
     description,
+    tag,
     gigacodePid: null,
     gigacodeStartedAt: now,
   };

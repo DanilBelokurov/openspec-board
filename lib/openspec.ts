@@ -94,6 +94,7 @@ export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
   codeRepoPath?: string;
   gigacodeStatus?: "running" | "stopped" | "none";
+  tag?: string;
 }
 
 // ============================================================================

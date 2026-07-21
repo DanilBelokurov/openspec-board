@@ -22,6 +22,7 @@ export interface TaskEntry {
   startedAt?: string;
   // Set after "Новый proposal" (analyst mode)
   description?: string;
+  tag?: string;
   gigacodeStartedAt?: string;
   gigacodeContinuePid?: number | null;
   gigacodeContinueStartedAt?: string;

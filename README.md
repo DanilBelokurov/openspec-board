@@ -153,18 +153,27 @@ npm start
 
 ## Создание proposal в режиме Аналитик
 
-В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с двумя полями:
+В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с тремя полями:
 
-- **Название** — заголовок proposal
-- **Краткое описание** — текст, который передаётся gigacode
+- **Название** — заголовок proposal (человекочитаемое, может быть на любом языке)
+- **Tag** (опционально) — короткое английское название (например, `add-oauth2-auth`), только латиница/цифры/дефис до 40 символов. Отображается на карточке и в заголовке задачи
+- **Краткое описание** — текст, который передаётся gigacode как содержимое proposal'а
 
 По нажатию «Создать»:
 
-1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), оба поля непустые
+1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), оба поля непустые. Tag опционален; если есть — regex `^[A-Za-z0-9-]{1,40}$`
 2. Slug из названия (ASCII-only, NFKD + strip non a-z0-9) — избегает non-ASCII в URL-сегментах (Next.js плохо матчит Cyrillic в `[name]`). При коллизии добавляется `-2`, `-3` …
-3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `gigacodePid: null`, `gigacodeStartedAt`
-4. Спавнится `gigacode /opsx-new <description>` через `child_process.spawn` detached
+3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `tag?`, `gigacodePid: null`, `gigacodeStartedAt`
+4. Спавнится `gigacode /opsx-new <title>` через `spawnGigacodeWithLog` detached (с флагами `--approval-mode=auto-edit --add-dir <openspecDir>`)
 5. State обновляется с `gigacodePid`
+
+Когда qwen 1 заканчивает работу (создаёт `<openspecDir>/changes/<slug>/.openspec.yaml`), watcher (`lib/watcher.ts`, polling 5s) или любая загрузка страницы автоматически вызывает `triggerContinueIfNeeded`, который спавнит второй gigacode:
+
+```
+gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-continue <description>"
+```
+
+Второй процесс получает **описание задачи** (а не путь к change), находит активный change в `--add-dir` и создаёт `proposal.md`.
 6. Возвращает 201 `{ created, task, gigacodeStatus }`, board перерисовывается
 
 Пока gigacode не создал папку `openspec/changes/<slug>/` на диске, детальная страница показывает плейсхолдер «Папка ещё не создана. Подождите, пока gigacode-процесс создаст файлы.» и скрывает кнопку «Открыть в Finder». После следующего Refresh, если gigacode успел — папка появится.

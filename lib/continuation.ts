@@ -47,8 +47,12 @@ export async function triggerContinueIfNeeded(
     const logFile = processLogPath(changeName, "continue");
     let pid: number | null = null;
     try {
+      // Per user spec: second gigacode call passes the task description
+      // (not the change path). gigacode discovers the active change from
+      // its own context (--add-dir + cwd).
+      const description = task.description ?? "";
       const result = spawnGigacodeWithLog({
-        argv: ["-p", `/opsx-continue ${changePath}`],
+        argv: ["-p", `/opsx-continue ${description}`],
         logFile,
         header: `gigacode /opsx-continue for ${changeName}`,
         addDir: openspecDir,

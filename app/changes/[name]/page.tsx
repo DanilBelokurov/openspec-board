@@ -80,6 +80,11 @@ export default async function ChangePage({
             <code className="mt-1 block text-[12px] text-slate-500">
               {relPath}
             </code>
+            {task.tag && (
+              <div className="mt-1 text-[11px] font-mono text-slate-500">
+                #{task.tag}
+              </div>
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-700">
                 {task.id}

@@ -30,6 +30,11 @@ export function SessionCard({ item, mode }: SessionCardProps) {
         <code className="break-all text-[10px] text-slate-500">
           {item.changeName}
         </code>
+        {item.tag && (
+          <div className="-mt-1 text-[10px] font-mono text-slate-400">
+            #{item.tag}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1">
           {item.gigacodeStatus === "running" && (
             <span
