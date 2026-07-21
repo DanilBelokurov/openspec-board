@@ -123,10 +123,12 @@ export async function triggerContinueIfNeeded(
     const proposalExists = await exists(path.join(changePath, "proposal.md"));
 
     if (proposalExists) {
-      // Step 3: commit.
-      if (task.committedAt) continue;
-      const ok = await commitProposalChange(task, changeName);
-      if (ok) triggered.push(changeName);
+      // proposal.md is ready on disk; the analyst (human) will press
+      // "Подтверждаю" on the detail page, and that POST commits the
+      // worktree and advances stage to "delta-spec". Auto-triggering
+      // the commit here would skip the explicit confirmation step the
+      // user wants as a gate. See commitProposalChange (exported
+      // below) which is now invoked only from /api/changes/[tag]/confirm.
       continue;
     }
 
@@ -242,7 +244,7 @@ async function spawnProposalGigacode(
   return false;
 }
 
-async function commitProposalChange(
+export async function commitProposalChange(
   task: import("./state").TaskEntry,
   changeName: string,
 ): Promise<boolean> {
