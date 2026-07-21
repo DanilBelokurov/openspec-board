@@ -48,6 +48,9 @@ export default async function ChangePage({
   const relPath = `openspec/changes/${task.summary.changeName}`;
 
   const qwenAlive = task.qwenPid ? isProcessAlive(task.qwenPid) : false;
+  const qwenContinueAlive = task.qwenContinuePid
+    ? isProcessAlive(task.qwenContinuePid)
+    : false;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
@@ -132,7 +135,7 @@ export default async function ChangePage({
               <div className="flex items-center gap-2 font-semibold text-slate-800">
                 <QwenStatusIcon alive={qwenAlive} />
                 <span>
-                  qwen-процесс: {qwenAlive ? "выполняется" : "завершён"}
+                  qwen /opsx-new: {qwenAlive ? "выполняется" : "завершён"}
                 </span>
               </div>
               {task.qwenStartedAt && (
@@ -147,7 +150,32 @@ export default async function ChangePage({
                 <dd className="font-mono text-[10px] break-all">
                   {task.jiraUrl
                     ? `qwen -p "/opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}"`
-                    : `qwen -p "/opsx-new ${openspecDir} ${task.summary.changeName} ${truncate(task.description ?? "", 60)}"`}
+                    : `qwen -p "/opsx-new ${task.summary.title}"`}
+                </dd>
+              </dl>
+            </section>
+          )}
+
+          {task.qwenContinuePid && (
+            <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
+              <div className="flex items-center gap-2 font-semibold text-slate-800">
+                <QwenStatusIcon alive={qwenContinueAlive} />
+                <span>
+                  qwen /opsx-continue: {qwenContinueAlive ? "выполняется" : "завершён"}
+                </span>
+              </div>
+              {task.qwenContinueStartedAt && (
+                <div className="mt-1 text-[11px] text-slate-500">
+                  Запущен:{" "}
+                  {new Date(task.qwenContinueStartedAt).toLocaleString("ru-RU")}
+                </div>
+              )}
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                <dt className="text-slate-500">PID</dt>
+                <dd className="font-mono text-[10px]">{task.qwenContinuePid}</dd>
+                <dt className="text-slate-500">Команда</dt>
+                <dd className="font-mono text-[10px] break-all">
+                  {`qwen -p "/opsx-continue ${openspecDir}/changes/${task.summary.changeName}"`}
                 </dd>
               </dl>
             </section>

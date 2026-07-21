@@ -20,6 +20,8 @@ export interface TaskEntry {
   // Set after "Новый proposal" (analyst mode)
   description?: string;
   qwenStartedAt?: string;
+  qwenContinuePid?: number | null;
+  qwenContinueStartedAt?: string;
 }
 
 export interface AppState {

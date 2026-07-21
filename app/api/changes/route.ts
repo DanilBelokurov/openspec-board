@@ -118,9 +118,11 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn qwen headless with the proposal description.
-  // Form: qwen -p "/opsx-new <openspecDir> <changeName> <description>"
-  const qwenPrompt = `/opsx-new ${config.openspecDir} ${changeName} ${description}`;
+  // Spawn qwen headless. Per user spec:
+  //   qwen -p "/opsx-new <название задачи>"
+  // The second step (qwen -p "/opsx-continue" after .openspec.yaml exists)
+  // is triggered later from /api/refresh.
+  const qwenPrompt = `/opsx-new ${title}`;
   const qwenPid = spawnProposalQwen(qwenPrompt);
 
   if (qwenPid != null) {
