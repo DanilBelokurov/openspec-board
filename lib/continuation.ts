@@ -47,24 +47,31 @@ function run(
 // app/api/changes/route.ts.
 const SCHEMA = "spec-driven-with-adr";
 
-// Prompt template from the user spec — the {json} placeholder is
-// substituted with the raw stdout of `openspec instructions proposal
-// --change <tag> --json`. Kept verbatim because the assistant is
-// expected to follow it as-is (parse JSON fields, write to the
-// resolvedOutputPath).
-const PROPOSAL_PROMPT_TEMPLATE = `Parse the JSON. The key fields are:
-  - \`context\`: Project background (constraints for you - do NOT include in output)
-  - \`rules\`: Artifact-specific rules (constraints for you - do NOT include in output)
-  - \`template\`: The structure to use for your output file
-  - \`instruction\`: Schema-specific guidance
-  - \`resolvedOutputPath\`: Resolved path or pattern to write the artifact
-  - \`dependencies\`: Completed artifacts to read for context
-Create the artifact file:
-  - Read any completed dependency files for context
-  - Use \`template\` as the structure - fill in its sections
-  - Apply \`context\` and \`rules\` as constraints when writing - but do NOT copy them into the file
-  - Write to the \`resolvedOutputPath\` specified in instructions. If it is a glob pattern, choose the concrete file path using the schema instruction and the change's context
-"{json}"`;
+// Path to the prompt template used by the proposal-generation step.
+// The template lives in the repo so it can be edited without touching
+// code. The {json} placeholder is substituted at call time with the
+// raw stdout of `openspec instructions proposal --change <tag> --json`.
+const PROPOSAL_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "proposal",
+  "proposal-prompt-template.md",
+);
+
+// In-memory cache for the template content. Keyed by the file's mtime
+// so edits are picked up on the next invocation without a server
+// restart. The template file is read at most once per mtime change.
+let cachedTemplate: { mtimeMs: number; content: string } | null = null;
+
+async function loadProposalPromptTemplate(): Promise<string> {
+  const stat = await fs.stat(PROPOSAL_PROMPT_TEMPLATE_PATH);
+  if (cachedTemplate && cachedTemplate.mtimeMs === stat.mtimeMs) {
+    return cachedTemplate.content;
+  }
+  const content = await fs.readFile(PROPOSAL_PROMPT_TEMPLATE_PATH, "utf-8");
+  cachedTemplate = { mtimeMs: stat.mtimeMs, content };
+  return content;
+}
 
 /**
  * Drive the analyst-mode proposal-creation pipeline to completion.
@@ -168,10 +175,8 @@ async function spawnProposalGigacode(
     return false;
   }
 
-  const prompt = PROPOSAL_PROMPT_TEMPLATE.replace(
-    "{json}",
-    instructionsJson,
-  );
+  const template = await loadProposalPromptTemplate();
+  const prompt = template.replace("{json}", instructionsJson);
 
   const logFile = processLogPath(changeName, "continue");
   // Persist the parameters and full prompt to the log file BEFORE
