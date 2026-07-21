@@ -15,6 +15,7 @@ import {
   type TreeNode,
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
+import { triggerContinueIfNeeded } from "@/lib/continuation";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
@@ -24,13 +25,17 @@ export default async function ChangePage({
 }: {
   params: { name: string };
 }) {
-  const state = await readState();
-  const task = state.tasks[params.name];
-  if (!task) notFound();
-
   const config = await readConfig();
   const openspecDir = config.openspecDir;
   if (!openspecDir) notFound();
+
+  // Auto-trigger /opsx-continue for any proposal-stage task ready for it
+  // (fires when user opens a detail page, not only on explicit Refresh).
+  await triggerContinueIfNeeded(openspecDir);
+
+  const state = await readState();
+  const task = state.tasks[params.name];
+  if (!task) notFound();
 
   const changePath = `${openspecDir}/changes/${params.name}`;
   const tree = await listChangeTree(changePath);
