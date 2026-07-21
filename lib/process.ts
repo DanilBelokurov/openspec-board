@@ -9,9 +9,9 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-export type QwenStatus = "running" | "stopped" | "none";
+export type GigacodeStatus = "running" | "stopped" | "none";
 
-export function qwenStatusFor(pid: number | null | undefined): QwenStatus {
+export function gigacodeStatusFor(pid: number | null | undefined): GigacodeStatus {
   if (!pid) return "none";
   return isProcessAlive(pid) ? "running" : "stopped";
 }

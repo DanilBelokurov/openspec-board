@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
 import { readState, updateTask, writeState } from "@/lib/state";
-import { qwenStatusFor } from "@/lib/process";
+import { gigacodeStatusFor } from "@/lib/process";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import {
   ensureLogDir,
-  qwenLogPath,
-  spawnQwenWithLog,
-} from "@/lib/qwen-logger";
+  processLogPath,
+  spawnGigacodeWithLog,
+} from "@/lib/process-logger";
 
 function nextTaskId(tasks: Record<string, unknown>): string {
   let max = 0;
@@ -114,8 +114,8 @@ export async function POST(req: NextRequest) {
     lastScannedAt: now,
     summary,
     description,
-    qwenPid: null,
-    qwenStartedAt: now,
+    gigacodePid: null,
+    gigacodeStartedAt: now,
   };
 
   const next = {
@@ -123,18 +123,27 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn qwen headless. Per user spec:
-  //   qwen -p "/opsx-new <название задачи>"
-  // The second step (qwen -p "/opsx-continue" after .openspec.yaml exists)
-  // is triggered later from /api/refresh / page loads / background watcher.
-  const qwenPrompt = `/opsx-new ${title}`;
-  const logFile = qwenLogPath(changeName, "new");
+  // Spawn gigacode headless. Per user spec:
+  //   gigacode --approval-mode=auto-edit --add-dir <openspecDir> -p "/opsx-new <название задачи>"
+  // The second step (--add-dir <openspecDir> -p "/opsx-continue ...") is triggered
+  // later from /api/refresh / page loads / background watcher.
+  const gigacodePrompt = `/opsx-new ${title}`;
+  const logFile = processLogPath(changeName, "new");
   await ensureLogDir();
 
-  const qwenPid = await spawnProposalQwen(changeName, qwenPrompt, logFile);
+  const gigacodePid = await spawnProposalGigacode(
+    changeName,
+    gigacodePrompt,
+    logFile,
+    config.openspecDir,
+  );
 
-  if (qwenPid != null) {
-    next.tasks[changeName] = { ...newTask, qwenPid, qwenLogPath: logFile };
+  if (gigacodePid != null) {
+    next.tasks[changeName] = {
+      ...newTask,
+      gigacodePid,
+      gigacodeLogPath: logFile,
+    };
     await writeState(next);
   }
 
@@ -142,34 +151,39 @@ export async function POST(req: NextRequest) {
     {
       created: true,
       task: next.tasks[changeName],
-      qwenPrompt,
-      qwenStatus: qwenStatusFor(qwenPid),
+      gigacodePrompt,
+      gigacodeStatus: gigacodeStatusFor(gigacodePid),
     },
     { status: 201 },
   );
 }
 
-async function spawnProposalQwen(
+async function spawnProposalGigacode(
   changeName: string,
   prompt: string,
   logFile: string,
+  openspecDir: string,
 ): Promise<number | null> {
   try {
-    const result = spawnQwenWithLog({
+    const result = spawnGigacodeWithLog({
       argv: ["-p", prompt],
       logFile,
-      header: `qwen /opsx-new for ${changeName}`,
+      header: `gigacode /opsx-new for ${changeName}`,
+      addDir: openspecDir,
+      approvalMode: "auto-edit",
     });
-    // Fire-and-forget: when qwen exits, write exit code/signal back to state
-    result.promise.then(async ({ exitCode, signal }) => {
-      await updateTask(changeName, {
-        qwenExitCode: exitCode,
-        qwenExitSignal: signal,
-      });
-    }).catch((e) => console.error(`qwen-new exit handler error:`, e));
+    // Fire-and-forget: when gigacode exits, write exit code/signal back to state
+    result.promise
+      .then(async ({ exitCode, signal }) => {
+        await updateTask(changeName, {
+          gigacodeExitCode: exitCode,
+          gigacodeExitSignal: signal,
+        });
+      })
+      .catch((e) => console.error(`gigacode-new exit handler error:`, e));
     return result.pid || null;
   } catch (e) {
-    console.error(`qwen -p spawn threw:`, e);
+    console.error(`gigacode -p spawn threw:`, e);
     return null;
   }
 }

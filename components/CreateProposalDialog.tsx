@@ -138,7 +138,7 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
           )}
           {status === "saved" && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
-              Создано. qwen запущен.
+              Создано. gigacode запущен.
             </div>
           )}
 

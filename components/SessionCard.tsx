@@ -31,22 +31,22 @@ export function SessionCard({ item, mode }: SessionCardProps) {
           {item.changeName}
         </code>
         <div className="flex flex-wrap gap-1">
-          {item.qwenStatus === "running" && (
+          {item.gigacodeStatus === "running" && (
             <span
               className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-              title="qwen-процесс запущен"
+              title="gigacode-процесс запущен"
             >
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              qwen
+              gigacode
             </span>
           )}
-          {item.qwenStatus === "stopped" && (
+          {item.gigacodeStatus === "stopped" && (
             <span
               className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
-              title="qwen-процесс завершён"
+              title="gigacode-процесс завершён"
             >
               <CheckCircle2 className="h-2.5 w-2.5" />
-              qwen
+              gigacode
             </span>
           )}
           {jiraId && (

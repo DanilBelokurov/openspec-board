@@ -15,19 +15,19 @@ export interface TaskEntry {
   codeRepoPath?: string;
   openspecWorktreePath?: string;
   codeWorktreePath?: string;
-  qwenPid?: number | null;
-  qwenExitCode?: number | null;
-  qwenExitSignal?: string | null;
-  qwenLogPath?: string;
+  gigacodePid?: number | null;
+  gigacodeExitCode?: number | null;
+  gigacodeExitSignal?: string | null;
+  gigacodeLogPath?: string;
   startedAt?: string;
   // Set after "Новый proposal" (analyst mode)
   description?: string;
-  qwenStartedAt?: string;
-  qwenContinuePid?: number | null;
-  qwenContinueStartedAt?: string;
-  qwenContinueExitCode?: number | null;
-  qwenContinueExitSignal?: string | null;
-  qwenContinueLogPath?: string;
+  gigacodeStartedAt?: string;
+  gigacodeContinuePid?: number | null;
+  gigacodeContinueStartedAt?: string;
+  gigacodeContinueExitCode?: number | null;
+  gigacodeContinueExitSignal?: string | null;
+  gigacodeContinueLogPath?: string;
 }
 
 export interface AppState {

@@ -52,9 +52,11 @@ export default async function ChangePage({
   });
   const relPath = `openspec/changes/${task.summary.changeName}`;
 
-  const qwenAlive = task.qwenPid ? isProcessAlive(task.qwenPid) : false;
-  const qwenContinueAlive = task.qwenContinuePid
-    ? isProcessAlive(task.qwenContinuePid)
+  const gigacodeAlive = task.gigacodePid
+    ? isProcessAlive(task.gigacodePid)
+    : false;
+  const gigacodeContinueAlive = task.gigacodeContinuePid
+    ? isProcessAlive(task.gigacodeContinuePid)
     : false;
 
   return (
@@ -88,10 +90,10 @@ export default async function ChangePage({
               </span>
               <span>·</span>
               <span>Обновлено {dateStr}</span>
-              {task.qwenPid && (
+              {task.gigacodePid && (
                 <>
                   <span>·</span>
-                  <QwenBadge pid={task.qwenPid} alive={qwenAlive} />
+                  <GigacodeBadge pid={task.gigacodePid} alive={gigacodeAlive} />
                 </>
               )}
             </div>
@@ -116,8 +118,8 @@ export default async function ChangePage({
           ) : (
             <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
               Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{task.summary.changeName}</code> ещё не создана.
-              {task.qwenPid && qwenAlive && (
-                <> Подождите, пока qwen-процесс создаст файлы.</>
+              {task.gigacodePid && gigacodeAlive && (
+                <> Подождите, пока gigacode-процесс создаст файлы.</>
               )}
             </div>
           )}
@@ -135,40 +137,39 @@ export default async function ChangePage({
             </span>
           </div>
 
-          {task.qwenPid && (
+          {task.gigacodePid && (
             <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
-                <QwenStatusIcon alive={qwenAlive} />
+                <GigacodeStatusIcon alive={gigacodeAlive} />
                 <span>
-                  qwen /opsx-new:{" "}
-                  {!qwenAlive && task.qwenExitCode != null
-                    ? task.qwenExitCode === 0
+                  gigacode /opsx-new:{" "}
+                  {!gigacodeAlive && task.gigacodeExitCode != null
+                    ? task.gigacodeExitCode === 0
                       ? "завершён (exit 0)"
-                      : `ошибка (exit ${task.qwenExitCode})`
-                    : qwenAlive
+                      : `ошибка (exit ${task.gigacodeExitCode})`
+                    : gigacodeAlive
                       ? "выполняется"
                       : "завершён"}
                 </span>
               </div>
-              {task.qwenStartedAt && (
+              {task.gigacodeStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
-                  Запущен: {new Date(task.qwenStartedAt).toLocaleString("ru-RU")}
+                  Запущен:{" "}
+                  {new Date(task.gigacodeStartedAt).toLocaleString("ru-RU")}
                 </div>
               )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
                 <dt className="text-slate-500">PID</dt>
-                <dd className="font-mono text-[10px]">{task.qwenPid}</dd>
+                <dd className="font-mono text-[10px]">{task.gigacodePid}</dd>
                 <dt className="text-slate-500">Команда</dt>
                 <dd className="font-mono text-[10px] break-all">
-                  {task.jiraUrl
-                    ? `qwen -p "/opsx:plan ${task.openspecWorktreePath}/changes/${task.summary.changeName}"`
-                    : `qwen -p "/opsx-new ${task.summary.title}"`}
+                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-new ${task.summary.title}"`}
                 </dd>
-                {task.qwenLogPath && (
+                {task.gigacodeLogPath && (
                   <>
                     <dt className="text-slate-500">Лог</dt>
                     <dd className="font-mono text-[10px] break-all text-slate-500">
-                      {task.qwenLogPath}
+                      {task.gigacodeLogPath}
                     </dd>
                   </>
                 )}
@@ -176,39 +177,41 @@ export default async function ChangePage({
             </section>
           )}
 
-          {task.qwenContinuePid && (
+          {task.gigacodeContinuePid && (
             <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
               <div className="flex items-center gap-2 font-semibold text-slate-800">
-                <QwenStatusIcon alive={qwenContinueAlive} />
+                <GigacodeStatusIcon alive={gigacodeContinueAlive} />
                 <span>
-                  qwen /opsx-continue:{" "}
-                  {!qwenContinueAlive && task.qwenContinueExitCode != null
-                    ? task.qwenContinueExitCode === 0
+                  gigacode /opsx-continue:{" "}
+                  {!gigacodeContinueAlive && task.gigacodeContinueExitCode != null
+                    ? task.gigacodeContinueExitCode === 0
                       ? "завершён (exit 0)"
-                      : `ошибка (exit ${task.qwenContinueExitCode})`
-                    : qwenContinueAlive
+                      : `ошибка (exit ${task.gigacodeContinueExitCode})`
+                    : gigacodeContinueAlive
                       ? "выполняется"
                       : "завершён"}
                 </span>
               </div>
-              {task.qwenContinueStartedAt && (
+              {task.gigacodeContinueStartedAt && (
                 <div className="mt-1 text-[11px] text-slate-500">
                   Запущен:{" "}
-                  {new Date(task.qwenContinueStartedAt).toLocaleString("ru-RU")}
+                  {new Date(task.gigacodeContinueStartedAt).toLocaleString(
+                    "ru-RU",
+                  )}
                 </div>
               )}
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
                 <dt className="text-slate-500">PID</dt>
-                <dd className="font-mono text-[10px]">{task.qwenContinuePid}</dd>
+                <dd className="font-mono text-[10px]">{task.gigacodeContinuePid}</dd>
                 <dt className="text-slate-500">Команда</dt>
                 <dd className="font-mono text-[10px] break-all">
-                  {`qwen -p "/opsx-continue ${openspecDir}/changes/${task.summary.changeName}"`}
+                  {`gigacode --approval-mode=auto-edit --add-dir ${openspecDir} -p "/opsx-continue ${task.summary.changeName}"`}
                 </dd>
-                {task.qwenContinueLogPath && (
+                {task.gigacodeContinueLogPath && (
                   <>
                     <dt className="text-slate-500">Лог</dt>
                     <dd className="font-mono text-[10px] break-all text-slate-500">
-                      {task.qwenContinueLogPath}
+                      {task.gigacodeContinueLogPath}
                     </dd>
                   </>
                 )}
@@ -256,16 +259,18 @@ export default async function ChangePage({
                     </dd>
                   </>
                 )}
-                <dt className="text-slate-500">qwen PID</dt>
+                <dt className="text-slate-500">gigacode PID</dt>
                 <dd className="font-mono text-[10px]">
-                  {task.qwenPid ?? "не запущен (qwen не в PATH?)"}
+                  {task.gigacodePid ?? "не запущен (gigacode не в PATH?)"}
                 </dd>
               </dl>
             </section>
           )}
 
           <div className="mt-3 flex gap-2">
-            {folderExists && <OpenInFinderForm changeName={task.summary.changeName} />}
+            {folderExists && (
+              <OpenInFinderForm changeName={task.summary.changeName} />
+            )}
             <CopyPathButton path={relPath} />
           </div>
         </div>
@@ -274,7 +279,7 @@ export default async function ChangePage({
   );
 }
 
-function QwenBadge({ pid, alive }: { pid: number; alive: boolean }) {
+function GigacodeBadge({ pid, alive }: { pid: number; alive: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -282,10 +287,10 @@ function QwenBadge({ pid, alive }: { pid: number; alive: boolean }) {
           ? "bg-emerald-50 text-emerald-700"
           : "bg-slate-100 text-slate-600"
       }`}
-      title={alive ? "qwen-процесс выполняется" : "qwen-процесс завершён"}
+      title={alive ? "gigacode-процесс выполняется" : "gigacode-процесс завершён"}
     >
-      <QwenStatusIcon alive={alive} />
-      <span>qwen · {pid}</span>
+      <GigacodeStatusIcon alive={alive} />
+      <span>gigacode · {pid}</span>
     </span>
   );
 }
@@ -294,7 +299,7 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-function QwenStatusIcon({ alive }: { alive: boolean }) {
+function GigacodeStatusIcon({ alive }: { alive: boolean }) {
   const Icon: LucideIcon = alive ? Loader2 : CheckCircle2;
   return <Icon className={`h-2.5 w-2.5 ${alive ? "animate-spin" : ""}`} />;
 }

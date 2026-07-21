@@ -98,7 +98,7 @@ npm start
 | GET | `/api/changes` | Список tasks из state |
 | GET | `/api/changes/[name]` | Полные данные одного change (с распарсенными proposal/design/specs) |
 | POST | `/api/changes/[name]/open` | Открыть файл/папку в системном менеджере. Тело `{ "path": "<относительный путь>" }` (опц., пусто = корень change). 400 если path вне change-root, 404 если change не найден |
-| POST | `/api/changes/[name]/start` | Запустить change: создать 2 git worktree (openspec + код), обновить state, запустить `qwen /opsx:plan`. Тело `{ "jiraUrl": "...", "codeRepoPath": "/abs/path" }`. Возвращает `{ jiraId, openspecWorktree, codeWorktree, changePath, qwenPid, stage }`. Только для stage=backlog, иначе 409 |
+| POST | `/api/changes/[name]/start` | Запустить change: создать 2 git worktree (openspec + код), обновить state, запустить `gigacode /opsx:plan`. Тело `{ "jiraUrl": "...", "codeRepoPath": "/abs/path" }`. Возвращает `{ jiraId, openspecWorktree, codeWorktree, changePath, gigacodePid, stage }`. Только для stage=backlog, иначе 409 |
 | POST | `/api/refresh` | Сканирует `openspecDir/changes/`, мерджит в `.sdd-board/state.json`. Возвращает `{ scanned, total, tasks }`. Сканирование **только** через эту кнопку |
 
 ## Настройки
@@ -143,12 +143,12 @@ npm start
    - `<codeRepoPathParent>/<codeRepoBasename>.worktrees/<jira-id>/`
    - Оба на ветке `<jira-id>` (`-b` если ветки ещё нет)
 3. Если openspec worktree создан, а code упал — openspec откатывается (`git worktree remove --force`)
-4. State обновляется: `stage: "decomposition"`, сохраняются `jiraUrl`, `codeRepoPath`, пути обоих worktree, `startedAt`, `qwenPid`
-5. Спавнится `qwen /opsx:plan <changePathInWorktree>` через `child_process.spawn` с `detached: true`. Если `qwen` нет в PATH — поле `qwenPid: null` и лог в console
+4. State обновляется: `stage: "decomposition"`, сохраняются `jiraUrl`, `codeRepoPath`, пути обоих worktree, `startedAt`, `gigacodePid`
+5. Спавнится `gigacode /opsx:plan <changePathInWorktree>` через `child_process.spawn` с `detached: true`. Если `gigacode` нет в PATH — поле `gigacodePid: null` и лог в console
 
 После успешного Start:
 - На карточке появляются бейджи `ENG-123` (синий) и `<repo-basename>` (серый)
-- Кнопка «Начать» пропадает (заменяется блоком с путями worktree и PID qwen)
+- Кнопка «Начать» пропадает (заменяется блоком с путями worktree и PID gigacode)
 - Повторный Start возвращает 409
 
 ## Создание proposal в режиме Аналитик
@@ -156,26 +156,26 @@ npm start
 В режиме «Аналитик» в TopBar появляется кнопка **Новый proposal**. Открывает модалку с двумя полями:
 
 - **Название** — заголовок proposal
-- **Краткое описание** — текст, который передаётся qwen
+- **Краткое описание** — текст, который передаётся gigacode
 
 По нажатию «Создать»:
 
 1. Валидация: только в режиме «Аналитик» (400 в «Разработчик»), оба поля непустые
 2. Slug из названия (ASCII-only, NFKD + strip non a-z0-9) — избегает non-ASCII в URL-сегментах (Next.js плохо матчит Cyrillic в `[name]`). При коллизии добавляется `-2`, `-3` …
-3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `qwenPid: null`, `qwenStartedAt`
-4. Спавнится `qwen /opsx-new <description>` через `child_process.spawn` detached
-5. State обновляется с `qwenPid`
-6. Возвращает 201 `{ created, task, qwenStatus }`, board перерисовывается
+3. Создаётся `TaskEntry` в state: `stage: "proposal"`, `description`, `gigacodePid: null`, `gigacodeStartedAt`
+4. Спавнится `gigacode /opsx-new <description>` через `child_process.spawn` detached
+5. State обновляется с `gigacodePid`
+6. Возвращает 201 `{ created, task, gigacodeStatus }`, board перерисовывается
 
-Пока qwen не создал папку `openspec/changes/<slug>/` на диске, детальная страница показывает плейсхолдер «Папка ещё не создана. Подождите, пока qwen-процесс создаст файлы.» и скрывает кнопку «Открыть в Finder». После следующего Refresh, если qwen успел — папка появится.
+Пока gigacode не создал папку `openspec/changes/<slug>/` на диске, детальная страница показывает плейсхолдер «Папка ещё не создана. Подождите, пока gigacode-процесс создаст файлы.» и скрывает кнопку «Открыть в Finder». После следующего Refresh, если gigacode успел — папка появится.
 
-## Статус qwen-процесса
+## Статус gigacode-процесса
 
 | Где | Как отображается |
 | --- | --- |
-| Карточка на доске | Бейдж: «qwen» с Loader-иконкой (зелёный) пока процесс жив, с галочкой (серый) когда умер |
-| Детальная страница — header | Бейдж «qwen · PID» рядом с датой |
-| Детальная страница — секция «qwen-процесс» | Иконка + статус (выполняется/завершён), время запуска, PID, команда |
+| Карточка на доске | Бейдж: «gigacode» с Loader-иконкой (зелёный) пока процесс жив, с галочкой (серый) когда умер |
+| Детальная страница — header | Бейдж «gigacode · PID» рядом с датой |
+| Детальная страница — секция «gigacode-процесс» | Иконка + статус (выполняется/завершён), время запуска, PID, команда |
 
 Статус определяется через `process.kill(pid, 0)` на каждом SSR-рендере (страница пересчитывает на refresh). Никаких polling'ов или persistent state для статуса нет — каждый refresh страницы проверяет заново.
 

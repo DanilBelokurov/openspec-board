@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
 import path from "path";
 import { readConfig } from "@/lib/config";
 import { readState, updateTask } from "@/lib/state";
@@ -9,6 +8,11 @@ import {
   removeWorktree,
   repoBasename,
 } from "@/lib/git";
+import {
+  ensureLogDir,
+  processLogPath,
+  spawnGigacodeWithLog,
+} from "@/lib/process-logger";
 
 export async function POST(
   req: NextRequest,
@@ -128,13 +132,19 @@ export async function POST(
     openspecWorktreePath: openspecWorktree,
     codeWorktreePath: codeWorktree,
     startedAt: new Date().toISOString(),
-    qwenPid: null,
+    gigacodePid: null,
   });
 
-  // Spawn qwen detached
-  const qwenPid = spawnQwen(changePathInWorktree);
-  if (updated && qwenPid != null) {
-    await updateTask(params.name, { qwenPid });
+  // Spawn gigacode detached
+  const logFile = processLogPath(params.name, "new");
+  await ensureLogDir();
+  const gigacodePid = spawnPlanGigacode(
+    changePathInWorktree,
+    logFile,
+    config.openspecDir,
+  );
+  if (updated && gigacodePid != null) {
+    await updateTask(params.name, { gigacodePid, gigacodeLogPath: logFile });
   }
 
   return NextResponse.json({
@@ -145,24 +155,39 @@ export async function POST(
     openspecWorktree,
     codeWorktree,
     changePath: changePathInWorktree,
-    qwenPid,
+    gigacodePid,
     stage: "decomposition",
   });
 }
 
-function spawnQwen(changePath: string): number | null {
+function spawnPlanGigacode(
+  changePath: string,
+  logFile: string,
+  openspecDir: string,
+): number | null {
   try {
-    const child = spawn("qwen", ["-p", `/opsx:plan ${changePath}`], {
-      detached: true,
-      stdio: "ignore",
+    const result = spawnGigacodeWithLog({
+      argv: ["-p", `/opsx:plan ${changePath}`],
+      logFile,
+      header: `gigacode /opsx:plan for ${changePath}`,
+      addDir: openspecDir,
+      approvalMode: "auto-edit",
     });
-    child.on("error", (err) => {
-      console.error(`qwen -p spawn error for ${changePath}:`, err.message);
-    });
-    child.unref();
-    return child.pid ?? null;
+    result.promise
+      .then(async ({ exitCode, signal }) => {
+        // The /opsx:plan step doesn't get a per-task state record (it's
+        // already in /opsx:plan pid slot only). We log the exit for diagnostics
+        // but don't surface it in state — a separate refactor can add it.
+        console.log(
+          `gigacode /opsx:plan for ${changePath} exited (code=${exitCode}, signal=${signal})`,
+        );
+      })
+      .catch((e) =>
+        console.error(`gigacode /opsx:plan exit handler error:`, e),
+      );
+    return result.pid || null;
   } catch (e) {
-    console.error(`qwen -p spawn threw for ${changePath}:`, e);
+    console.error(`gigacode /opsx:plan spawn threw for ${changePath}:`, e);
     return null;
   }
 }

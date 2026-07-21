@@ -3,9 +3,9 @@ import path from "path";
 import { readState, updateTask } from "./state";
 import {
   ensureLogDir,
-  qwenLogPath,
-  spawnQwenWithLog,
-} from "./qwen-logger";
+  processLogPath,
+  spawnGigacodeWithLog,
+} from "./process-logger";
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -17,13 +17,13 @@ async function exists(p: string): Promise<boolean> {
 }
 
 /**
- * For each task in stage="proposal" whose qwen /opsx-new has finished
+ * For each task in stage="proposal" whose gigacode /opsx-new has finished
  * (we just check that .openspec.yaml exists but proposal.md doesn't yet),
- * spawn qwen /opsx-continue with stdout/stderr piped to a log file, and
- * record its pid + exit code/signal back to state.
+ * spawn gigacode /opsx-continue with stdout/stderr piped to a log file,
+ * and record its pid + exit code/signal back to state.
  *
  * Safe to call on every render (and from a background watcher):
- * qwenContinuePid flag makes it idempotent.
+ * gigacodeContinuePid flag makes it idempotent.
  *
  * Returns the list of changeNames for which continue was spawned.
  */
@@ -37,46 +37,51 @@ export async function triggerContinueIfNeeded(
 
   for (const [changeName, task] of Object.entries(state.tasks)) {
     if (task.stage !== "proposal") continue;
-    if (task.qwenContinuePid) continue; // already spawned
+    if (task.gigacodeContinuePid) continue; // already spawned
 
     const changePath = path.join(openspecDir, "changes", changeName);
     if (!(await exists(changePath))) continue;
     if (!(await exists(path.join(changePath, ".openspec.yaml")))) continue;
     if (await exists(path.join(changePath, "proposal.md"))) continue;
 
-    const logFile = qwenLogPath(changeName, "continue");
+    const logFile = processLogPath(changeName, "continue");
     let pid: number | null = null;
     try {
-      const result = spawnQwenWithLog({
+      const result = spawnGigacodeWithLog({
         argv: ["-p", `/opsx-continue ${changePath}`],
         logFile,
-        header: `qwen /opsx-continue for ${changeName}`,
+        header: `gigacode /opsx-continue for ${changeName}`,
+        addDir: openspecDir,
+        approvalMode: "auto-edit",
       });
       pid = result.pid || null;
       result.promise
         .then(async ({ exitCode, signal }) => {
           await updateTask(changeName, {
-            qwenContinueExitCode: exitCode,
-            qwenContinueExitSignal: signal,
+            gigacodeContinueExitCode: exitCode,
+            gigacodeContinueExitSignal: signal,
           });
         })
         .catch((e) =>
-          console.error(`qwen-continue exit handler error:`, e),
+          console.error(`gigacode-continue exit handler error:`, e),
         );
     } catch (e) {
-      console.error(`qwen /opsx-continue spawn threw for ${changeName}:`, e);
+      console.error(
+        `gigacode /opsx-continue spawn threw for ${changeName}:`,
+        e,
+      );
     }
 
     if (pid != null) {
       await updateTask(changeName, {
-        qwenContinuePid: pid,
-        qwenContinueStartedAt: now,
-        qwenContinueLogPath: logFile,
+        gigacodeContinuePid: pid,
+        gigacodeContinueStartedAt: now,
+        gigacodeContinueLogPath: logFile,
       });
       triggered.push(changeName);
     } else {
       console.error(
-        `Failed to spawn qwen /opsx-continue for ${changeName}`,
+        `Failed to spawn gigacode /opsx-continue for ${changeName}`,
       );
     }
   }

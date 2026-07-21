@@ -5,7 +5,7 @@ import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
 import { MODES } from "@/lib/modes";
-import { qwenStatusFor } from "@/lib/process";
+import { gigacodeStatusFor } from "@/lib/process";
 import type { BoardItem } from "@/lib/openspec";
 
 export default async function Home() {
@@ -36,7 +36,7 @@ export default async function Home() {
       ...t.summary,
       jiraUrl: t.jiraUrl,
       codeRepoPath: t.codeRepoPath,
-      qwenStatus: qwenStatusFor(t.qwenPid),
+      gigacodeStatus: gigacodeStatusFor(t.gigacodePid),
     }));
 
   return (

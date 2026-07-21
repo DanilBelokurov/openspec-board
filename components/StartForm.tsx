@@ -16,7 +16,7 @@ interface StartSuccess {
   codeRepoPath: string;
   openspecWorktree: string;
   codeWorktree: string;
-  qwenPid: number | null;
+  gigacodePid: number | null;
   stage: string;
 }
 
@@ -90,9 +90,9 @@ export function StartForm({
           <dd className="font-mono text-[10px] break-all">
             {result.codeWorktree}
           </dd>
-          <dt className="text-emerald-700/70">qwen PID</dt>
+          <dt className="text-emerald-700/70">gigacode PID</dt>
           <dd className="font-mono text-[10px]">
-            {result.qwenPid ?? "не запущен (qwen не в PATH?)"}
+            {result.gigacodePid ?? "не запущен (gigacode не в PATH?)"}
           </dd>
         </dl>
       </div>
@@ -152,7 +152,12 @@ export function StartForm({
 
       <p className="text-[10px] text-slate-500">
         Создаст два git worktree (openspec + код) на ветке с Jira-id, переведёт
-        задачу в «Декомпозиция» и запустит <code className="font-mono">qwen /opsx:plan</code>.
+        задачу в «Декомпозиция» и запустит{" "}
+        <code className="font-mono">
+          gigacode --approval-mode=auto-edit --add-dir &lt;path&gt; -p
+          "/opsx:plan ..."
+        </code>
+        .
       </p>
     </form>
   );

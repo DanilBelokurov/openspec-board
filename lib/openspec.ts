@@ -93,7 +93,7 @@ export interface Change extends ChangeSummary {
 export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
   codeRepoPath?: string;
-  qwenStatus?: "running" | "stopped" | "none";
+  gigacodeStatus?: "running" | "stopped" | "none";
 }
 
 // ============================================================================
