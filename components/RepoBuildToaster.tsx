@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, X, CircleAlert } from "lucide-react";
 
 /**
- * Toast notifications for repo code-review-graph build completion.
+ * Toast notifications for repo code-review-graph completion.
  *
  * Polls /api/repos/build-status every POLL_MS and shows a small
- * floating toast for each repo whose build just finished (either
- * success or failure). Each toast has a 'Notified' sessionStorage
- * flag so the same completion isn't shown twice in a row.
+ * floating toast for each repo whose two-step pipeline
+ * (build → visualize) has just finished. The graph is considered
+ * 'built' only after the visualize step exits with code 0.
+ *
+ * Each toast has a 'Notified' sessionStorage flag so the same
+ * completion isn't shown twice in a row.
  */
 
 const POLL_MS = 5000;
@@ -21,6 +24,40 @@ interface RepoBuild {
   buildStartedAt?: string;
   buildExitCode: number | null;
   buildLogPath?: string;
+  visualizePid: number | null;
+  visualizeStartedAt?: string;
+  visualizeExitCode: number | null;
+  visualizeLogPath?: string;
+}
+
+type PipelineStage =
+  | "idle"
+  | "building"
+  | "visualizing"
+  | "done"
+  | "failed";
+
+/**
+ * Reduce a repo's build + visualize state to a single stage.
+ * `done` and `failed` are terminal — those are the only states
+ * that should surface a toast. We look at visualize first because
+ * "graph is built" means visualize finished.
+ */
+function classify(build: RepoBuild): PipelineStage {
+  if (build.visualizeExitCode != null) {
+    return build.visualizeExitCode === 0 ? "done" : "failed";
+  }
+  if (build.buildExitCode != null) {
+    if (build.buildExitCode !== 0) return "failed";
+    // build OK — visualize is the next thing to wait on
+    return build.visualizePid != null ? "visualizing" : "building";
+  }
+  if (build.buildPid != null) return "building";
+  return "idle";
+}
+
+function keyFor(name: string, status: "done" | "failed"): string {
+  return `${name}:${status}`;
 }
 
 function readNotified(): Set<string> {
@@ -48,21 +85,6 @@ function writeNotified(set: Set<string>): void {
   }
 }
 
-function classify(build: RepoBuild): "running" | "done" | "failed" | null {
-  if (build.buildPid == null) {
-    // No build was spawned for this repo — but if it ever had an
-    // exit code (e.g. watcher already wrote it), still classify.
-    if (build.buildExitCode == null) return null;
-    return build.buildExitCode === 0 ? "done" : "failed";
-  }
-  if (build.buildExitCode == null) return "running";
-  return build.buildExitCode === 0 ? "done" : "failed";
-}
-
-function keyFor(name: string, status: "done" | "failed"): string {
-  return `${name}:${status}`;
-}
-
 export function RepoBuildToaster() {
   const [toasts, setToasts] = useState<
     { name: string; status: "done" | "failed"; logPath?: string }[]
@@ -86,42 +108,40 @@ export function RepoBuildToaster() {
         const data = (await res.json()) as { repos: RepoBuild[] };
         if (cancelled) return;
 
-        // Detect transitions: a build that just appeared as
-        // running now, then completed, gets toasted once.
-        const newlyDone: { name: string; status: "done" | "failed"; logPath?: string }[] = [];
-        const stillRunning = new Set<string>();
+        const newlyDone: {
+          name: string;
+          status: "done" | "failed";
+          logPath?: string;
+        }[] = [];
 
         for (const build of data.repos ?? []) {
-          const status = classify(build);
-          if (!status) continue;
-          if (status === "running") {
-            stillRunning.add(build.name);
-          } else {
-            const id = keyFor(build.name, status);
-            if (
-              seenNamesRef.current.has(build.name) &&
-              !notifiedRef.current.has(id)
-            ) {
-              newlyDone.push({
-                name: build.name,
-                status,
-                logPath: build.buildLogPath,
-              });
-              notifiedRef.current.add(id);
-              writeNotified(notifiedRef.current);
-            }
+          const stage = classify(build);
+          if (stage !== "done" && stage !== "failed") continue;
+          const id = keyFor(build.name, stage);
+          if (
+            seenNamesRef.current.has(build.name) &&
+            !notifiedRef.current.has(id)
+          ) {
+            newlyDone.push({
+              name: build.name,
+              status: stage,
+              logPath: build.visualizeLogPath ?? build.buildLogPath,
+            });
+            notifiedRef.current.add(id);
+            writeNotified(notifiedRef.current);
           }
         }
-        // Forget names whose build was reset (rare, only on repo
-        // re-add) so the next completion is shown again.
-        for (const name of seenNamesRef.current) {
-          if (!stillRunning.has(name) && !data.repos?.find((b) => b.name === name)) {
-            seenNamesRef.current.delete(name);
-          }
+
+        // Forget names that have disappeared from config (only
+        // happens when the user deletes a repo). Re-add names we
+        // still see so the next completion is detected.
+        const currentNames = new Set(
+          (data.repos ?? []).map((b) => b.name),
+        );
+        for (const name of [...seenNamesRef.current]) {
+          if (!currentNames.has(name)) seenNamesRef.current.delete(name);
         }
-        for (const build of data.repos ?? []) {
-          seenNamesRef.current.add(build.name);
-        }
+        for (const name of currentNames) seenNamesRef.current.add(name);
 
         if (newlyDone.length > 0) {
           setToasts((prev) => [...prev, ...newlyDone]);
@@ -175,10 +195,9 @@ export function RepoBuildToaster() {
               <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
                 {t.name}
               </code>
-              .
+              .{" "}
               {t.status === "failed" && (
                 <>
-                  {" "}
                   См.{" "}
                   <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
                     {t.logPath ?? "лог"}
