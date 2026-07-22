@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { RepoBuildToaster } from "@/components/RepoBuildToaster";
 import { CreateProposalProvider } from "@/components/CreateProposalContext";
+import { GlobalCreateProposalDialog } from "@/components/GlobalCreateProposalDialog";
 
 export const metadata: Metadata = {
   title: "SDD — Доска сессий",
@@ -19,6 +20,7 @@ export default function RootLayout({
         <CreateProposalProvider>
           {children}
           <RepoBuildToaster />
+          <GlobalCreateProposalDialog />
         </CreateProposalProvider>
       </body>
     </html>

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Settings, RefreshCw, FilePlus } from "lucide-react";
 import type { BoardModeId } from "@/lib/modes";
 import { SettingsDialog } from "./SettingsDialog";
-import { CreateProposalDialog } from "./CreateProposalDialog";
 import { useCreateProposal } from "./CreateProposalContext";
 
 interface TopBarProps {
@@ -101,14 +100,6 @@ export function TopBar({ mode }: TopBarProps) {
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-      />
-
-      <CreateProposalDialog
-        open={createProposal.isOpen}
-        initialTitle={createProposal.initial?.title}
-        initialDescription={createProposal.initial?.description}
-        initialJiraUrl={createProposal.initial?.jiraUrl}
-        onClose={() => createProposal.close()}
       />
     </>
   );
