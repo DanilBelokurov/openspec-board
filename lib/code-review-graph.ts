@@ -49,8 +49,13 @@ function repoPath(openspecDir: string, repoName: string): string {
   return path.join(openspecDir, "repos", repoName);
 }
 
-function dataDir(repoName: string): string {
-  return `graph/${repoName}`;
+/**
+ * `<openspecDir>/graph/<name>/` — sibling of repos/, so the data
+ * directory sits next to the working tree. Always absolute so the
+ * CLI doesn't have to rely on its own CWD resolution.
+ */
+function dataDir(openspecDir: string, repoName: string): string {
+  return path.join(openspecDir, "graph", repoName);
 }
 
 export function buildLogPath(repoName: string): string {
@@ -80,7 +85,7 @@ export async function spawnCodeReviewGraphBuild(
         "--repo",
         repoPath(openspecDir, repoName),
         "--data-dir",
-        dataDir(repoName),
+        dataDir(openspecDir, repoName),
       ],
       logFile,
       header: `code-review-graph build for ${repoName}`,
@@ -112,7 +117,7 @@ export async function spawnCodeReviewGraphVisualize(
         "--repo",
         repoPath(openspecDir, repoName),
         "--data-dir",
-        dataDir(repoName),
+        dataDir(openspecDir, repoName),
         "--format",
         "json",
       ],
