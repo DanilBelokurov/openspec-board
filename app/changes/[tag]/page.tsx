@@ -19,13 +19,13 @@ import {
   type TreeNode,
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
-import { triggerContinueIfNeeded } from "@/lib/continuation";
+import { triggerContinueIfNeeded, isStageReady } from "@/lib/continuation";
 import { extractJiraId } from "@/lib/jira";
 import { formatDateTime } from "@/lib/format";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
-import { ConfirmButton } from "@/components/ConfirmButton";
+import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 
 export default async function ChangePage({
   params,
@@ -52,6 +52,17 @@ export default async function ChangePage({
   const fileCount = tree ? countFiles(tree) : 0;
   const totalSize = tree ? tree.size : 0;
   const proposalReady = await checkProposalExists(changePath);
+  // delta-spec is "ready" when the specs/ directory exists and
+  // contains at least one .md file (mirrors isStageReady for the
+  // delta-spec stage).
+  let deltaSpecReady = false;
+  if (task.stage === "delta-spec" && proposalRoot) {
+    deltaSpecReady = await isStageReady(proposalRoot, tag, {
+      stage: "delta-spec",
+      instructionsArtifact: "specs",
+      artifactSubpath: "specs",
+    });
+  }
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
 
@@ -64,27 +75,44 @@ export default async function ChangePage({
     ? isProcessAlive(task.gigacodeContinuePid)
     : false;
   // Step 2b (analyst mode): proposal-update gigacode re-run, triggered
-  // by the pencil button on ConfirmButton. Independent from
+  // by the pencil button on ConfirmArtifactButton. Independent from
   // gigacodeContinuePid (a separate spawn).
   const proposalUpdateAlive = task.proposalUpdatePid
     ? isProcessAlive(task.proposalUpdatePid)
+    : false;
+  // delta-spec step PIDs — both create (auto-triggered when the
+  // task moves into delta-spec) and update (pencil button on the
+  // delta-spec ConfirmArtifactButton).
+  const deltaSpecCreateAlive = task.deltaSpecCreatePid
+    ? isProcessAlive(task.deltaSpecCreatePid)
+    : false;
+  const deltaSpecUpdateAlive = task.deltaSpecUpdatePid
+    ? isProcessAlive(task.deltaSpecUpdatePid)
     : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
     : null;
 
-  // "Подтверждено" button is shown when:
-  //  - task is still in proposal stage (after click, stage → delta-spec)
-  //  - proposal.md is on disk (proposalReady)
-  //  - no CLI step error (otherwise user must fix first)
-  const showConfirmButton =
-    task.stage === "proposal" &&
-    proposalReady &&
-    !(
-      (task.openspecNewExitCode != null && task.openspecNewExitCode !== 0) ||
-      (task.gigacodeContinueExitCode != null &&
-        task.gigacodeContinueExitCode !== 0)
-    );
+  // "Подтверждено" button is shown when the artifact for the current
+// stage is ready and no CLI step in this stage has failed. proposal
+// checks openspecNew + gigacodeContinue; delta-spec checks the
+// delta-spec create run.
+  const currentStageError =
+    task.stage === "proposal"
+      ? (task.openspecNewExitCode != null && task.openspecNewExitCode !== 0) ||
+        (task.gigacodeContinueExitCode != null &&
+          task.gigacodeContinueExitCode !== 0)
+      : task.stage === "delta-spec"
+        ? task.deltaSpecCreateExitCode != null &&
+          task.deltaSpecCreateExitCode !== 0
+        : false;
+  const currentStageReady =
+    task.stage === "proposal"
+      ? proposalReady
+      : task.stage === "delta-spec"
+        ? deltaSpecReady
+        : false;
+  const showConfirmButton = currentStageReady && !currentStageError;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
@@ -131,11 +159,24 @@ export default async function ChangePage({
             </div>
           </header>
 
-          {showConfirmButton && (
-            <section className="mb-5">
-              <ConfirmButton tag={tag} />
-            </section>
-          )}
+          {showConfirmButton &&
+            (task.stage === "proposal" || task.stage === "delta-spec") && (
+              <section className="mb-5">
+                <ConfirmArtifactButton
+                  tag={tag}
+                  stage={task.stage as "proposal" | "delta-spec"}
+                  title={
+                    task.stage === "proposal"
+                      ? "Proposal готов"
+                      : "Дельта-спецификация готова"
+                  }
+                  artifactLabel={
+                    task.stage === "proposal" ? "proposal.md" : "specs/"
+                  }
+                  artifactHint="Подтвердите, чтобы перейти к следующему шагу."
+                />
+              </section>
+            )}
 
           {task.description && (
             <section className="mb-5">
@@ -294,6 +335,100 @@ export default async function ChangePage({
                       <dt className="text-slate-500">Лог</dt>
                       <dd className="font-mono text-[10px] break-all text-slate-500">
                         {task.proposalUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.deltaSpecCreatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={deltaSpecCreateAlive}
+                  exitCode={task.deltaSpecCreateExitCode}
+                />
+                <span>Создание дельта-спецификаций</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.deltaSpecCreateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.deltaSpecCreateStartedAt)}
+                  </div>
+                )}
+                {!deltaSpecCreateAlive &&
+                  task.deltaSpecCreateExitCode != null &&
+                  task.deltaSpecCreateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.deltaSpecCreateExitCode}) — см. лог
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.deltaSpecCreatePid}
+                  </dd>
+                  {task.deltaSpecCreateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.deltaSpecCreateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.deltaSpecUpdatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={deltaSpecUpdateAlive}
+                  exitCode={task.deltaSpecUpdateExitCode}
+                />
+                <span>Обновление дельта-спецификаций</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.deltaSpecUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.deltaSpecUpdateStartedAt)}
+                  </div>
+                )}
+                {!deltaSpecUpdateAlive &&
+                  task.deltaSpecUpdateExitCode != null &&
+                  task.deltaSpecUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.deltaSpecUpdateExitCode}) — см. лог
+                    </div>
+                  )}
+                {task.deltaSpecUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.deltaSpecUpdateComments}
+                    </span>
+                  </div>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.deltaSpecUpdatePid}
+                  </dd>
+                  {task.deltaSpecUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.deltaSpecUpdateLogPath}
                       </dd>
                     </>
                   )}

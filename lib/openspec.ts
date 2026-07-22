@@ -100,10 +100,18 @@ export interface BoardItem extends ChangeSummary {
   openspecNewStatus?: "running" | "stopped" | "none";
   // Step 2 (analyst mode): gigacode /opsx-continue — writes proposal.md.
   gigacodeContinueStatus?: "running" | "stopped" | "none";
+  // delta-spec step: gigacode writes specs/<capability>.md.
+  deltaSpecCreateStatus?: "running" | "stopped" | "none";
   // Developer-mode "Start" step: gigacode /opsx:plan.
   gigacodeStatus?: "running" | "stopped" | "none";
   proposalReady?: boolean;
+  // delta-spec artifact readiness — non-empty specs/ dir under
+  // <worktree>/openspec/changes/<tag>/specs/.
+  deltaSpecReady?: boolean;
   gigacodeError?: boolean;
+  // delta-spec create step error (separate from gigacodeContinueError
+  // which belongs to the proposal stage).
+  deltaSpecCreateError?: boolean;
 }
 
 export async function checkProposalExists(

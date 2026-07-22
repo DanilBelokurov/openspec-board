@@ -13,6 +13,7 @@ import {
   resolveProposalRootForTask,
   type BoardItem,
 } from "@/lib/openspec";
+import { isStageReady } from "@/lib/continuation";
 
 export default async function Home() {
   const config = await readConfig();
@@ -59,6 +60,15 @@ export default async function Home() {
           t.summary.changeName,
         );
         const proposalReady = await checkProposalExists(changePath);
+        // delta-spec is "ready" when the specs/ dir contains at
+        // least one .md file. We compute this unconditionally and
+        // forward the result in BoardItem so the badge / confirm
+        // gating can read it.
+        const deltaSpecReady = await isStageReady(proposalRoot, t.summary.changeName, {
+          stage: "delta-spec",
+          instructionsArtifact: "specs",
+          artifactSubpath: "specs",
+        });
         // In analyst mode, "error" means either CLI step exited non-zero.
         // In developer mode, gigacodeExitCode tracks /opsx:plan (the only
         // background step), so including it is still correct there.
@@ -67,6 +77,8 @@ export default async function Home() {
           (t.gigacodeContinueExitCode != null &&
             t.gigacodeContinueExitCode !== 0) ||
           (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0);
+        const deltaSpecCreateError =
+          t.deltaSpecCreateExitCode != null && t.deltaSpecCreateExitCode !== 0;
         const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
         return {
           ...t.summary,
@@ -75,9 +87,12 @@ export default async function Home() {
           codeRepoPath: t.codeRepoPath,
           openspecNewStatus: processStatusFor(t.openspecNewPid),
           gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
+          deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),
           gigacodeStatus: processStatusFor(t.gigacodePid),
           proposalReady,
+          deltaSpecReady,
           gigacodeError: stepError || undefined,
+          deltaSpecCreateError: deltaSpecCreateError || undefined,
         };
       }),
   );

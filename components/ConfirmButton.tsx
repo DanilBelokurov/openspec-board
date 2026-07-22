@@ -10,21 +10,36 @@ import {
   Send,
 } from "lucide-react";
 
-interface ConfirmButtonProps {
+interface ConfirmArtifactButtonProps {
   tag: string;
+  stage: "proposal" | "delta-spec";
+  title: string;
+  artifactLabel: string;
+  artifactHint: string;
 }
 
-export function ConfirmButton({ tag }: ConfirmButtonProps) {
+/**
+ * Two-mode card: (1) green check + "Подтверждено" advances the task
+ * to the next analyst-mode stage; (2) pencil reveals an inline
+ * textarea where the analyst can request changes to the generated
+ * artifact. The pencil posts to a stage-specific update endpoint
+ * (update-proposal / update-delta-spec), which re-runs gigacode
+ * --prompt with the user's request folded in.
+ *
+ * On a successful confirm we router.push("/") so the analyst lands
+ * back on the board and sees the task in its new column.
+ */
+export function ConfirmArtifactButton({
+  tag,
+  stage,
+  title,
+  artifactLabel,
+  artifactHint,
+}: ConfirmArtifactButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Inline edit-mode: pencil button toggles a textarea where the
-  // analyst can request changes to the generated proposal. Submit
-  // POSTs to /api/changes/<tag>/update-proposal which spawns the
-  // proposal-update pipeline (openspec instructions + gigacode
-  // --prompt with {proposal}/{json}/{comments} substituted from
-  // templates/proposal/proposal-update-prompt-template.md).
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -47,7 +62,7 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
     setError(null);
     try {
       const res = await fetch(
-        `/api/changes/${encodeURIComponent(tag)}/update-proposal`,
+        `/api/changes/${encodeURIComponent(tag)}/update-${stage}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -59,8 +74,8 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
         setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      // Collapse the editor; the proposal-update pipeline runs in
-      // the background and writes the updated proposal.md to the
+      // Collapse the editor; the artifact-update pipeline runs in
+      // the background and writes the updated files to the
       // worktree. router.refresh() makes the new file content show
       // up immediately in the file tree on the detail page.
       setEditing(false);
@@ -86,11 +101,6 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
         setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      // On success the API has already committed the worktree and
-      // advanced stage → delta-spec. Bounce back to the board so
-      // the analyst sees the task in its new column, instead of
-      // staying on the detail page where stage and process cards
-      // are already stale.
       router.push("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -104,21 +114,21 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
       <div className="flex items-center gap-3">
         <CheckCheck className="h-4 w-4 shrink-0 text-emerald-700" />
         <div className="flex-1">
-          <div className="font-semibold">Proposal готов</div>
+          <div className="font-semibold">{title}</div>
           <div className="mt-0.5 text-[11px] text-emerald-800/80">
-            Файл <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">proposal.md</code> создан в{" "}
+            Файл <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">{artifactLabel}</code> создан в{" "}
             <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">
               {tag}
             </code>
-            . Подтвердите, чтобы перейти к следующему шагу.
+            . {artifactHint}
           </div>
         </div>
         {!editing && (
           <button
             type="button"
             onClick={openEditor}
-            title="Запросить изменения proposal"
-            aria-label="Запросить изменения proposal"
+            title="Запросить изменения"
+            aria-label="Запросить изменения"
             className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -142,16 +152,20 @@ export function ConfirmButton({ tag }: ConfirmButtonProps) {
       {editing && (
         <div className="mt-3 space-y-2 border-t border-emerald-200/70 pt-3">
           <label
-            htmlFor={`proposal-edit-${tag}`}
+            htmlFor={`artifact-edit-${stage}-${tag}`}
             className="block text-[11px] font-medium text-emerald-900/80"
           >
-            Что изменить в proposal?
+            Что изменить?
           </label>
           <textarea
-            id={`proposal-edit-${tag}`}
+            id={`artifact-edit-${stage}-${tag}`}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
-            placeholder="Например: «добавь раздел про риски», «уточни scope», «опиши как мы будем мерять успех»"
+            placeholder={
+              stage === "proposal"
+                ? "Например: «добавь раздел про риски», «уточни scope», «опиши как мы будем мерять успех»"
+                : "Например: «добавь требование про логирование», «уточни WHEN/THEN у сценария X», «убери лишнее требование»"
+            }
             rows={3}
             autoFocus
             disabled={updating}
