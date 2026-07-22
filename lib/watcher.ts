@@ -76,10 +76,7 @@ async function tick(): Promise<void> {
         repo.visualizePid == null &&
         !isProcessAlive(buildPid ?? -1)
       ) {
-        const spawned = await spawnCodeReviewGraphVisualize(
-          config.openspecDir,
-          name,
-        );
+        const spawned = await spawnCodeReviewGraphVisualize(name);
         if (spawned.pid != null) {
           await updateRepoEntry(name, {
             visualizePid: spawned.pid,

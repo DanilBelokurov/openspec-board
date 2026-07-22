@@ -42,20 +42,25 @@ async function ensureRepoLogDir(): Promise<void> {
 
 /**
  * The code-review-graph CLI must point at the cloned submodule
- * directory, not at openspecDir itself. Submodules live under
- * `<openspecDir>/repos/<name>/`.
+ * directory. Submodules live under `<cwd>/repos/<name>/` where
+ * `<cwd>` is the sdd-board project's own working directory (i.e.
+ * the same place `.sdd-board/` lives in), not the openspec store.
+ * Keeping both repos/ and graphs/ inside the ssd-board project
+ * means the graph index can be version-controlled alongside the
+ * tool that drives it.
  */
-function repoPath(openspecDir: string, repoName: string): string {
-  return path.join(openspecDir, "repos", repoName);
+function repoPath(repoName: string): string {
+  return path.join(process.cwd(), "repos", repoName);
 }
 
 /**
- * `<openspecDir>/graph/<name>/` — sibling of repos/, so the data
- * directory sits next to the working tree. Always absolute so the
- * CLI doesn't have to rely on its own CWD resolution.
+ * `<cwd>/graphs/<name>/` — sibling of repos/, so the data
+ * directory sits next to the submodule working tree. Always
+ * absolute so the CLI doesn't have to rely on its own CWD
+ * resolution.
  */
-function dataDir(openspecDir: string, repoName: string): string {
-  return path.join(openspecDir, "graph", repoName);
+function dataDir(repoName: string): string {
+  return path.join(process.cwd(), "graphs", repoName);
 }
 
 export function buildLogPath(repoName: string): string {
@@ -71,7 +76,6 @@ export function visualizeLogPath(repoName: string): string {
  * Logs go to `.sdd-board/logs/repos/<name>.graph-build.log`.
  */
 export async function spawnCodeReviewGraphBuild(
-  openspecDir: string,
   repoName: string,
 ): Promise<SpawnBuildResult> {
   await ensureRepoLogDir();
@@ -83,13 +87,13 @@ export async function spawnCodeReviewGraphBuild(
         "code-review-graph",
         "build",
         "--repo",
-        repoPath(openspecDir, repoName),
+        repoPath(repoName),
         "--data-dir",
-        dataDir(openspecDir, repoName),
+        dataDir(repoName),
       ],
       logFile,
       header: `code-review-graph build for ${repoName}`,
-      cwd: openspecDir,
+      cwd: process.cwd(),
     });
     return { pid: result.pid || null, logFile };
   } catch (e) {
@@ -103,7 +107,6 @@ export async function spawnCodeReviewGraphBuild(
  * completed. Logs go to `.sdd-board/logs/repos/<name>.graph-visualize.log`.
  */
 export async function spawnCodeReviewGraphVisualize(
-  openspecDir: string,
   repoName: string,
 ): Promise<SpawnBuildResult> {
   await ensureRepoLogDir();
@@ -115,15 +118,15 @@ export async function spawnCodeReviewGraphVisualize(
         "code-review-graph",
         "visualize",
         "--repo",
-        repoPath(openspecDir, repoName),
+        repoPath(repoName),
         "--data-dir",
-        dataDir(openspecDir, repoName),
+        dataDir(repoName),
         "--format",
         "json",
       ],
       logFile,
       header: `code-review-graph visualize for ${repoName}`,
-      cwd: openspecDir,
+      cwd: process.cwd(),
     });
     return { pid: result.pid || null, logFile };
   } catch (e) {

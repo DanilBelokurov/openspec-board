@@ -2,17 +2,20 @@
  * Git helpers for the user-tracked repos the Settings panel exposes.
  *
  * Each "repo" is a git submodule installed under
- *   <openspecDirParent>/repos/<name>/
- * The submodule is initialised from <url> and the worktree is
- * checked out at the user-chosen <branch>. Subsequent calls re-use
- * the existing clone (idempotent on re-add) — they fetch origin and
- * `git checkout` the configured branch.
+ *   <cwd>/repos/<name>/
+ * where `<cwd>` is the directory the Next.js process was launched
+ * from (i.e. the sdd-board project's own working directory, NOT
+ * the openspec store the user is editing). The submodule is
+ * initialised from <url> and the worktree is checked out at the
+ * user-chosen <branch>. Subsequent calls re-use the existing
+ * clone (idempotent on re-add) — they fetch origin and `git
+ * checkout` the configured branch.
  *
- * The submodule is added under the PARENT of openspecDir, not
- * inside openspec/changes/, so the proposal-generation worktree
- * (which is created by `git worktree add ... master` on the
- * openspecDir's parent repo) doesn't accidentally try to also be
- * the parent of a submodule.
+ * Keeping the submodule inside the sdd-board project folder (rather
+ * than next to openspecDir) means the graph index can sit alongside
+ * the code that drives it, and the `.gitmodules`/`repos/` stay
+ * version-controlled with the ssd-board repo if the user ever
+ * commits them.
  */
 
 import path from "path";
@@ -65,28 +68,21 @@ export interface AddSubmoduleResult {
 }
 
 /**
- * Ensure <parent>/repos/<name> exists as a checkout of <url> at
+ * Ensure `<cwd>/repos/<name>` exists as a checkout of <url> at
  * <branch>. Idempotent: if the path already has a clone, skip
  * `submodule add` and only re-run fetch + checkout.
- *
- * - repoDir: the openspecDir whose PARENT repo will own the
- *   submodule (must be a git working tree)
- * - name:   the directory name inside repos/
- * - url:    the remote URL to clone
- * - branch: the branch to check out (after a fetch)
  */
 export async function addOrCheckoutSubmodule(
-  repoDir: string,
   name: string,
   url: string,
   branch: string,
 ): Promise<AddSubmoduleResult> {
-  // The submodule's parent repo is the one that contains
-  // openspecDir. For our default layout that's `<repo>/openspec/`
-  // itself; submodule ops run there so .git/modules/repos/<name>/
-  // lands correctly.
+  // The sdd-board project's own working directory owns the
+  // submodule. process.cwd() is the Next.js process cwd, which is
+  // the project's root when launched with `next dev` / `next start`.
+  const repoDir = process.cwd();
   if (!(await exists(repoDir))) {
-    throw new Error(`repoDir не существует: ${repoDir}`);
+    throw new Error(`cwd не существует: ${repoDir}`);
   }
 
   const reposDir = path.join(repoDir, "repos");

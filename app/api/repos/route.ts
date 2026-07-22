@@ -107,12 +107,7 @@ export async function POST(req: NextRequest) {
   // submodule didn't actually materialise.
   let result;
   try {
-    result = await addOrCheckoutSubmodule(
-      config.openspecDir,
-      name,
-      url,
-      branch,
-    );
+    result = await addOrCheckoutSubmodule(name, url, branch);
   } catch (e) {
     return NextResponse.json(
       { error: `Не удалось установить submodule: ${String(e)}` },
@@ -125,7 +120,7 @@ export async function POST(req: NextRequest) {
   // code-review-graph pipeline (`build`). Step 2 (`visualize`)
   // is chained by lib/watcher.ts once the build exits 0 — that's
   // why the response only reports the build PID/log here.
-  const spawned = await spawnCodeReviewGraphBuild(config.openspecDir, name);
+  const spawned = await spawnCodeReviewGraphBuild(name);
   const buildLogPath = `.sdd-board/logs/repos/${name}.graph-build.log`;
   const visualizeLogPath = `.sdd-board/logs/repos/${name}.graph-visualize.log`;
   const repoEntry = {

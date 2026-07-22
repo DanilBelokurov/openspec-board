@@ -49,22 +49,24 @@ export async function DELETE(
     );
   }
 
-  // Best-effort: de-register the submodule on disk. If git
-  // isn't available or the repo isn't a git repo, just drop the
-  // entry from config.
-  if (await isGitRepo(config.openspecDir)) {
+  // Best-effort: de-register the submodule on disk. The submodule
+  // lives under `<cwd>/repos/<name>` now (the sdd-board project's
+  // own working directory, not the openspecDir), so we run
+  // `git submodule deinit` / `git submodule rm` from there.
+  const cwd = process.cwd();
+  if (await isGitRepo(cwd)) {
     try {
       await run(
         "git",
         [
           "-C",
-          config.openspecDir,
+          cwd,
           "submodule",
           "deinit",
           "-f",
           path.posix.join("repos", name),
         ],
-        { cwd: config.openspecDir },
+        { cwd },
       );
     } catch (e) {
       console.warn(`git submodule deinit for ${name} failed:`, e);
@@ -74,13 +76,13 @@ export async function DELETE(
         "git",
         [
           "-C",
-          config.openspecDir,
+          cwd,
           "submodule",
           "rm",
           "-f",
           path.posix.join("repos", name),
         ],
-        { cwd: config.openspecDir },
+        { cwd },
       );
     } catch (e) {
       console.warn(`git submodule rm for ${name} failed:`, e);
