@@ -181,7 +181,6 @@ export default async function ChangePage({
               a non-zero exit code surfaces as an error. */}
           {task.openspecNewPid && (
             <details
-              open
               className="group mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex items-center gap-2 font-semibold text-slate-800">
@@ -211,7 +210,6 @@ export default async function ChangePage({
 
           {task.gigacodeContinuePid && (
             <details
-              open
               className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex items-center gap-2 font-semibold text-slate-800">
@@ -255,7 +253,6 @@ export default async function ChangePage({
 
           {task.proposalUpdatePid && (
             <details
-              open
               className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex items-center gap-2 font-semibold text-slate-800">
