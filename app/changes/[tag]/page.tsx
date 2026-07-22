@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
-  FolderOpen,
   Loader2,
   CheckCircle2,
   CircleAlert,
@@ -24,6 +23,7 @@ import { extractJiraId } from "@/lib/jira";
 import { formatDateTime } from "@/lib/format";
 import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
+import { OpenInFinderForm } from "@/components/OpenInFinderForm";
 import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { TaskActions } from "@/components/TaskActions";
@@ -769,29 +769,3 @@ function pluralFiles(n: number): string {
   return "файлов";
 }
 
-function OpenInFinderForm({ tag }: { tag: string }) {
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        // fetch (not <form action=…>) so the browser stays on this
-        // page; the endpoint just runs `open` on the host OS as a
-        // side-effect and returns JSON. A native form submission
-        // would replace the page with that JSON, which is exactly
-        // what the user is seeing today.
-        try {
-          await fetch(
-            `/api/changes/${encodeURIComponent(tag)}/open`,
-            { method: "POST" },
-          );
-        } catch {
-          /* ignore — the native 'open' call already fired */
-        }
-      }}
-      className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
-    >
-      <FolderOpen className="h-3.5 w-3.5" />
-      <span>Открыть в Finder</span>
-    </button>
-  );
-}
