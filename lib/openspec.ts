@@ -125,6 +125,113 @@ export interface BoardItem extends ChangeSummary {
   designCreateError?: boolean;
   // adr create step error.
   adrCreateError?: boolean;
+  // Pipeline status badge for the task's current stage. Computed
+  // server-side on each board render and forwarded on BoardItem so
+  // SessionCard can show one of {running, error, waiting} without
+  // needing access to the server-side isProcessAlive helper. Null
+  // means no badge for this stage (no pipeline, or 'done').
+  pipelineStatus?: "running" | "error" | "waiting" | null;
+}
+
+export type PipelineStatus = "running" | "error" | "waiting" | null;
+
+/**
+ * Structural shape that pipelineStatus() reads. Kept local to
+ * lib/openspec.ts so this file doesn't have to import TaskEntry
+ * from lib/state.ts (which itself imports ChangeSummary from
+ * here — circular type-only imports compile fine but are
+ * distracting to read). Any TaskEntry-shaped object is
+ * assignable to this.
+ */
+export interface PipelineTaskShape {
+  stage: Stage;
+  openspecNewPid?: number | null;
+  openspecNewExitCode?: number | null;
+  gigacodeContinuePid?: number | null;
+  gigacodeContinueExitCode?: number | null;
+  gigacodePid?: number | null;
+  gigacodeExitCode?: number | null;
+  deltaSpecCreatePid?: number | null;
+  deltaSpecCreateExitCode?: number | null;
+  designCreatePid?: number | null;
+  designCreateExitCode?: number | null;
+  adrCreatePid?: number | null;
+  adrCreateExitCode?: number | null;
+}
+
+/**
+ * Compute the pipeline status badge for a single task at its
+ * current stage. The three badge states the UI cares about are:
+ *
+ *   "running" — at least one background process for this stage is
+ *               still alive (openspec new change, gigacode write
+ *               of proposal.md/specs/design.md/adr.md, or the
+ *               developer-mode /opsx:plan spawn)
+ *   "error"   — one of those processes has already exited with a
+ *               non-zero code; the user has to fix something before
+ *               this stage can advance
+ *   "waiting" — the current stage's artefact exists on disk and
+ *               no CLI step is in flight; the analyst can press
+ *               "Подтверждаю" to advance the stage
+ *
+ * Returns `null` when the stage has no pipeline (e.g. the final
+ * 'done' stage, or backlog in developer mode) — the UI then renders
+ * no badge rather than a misleading "running" / "error" / "waiting".
+ */
+export function pipelineStatus(
+  task: PipelineTaskShape,
+  isAlive: (pid: number) => boolean,
+  isStageReady: boolean,
+): PipelineStatus {
+  // PIDs to check for this stage. proposal has two steps; every
+  // other analyst stage has the create-step only.
+  const pids: { pid: number | null | undefined; exitCode: number | null | undefined }[] = [];
+  switch (task.stage) {
+    case "proposal":
+      pids.push({ pid: task.openspecNewPid, exitCode: task.openspecNewExitCode });
+      pids.push({
+        pid: task.gigacodeContinuePid,
+        exitCode: task.gigacodeContinueExitCode,
+      });
+      break;
+    case "delta-spec":
+      pids.push({
+        pid: task.deltaSpecCreatePid,
+        exitCode: task.deltaSpecCreateExitCode,
+      });
+      break;
+    case "design":
+      pids.push({
+        pid: task.designCreatePid,
+        exitCode: task.designCreateExitCode,
+      });
+      break;
+    case "adr":
+      pids.push({
+        pid: task.adrCreatePid,
+        exitCode: task.adrCreateExitCode,
+      });
+      break;
+    case "develop":
+    case "tests":
+    case "deploy":
+      // developer-mode stages that share the single gigacode
+      // /opsx:plan spawn started by /api/changes/<tag>/start.
+      pids.push({ pid: task.gigacodePid, exitCode: task.gigacodeExitCode });
+      break;
+    default:
+      return null;
+  }
+
+  // Error wins over running wins over waiting — the user needs to
+  // see a broken step before anything else.
+  for (const { pid, exitCode } of pids) {
+    if (exitCode != null && exitCode !== 0) return "error";
+  }
+  for (const { pid } of pids) {
+    if (pid != null && isAlive(pid)) return "running";
+  }
+  return isStageReady ? "waiting" : null;
 }
 
 export async function checkProposalExists(

@@ -28,14 +28,6 @@ export function SessionCard({ item, mode }: SessionCardProps) {
   const jiraId = item.jiraId ?? (item.jiraUrl ? extractJiraId(item.jiraUrl) : null);
   const repoName = item.codeRepoPath ? repoBasename(item.codeRepoPath) : null;
 
-  // Pick the currently-running CLI step (if any). In analyst mode both
-  // steps are visible (openspec new change → gigacode /opsx-continue);
-  // in developer mode the only relevant process is the Start action's
-  // gigacode /opsx:plan.
-  const step1Running = item.openspecNewStatus === "running";
-  const step2Running = item.gigacodeContinueStatus === "running";
-  const planRunning = item.gigacodeStatus === "running";
-
   return (
     <Link
       href={`/changes/${encodeURIComponent(item.changeName)}`}
@@ -49,77 +41,46 @@ export function SessionCard({ item, mode }: SessionCardProps) {
           {item.changeName}
         </code>
         <div className="flex flex-wrap gap-1">
-          {step1Running && (
+          {/* Unified pipeline-status badge. Computed server-side via
+              lib/openspec.ts → pipelineStatus() so it works for
+              every stage that has a pipeline (proposal /
+              delta-spec / design / adr in analyst mode, and the
+              /opsx:plan stages in developer mode). */}
+          {item.pipelineStatus === "running" && (
             <span
-              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-              title="Создание директории change-proposal"
+              className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+              title={`Этап «${item.stage}» — идёт работа`}
             >
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              openspec new change
+              выполняется
             </span>
           )}
-          {step2Running && (
-            <span
-              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-              title="Создание proposal.md — gigacode /opsx-continue"
-            >
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              gigacode /opsx-continue
-            </span>
-          )}
-          {planRunning && (
-            <span
-              className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
-              title="Планирование декомпозиции — gigacode /opsx:plan"
-            >
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              gigacode
-            </span>
-          )}
-          {/* After the current stage's CLI steps finished + the artifact
-              for this stage exists on disk, and the task hasn't been
-              confirmed yet → "Ожидает". Works for proposal
-              (proposalReady), delta-spec (deltaSpecReady), design
-              (designReady), and adr (adrReady). The stage guard
-              hides the badge once the user has moved on to the next
-              column — at that point the card already lives there
-              and the badge is just noise. */}
-          {((item.stage === "proposal" &&
-            item.proposalReady &&
-            !item.gigacodeError) ||
-            (item.stage === "delta-spec" &&
-              item.deltaSpecReady &&
-              !item.deltaSpecCreateError) ||
-            (item.stage === "design" &&
-              item.designReady &&
-              !item.designCreateError) ||
-            (item.stage === "adr" &&
-              item.adrReady &&
-              !item.adrCreateError)) && (
-              <span
-                className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
-                title={
-                  item.stage === "proposal"
-                    ? "Proposal создан — ожидает следующего шага"
-                    : item.stage === "delta-spec"
-                      ? "Дельта-спецификация создана — ожидает следующего шага"
-                      : item.stage === "design"
-                        ? "Дизайн создан — ожидает следующего шага"
-                        : "ADR создан — ожидает следующего шага"
-                }
-              >
-                <Hourglass className="h-2.5 w-2.5" />
-                Ожидает
-              </span>
-            )}
-          {/* If any background step exited with non-zero → red error badge. */}
-          {item.gigacodeError && (
+          {item.pipelineStatus === "error" && (
             <span
               className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
-              title="Один из шагов завершился с ошибкой"
+              title={`Этап «${item.stage}» — один из шагов завершился с ошибкой`}
             >
               <CircleAlert className="h-2.5 w-2.5" />
               ошибка
+            </span>
+          )}
+          {item.pipelineStatus === "waiting" && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
+              title={
+                item.stage === "proposal"
+                  ? "Proposal создан — ожидает подтверждения"
+                  : item.stage === "delta-spec"
+                    ? "Дельта-спецификация создана — ожидает подтверждения"
+                    : item.stage === "design"
+                      ? "Дизайн создан — ожидает подтверждения"
+                      : item.stage === "adr"
+                        ? "ADR создан — ожидает подтверждения"
+                        : `${item.stage} создан — ожидает подтверждения`
+              }
+            >
+              <Hourglass className="h-2.5 w-2.5" />
+              ожидает
             </span>
           )}
           {jiraId && (

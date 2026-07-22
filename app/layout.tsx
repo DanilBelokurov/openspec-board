@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { RepoBuildToaster } from "@/components/RepoBuildToaster";
+import { CreateProposalProvider } from "@/components/CreateProposalContext";
 
 export const metadata: Metadata = {
   title: "SDD — Доска сессий",
@@ -15,8 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="font-sans">
-        {children}
-        <RepoBuildToaster />
+        <CreateProposalProvider>
+          {children}
+          <RepoBuildToaster />
+        </CreateProposalProvider>
       </body>
     </html>
   );

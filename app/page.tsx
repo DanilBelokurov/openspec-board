@@ -11,9 +11,11 @@ import { extractJiraId } from "@/lib/jira";
 import {
   checkProposalExists,
   resolveProposalRootForTask,
+  pipelineStatus,
   type BoardItem,
 } from "@/lib/openspec";
 import { isStageReady } from "@/lib/continuation";
+import { isProcessAlive } from "@/lib/process";
 
 export default async function Home() {
   const config = await readConfig();
@@ -116,6 +118,23 @@ export default async function Home() {
           deltaSpecCreateError: deltaSpecCreateError || undefined,
           designCreateError: designCreateError || undefined,
           adrCreateError: adrCreateError || undefined,
+          // Single-status badge for the task's current stage.
+          // 'running' / 'error' / 'waiting' / null. Computed here
+          // (server-side) so SessionCard doesn't need access to
+          // isProcessAlive or the stage-specific PIDs.
+          pipelineStatus: pipelineStatus(
+            t,
+            (pid) => isProcessAlive(pid),
+            t.stage === "proposal"
+              ? proposalReady
+              : t.stage === "delta-spec"
+                ? deltaSpecReady
+                : t.stage === "design"
+                  ? designReady
+                  : t.stage === "adr"
+                    ? adrReady
+                    : false,
+          ),
         };
       }),
   );

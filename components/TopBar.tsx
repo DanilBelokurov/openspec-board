@@ -6,6 +6,7 @@ import { Settings, RefreshCw, FilePlus } from "lucide-react";
 import type { BoardModeId } from "@/lib/modes";
 import { SettingsDialog } from "./SettingsDialog";
 import { CreateProposalDialog } from "./CreateProposalDialog";
+import { useCreateProposal } from "./CreateProposalContext";
 
 interface TopBarProps {
   mode: BoardModeId;
@@ -14,7 +15,7 @@ interface TopBarProps {
 export function TopBar({ mode }: TopBarProps) {
   const router = useRouter();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const createProposal = useCreateProposal();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -54,7 +55,7 @@ export function TopBar({ mode }: TopBarProps) {
           {mode === "analyst" && (
             <button
               type="button"
-              onClick={() => setCreateOpen(true)}
+              onClick={() => createProposal.open()}
               className="flex h-7 items-center gap-1 rounded-md bg-slate-900 px-2.5 text-[12px] font-medium text-white hover:bg-slate-800"
             >
               <FilePlus className="h-3.5 w-3.5" />
@@ -103,8 +104,11 @@ export function TopBar({ mode }: TopBarProps) {
       />
 
       <CreateProposalDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        open={createProposal.isOpen}
+        initialTitle={createProposal.initial?.title}
+        initialDescription={createProposal.initial?.description}
+        initialJiraUrl={createProposal.initial?.jiraUrl}
+        onClose={() => createProposal.close()}
       />
     </>
   );

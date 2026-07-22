@@ -26,6 +26,7 @@ import { FileTree } from "@/components/FileTree";
 import { CopyPathButton } from "@/components/CopyPathButton";
 import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
+import { TaskActions } from "@/components/TaskActions";
 
 export default async function ChangePage({
   params,
@@ -145,8 +146,29 @@ export default async function ChangePage({
             ? task.adrCreateExitCode != null &&
               task.adrCreateExitCode !== 0
             : false;
+  // "Ready" only counts when no create-step process is still alive
+  // — otherwise the artifact file might exist on disk but be only
+  // partially written by the running gigacode process, and the
+  // user would click "Подтверждаю" against an incomplete artefact.
+  // (For proposal we also gate on openspecNew so we don't show
+  // "ready" before the openspec-new-change step has finished.)
+  const createStillRunning =
+    (task.stage === "proposal" &&
+      ((task.openspecNewPid != null && isProcessAlive(task.openspecNewPid)) ||
+        (task.gigacodeContinuePid != null &&
+          isProcessAlive(task.gigacodeContinuePid)))) ||
+    (task.stage === "delta-spec" &&
+      task.deltaSpecCreatePid != null &&
+      isProcessAlive(task.deltaSpecCreatePid)) ||
+    (task.stage === "design" &&
+      task.designCreatePid != null &&
+      isProcessAlive(task.designCreatePid)) ||
+    (task.stage === "adr" &&
+      task.adrCreatePid != null &&
+      isProcessAlive(task.adrCreatePid));
   const currentStageReady =
-    task.stage === "proposal"
+    !createStillRunning &&
+    (task.stage === "proposal"
       ? proposalReady
       : task.stage === "delta-spec"
         ? deltaSpecReady
@@ -154,7 +176,7 @@ export default async function ChangePage({
           ? designReady
           : task.stage === "adr"
             ? adrReady
-            : false;
+            : false);
   const showConfirmButton = currentStageReady && !currentStageError;
 
   return (
@@ -698,11 +720,17 @@ export default async function ChangePage({
             </section>
           )}
 
-          <div className="mt-3 flex gap-2">
-            {folderExists && (
-              <OpenInFinderForm tag={tag} />
-            )}
-            <CopyPathButton path={relPath} />
+          <div className="mt-3 flex items-start justify-between gap-2">
+            <div className="flex gap-2">
+              {folderExists && <OpenInFinderForm tag={tag} />}
+              <CopyPathButton path={relPath} />
+            </div>
+            <TaskActions
+              tag={tag}
+              title={task.summary.title}
+              description={task.description}
+              jiraUrl={task.jiraUrl ?? undefined}
+            />
           </div>
         </div>
       </div>
@@ -743,17 +771,27 @@ function pluralFiles(n: number): string {
 
 function OpenInFinderForm({ tag }: { tag: string }) {
   return (
-    <form
-      action={`/api/changes/${encodeURIComponent(tag)}/open`}
-      method="post"
+    <button
+      type="button"
+      onClick={async () => {
+        // fetch (not <form action=…>) so the browser stays on this
+        // page; the endpoint just runs `open` on the host OS as a
+        // side-effect and returns JSON. A native form submission
+        // would replace the page with that JSON, which is exactly
+        // what the user is seeing today.
+        try {
+          await fetch(
+            `/api/changes/${encodeURIComponent(tag)}/open`,
+            { method: "POST" },
+          );
+        } catch {
+          /* ignore — the native 'open' call already fired */
+        }
+      }}
+      className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
     >
-      <button
-        type="submit"
-        className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-        <span>Открыть в Finder</span>
-      </button>
-    </form>
+      <FolderOpen className="h-3.5 w-3.5" />
+      <span>Открыть в Finder</span>
+    </button>
   );
 }

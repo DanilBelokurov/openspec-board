@@ -9,11 +9,27 @@ import { extractJiraId } from "@/lib/jira";
 interface CreateProposalDialogProps {
   open: boolean;
   onClose: () => void;
+  /**
+   * Optional initial values for the form. Used by the "Копировать"
+   * action on the detail page to clone the existing task's title,
+   * description, and jiraUrl into the dialog. The tag field is
+   * always left blank so the user must pick a fresh one (a
+   * reused tag would collide in the change folder).
+   */
+  initialTitle?: string;
+  initialDescription?: string;
+  initialJiraUrl?: string;
 }
 
 type Status = "idle" | "saving" | "saved" | "error";
 
-export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProps) {
+export function CreateProposalDialog({
+  open,
+  onClose,
+  initialTitle,
+  initialDescription,
+  initialJiraUrl,
+}: CreateProposalDialogProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -26,11 +42,11 @@ export function CreateProposalDialog({ open, onClose }: CreateProposalDialogProp
     if (!open) return;
     setStatus("idle");
     setError(null);
-    setTitle("");
-    setDescription("");
+    setTitle(initialTitle ?? "");
+    setDescription(initialDescription ?? "");
     setTag("");
-    setJiraUrl("");
-  }, [open]);
+    setJiraUrl(initialJiraUrl ?? "");
+  }, [open, initialTitle, initialDescription, initialJiraUrl]);
 
   useEffect(() => {
     if (!open) return;
