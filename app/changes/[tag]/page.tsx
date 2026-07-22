@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleAlert,
   ExternalLink,
+  ChevronRight,
 } from "lucide-react";
 import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
@@ -179,108 +180,129 @@ export default async function ChangePage({
               no "завершено (exit 0)" suffix. exit code 0 = success, only
               a non-zero exit code surfaces as an error. */}
           {task.openspecNewPid && (
-            <section className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
-              <div className="flex items-center gap-2 font-semibold text-slate-800">
+            <details
+              open
+              className="group mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
                 <ProcessStatusIcon
                   alive={openspecNewAlive}
                   exitCode={task.openspecNewExitCode}
                 />
                 <span>Создание директории change-proposal</span>
-              </div>
-              {task.openspecNewStartedAt && (
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Запущено:{" "}
-                  {formatDateTime(task.openspecNewStartedAt)}
-                </div>
-              )}
-              {!openspecNewAlive &&
-                task.openspecNewExitCode != null &&
-                task.openspecNewExitCode !== 0 && (
-                  <div className="mt-1 text-[11px] text-red-700">
-                    Ошибка (exit {task.openspecNewExitCode}) — см. лог
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+                {task.openspecNewStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.openspecNewStartedAt)}
                   </div>
                 )}
-            </section>
+                {!openspecNewAlive &&
+                  task.openspecNewExitCode != null &&
+                  task.openspecNewExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.openspecNewExitCode}) — см. лог
+                    </div>
+                  )}
+              </div>
+            </details>
           )}
 
           {task.gigacodeContinuePid && (
-            <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
-              <div className="flex items-center gap-2 font-semibold text-slate-800">
+            <details
+              open
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
                 <ProcessStatusIcon
                   alive={gigacodeContinueAlive}
                   exitCode={task.gigacodeContinueExitCode}
                 />
                 <span>Создание proposal.md</span>
-              </div>
-              {task.gigacodeContinueStartedAt && (
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Запущено: {formatDateTime(task.gigacodeContinueStartedAt)}
-                </div>
-              )}
-              {!gigacodeContinueAlive &&
-                task.gigacodeContinueExitCode != null &&
-                task.gigacodeContinueExitCode !== 0 && (
-                  <div className="mt-1 text-[11px] text-red-700">
-                    Ошибка (exit {task.gigacodeContinueExitCode}) — см. лог
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.gigacodeContinueStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.gigacodeContinueStartedAt)}
                   </div>
                 )}
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-                <dt className="text-slate-500">PID</dt>
-                <dd className="font-mono text-[10px]">{task.gigacodeContinuePid}</dd>
-                {task.gigacodeContinueLogPath && (
-                  <>
-                    <dt className="text-slate-500">Лог</dt>
-                    <dd className="font-mono text-[10px] break-all text-slate-500">
-                      {task.gigacodeContinueLogPath}
-                    </dd>
-                  </>
-                )}
-              </dl>
-            </section>
+                {!gigacodeContinueAlive &&
+                  task.gigacodeContinueExitCode != null &&
+                  task.gigacodeContinueExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.gigacodeContinueExitCode}) — см. лог
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.gigacodeContinuePid}
+                  </dd>
+                  {task.gigacodeContinueLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.gigacodeContinueLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
           )}
 
           {task.proposalUpdatePid && (
-            <section className="mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
-              <div className="flex items-center gap-2 font-semibold text-slate-800">
+            <details
+              open
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
                 <ProcessStatusIcon
                   alive={proposalUpdateAlive}
                   exitCode={task.proposalUpdateExitCode}
                 />
                 <span>Обновление proposal.md</span>
-              </div>
-              {task.proposalUpdateStartedAt && (
-                <div className="mt-1 text-[11px] text-slate-500">
-                  Запущено: {formatDateTime(task.proposalUpdateStartedAt)}
-                </div>
-              )}
-              {!proposalUpdateAlive &&
-                task.proposalUpdateExitCode != null &&
-                task.proposalUpdateExitCode !== 0 && (
-                  <div className="mt-1 text-[11px] text-red-700">
-                    Ошибка (exit {task.proposalUpdateExitCode}) — см. лог
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.proposalUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.proposalUpdateStartedAt)}
                   </div>
                 )}
-              {task.proposalUpdateComments && (
-                <div className="mt-1 text-[11px] text-slate-600">
-                  <span className="text-slate-500">Комментарий:</span>{" "}
-                  <span className="whitespace-pre-wrap">
-                    {task.proposalUpdateComments}
-                  </span>
-                </div>
-              )}
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-                <dt className="text-slate-500">PID</dt>
-                <dd className="font-mono text-[10px]">{task.proposalUpdatePid}</dd>
-                {task.proposalUpdateLogPath && (
-                  <>
-                    <dt className="text-slate-500">Лог</dt>
-                    <dd className="font-mono text-[10px] break-all text-slate-500">
-                      {task.proposalUpdateLogPath}
-                    </dd>
-                  </>
+                {!proposalUpdateAlive &&
+                  task.proposalUpdateExitCode != null &&
+                  task.proposalUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.proposalUpdateExitCode}) — см. лог
+                    </div>
+                  )}
+                {task.proposalUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.proposalUpdateComments}
+                    </span>
+                  </div>
                 )}
-              </dl>
-            </section>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.proposalUpdatePid}
+                  </dd>
+                  {task.proposalUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.proposalUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
           )}
 
           {task.stage === "backlog" && (
