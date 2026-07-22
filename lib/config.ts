@@ -38,11 +38,13 @@ export interface RepoConfig {
   buildExitCode?: number | null;
   buildExitSignal?: string | null;
   buildLogPath?: string;
+  buildError?: string;
   visualizePid?: number | null;
   visualizeStartedAt?: string;
   visualizeExitCode?: number | null;
   visualizeExitSignal?: string | null;
   visualizeLogPath?: string;
+  visualizeError?: string;
 }
 
 export interface AppConfig {

@@ -24,10 +24,12 @@ interface RepoBuild {
   buildStartedAt?: string;
   buildExitCode: number | null;
   buildLogPath?: string;
+  buildError?: string | null;
   visualizePid: number | null;
   visualizeStartedAt?: string;
   visualizeExitCode: number | null;
   visualizeLogPath?: string;
+  visualizeError?: string | null;
 }
 
 type PipelineStage =
@@ -42,6 +44,12 @@ type PipelineStage =
  * `done` and `failed` are terminal — those are the only states
  * that should surface a toast. We look at visualize first because
  * "graph is built" means visualize finished.
+ *
+ * Two non-happy paths route to `failed`:
+ *   - any non-zero exit code on either step
+ *   - a recorded spawn error (uvx missing, etc.) — in that case
+ *     the PID is null and there's an `error` string the toaster
+ *     surfaces verbatim.
  */
 function classify(build: RepoBuild): PipelineStage {
   if (build.visualizeExitCode != null) {
@@ -53,6 +61,10 @@ function classify(build: RepoBuild): PipelineStage {
     return build.visualizePid != null ? "visualizing" : "building";
   }
   if (build.buildPid != null) return "building";
+  // PID is null and we have a startedAt + error → spawn failed.
+  // Without the error field (legacy entries) we'd return idle
+  // here; that's fine, those entries are pre-error-tracking.
+  if (build.buildStartedAt && build.buildError) return "failed";
   return "idle";
 }
 
@@ -87,10 +99,14 @@ function writeNotified(set: Set<string>): void {
 
 export function RepoBuildToaster() {
   const [toasts, setToasts] = useState<
-    { name: string; status: "done" | "failed"; logPath?: string }[]
+    {
+      name: string;
+      status: "done" | "failed";
+      logPath?: string;
+      error?: string | null;
+    }[]
   >([]);
   const notifiedRef = useRef<Set<string>>(new Set());
-  const seenNamesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     notifiedRef.current = readNotified();
@@ -112,36 +128,29 @@ export function RepoBuildToaster() {
           name: string;
           status: "done" | "failed";
           logPath?: string;
+          error?: string | null;
         }[] = [];
 
         for (const build of data.repos ?? []) {
           const stage = classify(build);
           if (stage !== "done" && stage !== "failed") continue;
+          // Toast every terminal-state repo we haven't notified about
+          // yet. This catches two cases that the old "seen first"
+          // guard missed:
+          //   - the repo completed before this page mounted
+          //     (the first poll already classifies it as done/failed)
+          //   - the build/visualize never started (uvx missing, etc.)
           const id = keyFor(build.name, stage);
-          if (
-            seenNamesRef.current.has(build.name) &&
-            !notifiedRef.current.has(id)
-          ) {
-            newlyDone.push({
-              name: build.name,
-              status: stage,
-              logPath: build.visualizeLogPath ?? build.buildLogPath,
-            });
-            notifiedRef.current.add(id);
-            writeNotified(notifiedRef.current);
-          }
+          if (notifiedRef.current.has(id)) continue;
+          newlyDone.push({
+            name: build.name,
+            status: stage,
+            logPath: build.visualizeLogPath ?? build.buildLogPath,
+            error: build.visualizeError ?? build.buildError ?? null,
+          });
+          notifiedRef.current.add(id);
+          writeNotified(notifiedRef.current);
         }
-
-        // Forget names that have disappeared from config (only
-        // happens when the user deletes a repo). Re-add names we
-        // still see so the next completion is detected.
-        const currentNames = new Set(
-          (data.repos ?? []).map((b) => b.name),
-        );
-        for (const name of [...seenNamesRef.current]) {
-          if (!currentNames.has(name)) seenNamesRef.current.delete(name);
-        }
-        for (const name of currentNames) seenNamesRef.current.add(name);
 
         if (newlyDone.length > 0) {
           setToasts((prev) => [...prev, ...newlyDone]);
@@ -198,11 +207,19 @@ export function RepoBuildToaster() {
               .{" "}
               {t.status === "failed" && (
                 <>
-                  См.{" "}
-                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
-                    {t.logPath ?? "лог"}
-                  </code>
-                  .
+                  {t.error ? (
+                    <span className="block break-words text-red-700">
+                      {t.error}
+                    </span>
+                  ) : (
+                    <>
+                      См.{" "}
+                      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                        {t.logPath ?? "лог"}
+                      </code>
+                      .
+                    </>
+                  )}
                 </>
               )}
             </div>

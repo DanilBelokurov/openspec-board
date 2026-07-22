@@ -26,6 +26,7 @@ import { spawnDetachedWithLog, ensureLogDir } from "./process-logger";
 interface SpawnBuildResult {
   pid: number | null;
   logFile: string;
+  error?: string;
 }
 
 /**
@@ -97,8 +98,9 @@ export async function spawnCodeReviewGraphBuild(
     });
     return { pid: result.pid || null, logFile };
   } catch (e) {
-    console.error(`code-review-graph build spawn threw:`, e);
-    return { pid: null, logFile };
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`code-review-graph build spawn threw:`, message);
+    return { pid: null, logFile, error: message };
   }
 }
 
@@ -130,7 +132,8 @@ export async function spawnCodeReviewGraphVisualize(
     });
     return { pid: result.pid || null, logFile };
   } catch (e) {
-    console.error(`code-review-graph visualize spawn threw:`, e);
-    return { pid: null, logFile };
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`code-review-graph visualize spawn threw:`, message);
+    return { pid: null, logFile, error: message };
   }
 }

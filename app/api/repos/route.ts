@@ -123,12 +123,17 @@ export async function POST(req: NextRequest) {
   const spawned = await spawnCodeReviewGraphBuild(name);
   const buildLogPath = `.sdd-board/logs/repos/${name}.graph-build.log`;
   const visualizeLogPath = `.sdd-board/logs/repos/${name}.graph-visualize.log`;
+  // Record the build start time even when the spawn itself failed
+  // (uvx missing on PATH, for example) — the toaster then has a
+  // signal that something was attempted and can show an error.
+  const now = new Date().toISOString();
   const repoEntry = {
     url,
     branch,
     buildPid: spawned.pid ?? null,
-    buildStartedAt: spawned.pid != null ? new Date().toISOString() : undefined,
+    buildStartedAt: now,
     buildLogPath,
+    buildError: spawned.error,
     visualizeLogPath,
   };
   const nextRepos = { ...existing, [name]: repoEntry };
@@ -144,6 +149,7 @@ export async function POST(req: NextRequest) {
         spawned: spawned.pid != null,
         pid: spawned.pid,
         logFile: path.join(config.openspecDir, buildLogPath),
+        error: spawned.error,
       },
       repos: updated.repos,
     },

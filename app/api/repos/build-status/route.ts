@@ -16,10 +16,12 @@ export async function GET() {
     buildStartedAt: repo.buildStartedAt ?? null,
     buildExitCode: repo.buildExitCode ?? null,
     buildLogPath: repo.buildLogPath ?? null,
+    buildError: repo.buildError ?? null,
     visualizePid: repo.visualizePid ?? null,
     visualizeStartedAt: repo.visualizeStartedAt ?? null,
     visualizeExitCode: repo.visualizeExitCode ?? null,
     visualizeLogPath: repo.visualizeLogPath ?? null,
+    visualizeError: repo.visualizeError ?? null,
   }));
   return NextResponse.json({ repos: out });
 }
