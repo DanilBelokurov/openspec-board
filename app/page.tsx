@@ -69,6 +69,13 @@ export default async function Home() {
           instructionsArtifact: "specs",
           artifactSubpath: "specs",
         });
+        // design.md readiness — used to gate the design-stage
+        // confirm button + the violet 'Ожидает' badge.
+        const designReady = await isStageReady(proposalRoot, t.summary.changeName, {
+          stage: "design",
+          instructionsArtifact: "design",
+          artifactSubpath: "design.md",
+        });
         // In analyst mode, "error" means either CLI step exited non-zero.
         // In developer mode, gigacodeExitCode tracks /opsx:plan (the only
         // background step), so including it is still correct there.
@@ -79,6 +86,8 @@ export default async function Home() {
           (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0);
         const deltaSpecCreateError =
           t.deltaSpecCreateExitCode != null && t.deltaSpecCreateExitCode !== 0;
+        const designCreateError =
+          t.designCreateExitCode != null && t.designCreateExitCode !== 0;
         const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
         return {
           ...t.summary,
@@ -88,11 +97,14 @@ export default async function Home() {
           openspecNewStatus: processStatusFor(t.openspecNewPid),
           gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
           deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),
+          designCreateStatus: processStatusFor(t.designCreatePid),
           gigacodeStatus: processStatusFor(t.gigacodePid),
           proposalReady,
           deltaSpecReady,
+          designReady,
           gigacodeError: stepError || undefined,
           deltaSpecCreateError: deltaSpecCreateError || undefined,
+          designCreateError: designCreateError || undefined,
         };
       }),
   );

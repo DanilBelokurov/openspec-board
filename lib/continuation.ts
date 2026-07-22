@@ -133,6 +133,11 @@ const STAGE_CONFIG: Record<string, ArtifactConfig> = {
     instructionsArtifact: "specs",
     artifactSubpath: "specs",
   },
+  design: {
+    stage: "design",
+    instructionsArtifact: "design",
+    artifactSubpath: "design.md",
+  },
 };
 
 /**
@@ -255,6 +260,8 @@ function getCreatePid(task: import("./state").TaskEntry): number | null {
       return task.gigacodeContinuePid ?? null;
     case "delta-spec":
       return task.deltaSpecCreatePid ?? null;
+    case "design":
+      return task.designCreatePid ?? null;
     default:
       return null;
   }
@@ -379,6 +386,11 @@ function buildCreateExitPatch(
         deltaSpecCreateExitCode: exitCode,
         deltaSpecCreateExitSignal: signal,
       };
+    case "design":
+      return {
+        designCreateExitCode: exitCode,
+        designCreateExitSignal: signal,
+      };
     default:
       return {};
   }
@@ -401,6 +413,12 @@ function buildCreateSpawnPatch(
         deltaSpecCreatePid: pid,
         deltaSpecCreateStartedAt: new Date().toISOString(),
         deltaSpecCreateLogPath: logFile,
+      };
+    case "design":
+      return {
+        designCreatePid: pid,
+        designCreateStartedAt: new Date().toISOString(),
+        designCreateLogPath: logFile,
       };
     default:
       return {};
@@ -466,6 +484,12 @@ function buildCommitPatch(
           deltaSpecCommitExitCode: 0,
           deltaSpecCommitError: undefined,
         };
+      case "design":
+        return {
+          designCommittedAt: ts,
+          designCommitExitCode: 0,
+          designCommitError: undefined,
+        };
       default:
         return {};
     }
@@ -477,6 +501,11 @@ function buildCommitPatch(
       return {
         deltaSpecCommitExitCode: 1,
         deltaSpecCommitError: result.error,
+      };
+    case "design":
+      return {
+        designCommitExitCode: 1,
+        designCommitError: result.error,
       };
     default:
       return {};
@@ -496,7 +525,9 @@ function buildCommitMessage(
       ? "delta-spec"
       : stage === "proposal"
         ? "change-proposal"
-        : stage;
+        : stage === "design"
+          ? "design"
+          : stage;
   const lines = [
     `[openspec] Add ${stageLabel}: ${title}`,
     "",
@@ -687,6 +718,8 @@ function getUpdatePid(task: import("./state").TaskEntry): number | null {
       return task.proposalUpdatePid ?? null;
     case "delta-spec":
       return task.deltaSpecUpdatePid ?? null;
+    case "design":
+      return task.designUpdatePid ?? null;
     default:
       return null;
   }
@@ -707,6 +740,11 @@ function buildUpdateExitPatch(
       return {
         deltaSpecUpdateExitCode: exitCode,
         deltaSpecUpdateExitSignal: signal,
+      };
+    case "design":
+      return {
+        designUpdateExitCode: exitCode,
+        designUpdateExitSignal: signal,
       };
     default:
       return {};
@@ -734,6 +772,13 @@ function buildUpdateSpawnPatch(
         deltaSpecUpdateStartedAt: ts,
         deltaSpecUpdateLogPath: logFile,
         deltaSpecUpdateComments: comments,
+      };
+    case "design":
+      return {
+        designUpdatePid: pid,
+        designUpdateStartedAt: ts,
+        designUpdateLogPath: logFile,
+        designUpdateComments: comments,
       };
     default:
       return {};

@@ -12,7 +12,7 @@ import {
 
 interface ConfirmArtifactButtonProps {
   tag: string;
-  stage: "proposal" | "delta-spec";
+  stage: "proposal" | "delta-spec" | "design";
   title: string;
   artifactLabel: string;
   artifactHint: string;
@@ -164,7 +164,9 @@ export function ConfirmArtifactButton({
             placeholder={
               stage === "proposal"
                 ? "Например: «добавь раздел про риски», «уточни scope», «опиши как мы будем мерять успех»"
-                : "Например: «добавь требование про логирование», «уточни WHEN/THEN у сценария X», «убери лишнее требование»"
+                : stage === "delta-spec"
+                  ? "Например: «добавь требование про логирование», «уточни WHEN/THEN у сценария X», «убери лишнее требование»"
+                  : "Например: «опиши альтернативу Y подробнее», «добавь диаграмму последовательности», «убери избыточное обсуждение Z»"
             }
             rows={3}
             autoFocus

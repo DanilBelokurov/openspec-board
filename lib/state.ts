@@ -82,6 +82,23 @@ export interface TaskEntry {
   deltaSpecCommittedAt?: string;
   deltaSpecCommitExitCode?: number | null;
   deltaSpecCommitError?: string;
+  // design (analyst-mode) step: openspec instructions design →
+  // gigacode --prompt → write <change>/design.md. Mirror of the
+  // proposal* / deltaSpec* fields; same chaining rules.
+  designCreatePid?: number | null;
+  designCreateStartedAt?: string;
+  designCreateExitCode?: number | null;
+  designCreateExitSignal?: string | null;
+  designCreateLogPath?: string;
+  designUpdatePid?: number | null;
+  designUpdateStartedAt?: string;
+  designUpdateExitCode?: number | null;
+  designUpdateExitSignal?: string | null;
+  designUpdateLogPath?: string;
+  designUpdateComments?: string;
+  designCommittedAt?: string;
+  designCommitExitCode?: number | null;
+  designCommitError?: string;
 }
 
 export interface AppState {

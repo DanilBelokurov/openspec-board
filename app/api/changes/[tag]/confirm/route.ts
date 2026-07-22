@@ -10,6 +10,7 @@ import { commitChange, isStageReady } from "@/lib/continuation";
 const NEXT_STAGE: Record<string, string> = {
   proposal: "delta-spec",
   "delta-spec": "design",
+  design: "adr",
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -61,13 +62,9 @@ export async function POST(
     params.tag,
   );
   if (!artifactReady) {
-    const expectedPath =
-      task.stage === "delta-spec"
-        ? `${changePath}/specs/`
-        : `${changePath}/proposal.md`;
     return NextResponse.json(
       {
-        error: `Артефакт ещё не создан — ожидаем ${expectedPath}`,
+        error: `Артефакт ещё не создан — ожидаем ${expectedArtifactPath(task.stage, changePath)}`,
       },
       { status: 409 },
     );
@@ -84,6 +81,7 @@ export async function POST(
     const errMsg =
       refreshed.tasks[params.tag]?.commitError ??
       refreshed.tasks[params.tag]?.deltaSpecCommitError ??
+      refreshed.tasks[params.tag]?.designCommitError ??
       "Не удалось сделать git commit";
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }
@@ -95,6 +93,13 @@ export async function POST(
     stage: nextStage as import("@/lib/openspec").Stage,
   });
   return NextResponse.json({ ok: true, task: updated });
+}
+
+function expectedArtifactPath(stage: string, changePath: string): string {
+  if (stage === "delta-spec") return `${changePath}/specs/`;
+  if (stage === "proposal") return `${changePath}/proposal.md`;
+  if (stage === "design") return `${changePath}/design.md`;
+  return changePath;
 }
 
 async function checkStageArtifact(
@@ -112,6 +117,11 @@ async function checkStageArtifact(
   if (stage === "proposal") {
     return exists(
       path.join(worktree, "openspec", "changes", changeName, "proposal.md"),
+    );
+  }
+  if (stage === "design") {
+    return exists(
+      path.join(worktree, "openspec", "changes", changeName, "design.md"),
     );
   }
   return false;

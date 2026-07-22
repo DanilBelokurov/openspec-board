@@ -63,6 +63,16 @@ export default async function ChangePage({
       artifactSubpath: "specs",
     });
   }
+  // design is "ready" when design.md exists at the change folder
+  // root.
+  let designReady = false;
+  if (task.stage === "design" && proposalRoot) {
+    designReady = await isStageReady(proposalRoot, tag, {
+      stage: "design",
+      instructionsArtifact: "design",
+      artifactSubpath: "design.md",
+    });
+  }
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
 
@@ -89,6 +99,13 @@ export default async function ChangePage({
   const deltaSpecUpdateAlive = task.deltaSpecUpdatePid
     ? isProcessAlive(task.deltaSpecUpdatePid)
     : false;
+  // design step PIDs — same shape as the delta-spec ones.
+  const designCreateAlive = task.designCreatePid
+    ? isProcessAlive(task.designCreatePid)
+    : false;
+  const designUpdateAlive = task.designUpdatePid
+    ? isProcessAlive(task.designUpdatePid)
+    : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
     : null;
@@ -105,13 +122,18 @@ export default async function ChangePage({
       : task.stage === "delta-spec"
         ? task.deltaSpecCreateExitCode != null &&
           task.deltaSpecCreateExitCode !== 0
-        : false;
+        : task.stage === "design"
+          ? task.designCreateExitCode != null &&
+            task.designCreateExitCode !== 0
+          : false;
   const currentStageReady =
     task.stage === "proposal"
       ? proposalReady
       : task.stage === "delta-spec"
         ? deltaSpecReady
-        : false;
+        : task.stage === "design"
+          ? designReady
+          : false;
   const showConfirmButton = currentStageReady && !currentStageError;
 
   return (
@@ -160,18 +182,26 @@ export default async function ChangePage({
           </header>
 
           {showConfirmButton &&
-            (task.stage === "proposal" || task.stage === "delta-spec") && (
+            (task.stage === "proposal" ||
+              task.stage === "delta-spec" ||
+              task.stage === "design") && (
               <section className="mb-5">
                 <ConfirmArtifactButton
                   tag={tag}
-                  stage={task.stage as "proposal" | "delta-spec"}
+                  stage={task.stage as "proposal" | "delta-spec" | "design"}
                   title={
                     task.stage === "proposal"
                       ? "Proposal готов"
-                      : "Дельта-спецификация готова"
+                      : task.stage === "delta-spec"
+                        ? "Дельта-спецификация готова"
+                        : "Дизайн готов"
                   }
                   artifactLabel={
-                    task.stage === "proposal" ? "proposal.md" : "specs/"
+                    task.stage === "proposal"
+                      ? "proposal.md"
+                      : task.stage === "delta-spec"
+                        ? "specs/"
+                        : "design.md"
                   }
                   artifactHint="Подтвердите, чтобы перейти к следующему шагу."
                 />
@@ -429,6 +459,100 @@ export default async function ChangePage({
                       <dt className="text-slate-500">Лог</dt>
                       <dd className="font-mono text-[10px] break-all text-slate-500">
                         {task.deltaSpecUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.designCreatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={designCreateAlive}
+                  exitCode={task.designCreateExitCode}
+                />
+                <span>Создание дизайна</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.designCreateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.designCreateStartedAt)}
+                  </div>
+                )}
+                {!designCreateAlive &&
+                  task.designCreateExitCode != null &&
+                  task.designCreateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.designCreateExitCode}) — см. лог
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.designCreatePid}
+                  </dd>
+                  {task.designCreateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.designCreateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.designUpdatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={designUpdateAlive}
+                  exitCode={task.designUpdateExitCode}
+                />
+                <span>Обновление дизайна</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.designUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.designUpdateStartedAt)}
+                  </div>
+                )}
+                {!designUpdateAlive &&
+                  task.designUpdateExitCode != null &&
+                  task.designUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.designUpdateExitCode}) — см. лог
+                    </div>
+                  )}
+                {task.designUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.designUpdateComments}
+                    </span>
+                  </div>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.designUpdatePid}
+                  </dd>
+                  {task.designUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.designUpdateLogPath}
                       </dd>
                     </>
                   )}

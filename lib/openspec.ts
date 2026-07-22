@@ -102,16 +102,23 @@ export interface BoardItem extends ChangeSummary {
   gigacodeContinueStatus?: "running" | "stopped" | "none";
   // delta-spec step: gigacode writes specs/<capability>.md.
   deltaSpecCreateStatus?: "running" | "stopped" | "none";
+  // design step: gigacode writes design.md.
+  designCreateStatus?: "running" | "stopped" | "none";
   // Developer-mode "Start" step: gigacode /opsx:plan.
   gigacodeStatus?: "running" | "stopped" | "none";
   proposalReady?: boolean;
   // delta-spec artifact readiness — non-empty specs/ dir under
   // <worktree>/openspec/changes/<tag>/specs/.
   deltaSpecReady?: boolean;
+  // design artifact readiness — design.md exists under
+  // <worktree>/openspec/changes/<tag>/.
+  designReady?: boolean;
   gigacodeError?: boolean;
   // delta-spec create step error (separate from gigacodeContinueError
   // which belongs to the proposal stage).
   deltaSpecCreateError?: boolean;
+  // design create step error.
+  designCreateError?: boolean;
 }
 
 export async function checkProposalExists(
