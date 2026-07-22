@@ -64,6 +64,24 @@ export interface TaskEntry {
   proposalUpdateExitSignal?: string | null;
   proposalUpdateLogPath?: string;
   proposalUpdateComments?: string;
+  // delta-spec (analyst-mode) step: openspec instructions specs →
+  // gigacode --prompt → write <change>/specs/<capability>.md. Mirror
+  // of the proposal* fields, separate from them so both stages can
+  // be in flight / completed / committed independently.
+  deltaSpecCreatePid?: number | null;
+  deltaSpecCreateStartedAt?: string;
+  deltaSpecCreateExitCode?: number | null;
+  deltaSpecCreateExitSignal?: string | null;
+  deltaSpecCreateLogPath?: string;
+  deltaSpecUpdatePid?: number | null;
+  deltaSpecUpdateStartedAt?: string;
+  deltaSpecUpdateExitCode?: number | null;
+  deltaSpecUpdateExitSignal?: string | null;
+  deltaSpecUpdateLogPath?: string;
+  deltaSpecUpdateComments?: string;
+  deltaSpecCommittedAt?: string;
+  deltaSpecCommitExitCode?: number | null;
+  deltaSpecCommitError?: string;
 }
 
 export interface AppState {

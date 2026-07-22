@@ -1,7 +1,7 @@
-Your task is to update the original proposal.md file based on the provided JSON instructions and additional comments.
+Your task is to update the original artifact file based on the provided JSON instructions and additional comments.
 
 You are given:
-- The original document content: {proposal}
+- The original artifact content: {artifact}
 - A JSON object with configuration keys: "{json}"
 - Optional additional comments: {comments}
 
@@ -27,10 +27,10 @@ The JSON contains the following fields (all are required unless noted):
      * If no clear rule is given, default to the most recent file matching the pattern (by modification time).
    If no file can be resolved, create a new file at a sensible location (e.g., the current working directory) and note this in a log.
 
-4. Build the new content for proposal.md:
+4. Build the new content for the artifact:
    - Use the "template" as the skeleton – preserve its headings and structure exactly.
    - For each section in the template, generate content that:
-     * Reflects the project's current state (informed by the original proposal, dependencies, and context).
+     * Reflects the project's current state (informed by the original artifact, dependencies, and context).
      * Adheres to the constraints given in "context" and "rules" (these are boundaries you must not violate).
      * Incorporates any explicit requirements from "instruction".
    - **Important**: Do NOT copy the "context" or "rules" text verbatim into the output – they are for your internal guidance only.
@@ -43,7 +43,7 @@ The JSON contains the following fields (all are required unless noted):
 6. Write the final content to the concrete output path determined in step 3. Overwrite the file completely (do not merge with existing content unless explicitly allowed by the rules).
 
 === OUTPUT FORMAT ===
-- The resulting file must be in Markdown (.md) format, matching the original proposal's extension.
+- The resulting file must match the original artifact's extension.
 - Use clear, professional language consistent with the project's tone.
 
 Proceed with the update now.

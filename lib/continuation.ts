@@ -47,26 +47,24 @@ function run(
 // app/api/changes/route.ts.
 const SCHEMA = "spec-driven-with-adr";
 
-// Path to the prompt template used by the proposal-generation step.
-// The template lives in the repo so it can be edited without touching
-// code. The {json} placeholder is substituted at call time with the
-// raw stdout of `openspec instructions proposal --change <tag> --json`.
-const PROPOSAL_PROMPT_TEMPLATE_PATH = path.join(
+// Generic prompt templates, used by every artifact-creation /
+// artifact-update stage (proposal, specs, design, adr, …). Each
+// stage substitutes a different openspec instructions JSON into
+// the template and runs gigacode --prompt on the result. The
+// {json} placeholder is the openspec instructions output; {artifact}
+// is the current file content for update calls; {comments} is the
+// analyst's free-form request.
+const CREATE_ARTIFACT_PROMPT_TEMPLATE_PATH = path.join(
   process.cwd(),
   "templates",
-  "proposal",
-  "proposal-prompt-template.md",
+  "spec-driven",
+  "create-artifact-prompt-template.md",
 );
-
-// Path to the prompt template used by the proposal-update step
-// (analyst-initiated re-run after editing the request). Substitutes
-// {proposal} (current file content), {json} (openspec instructions),
-// and {comments} (the analyst's free-form request).
-const PROPOSAL_UPDATE_PROMPT_TEMPLATE_PATH = path.join(
+const UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH = path.join(
   process.cwd(),
   "templates",
-  "proposal",
-  "proposal-update-prompt-template.md",
+  "spec-driven",
+  "update-artifact-prompt-template.md",
 );
 
 // In-memory cache for template content. Keyed by absolute path +
@@ -89,49 +87,125 @@ async function loadTemplate(absolutePath: string): Promise<string> {
   return content;
 }
 
-const loadProposalPromptTemplate = () =>
-  loadTemplate(PROPOSAL_PROMPT_TEMPLATE_PATH);
-const loadProposalUpdatePromptTemplate = () =>
-  loadTemplate(PROPOSAL_UPDATE_PROMPT_TEMPLATE_PATH);
+const loadCreateArtifactPromptTemplate = () =>
+  loadTemplate(CREATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
+const loadUpdateArtifactPromptTemplate = () =>
+  loadTemplate(UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
+
+// ============================================================================
+// Generic artifact pipeline
+// ============================================================================
+
+export type ArtifactStep = "create" | "update";
 
 /**
- * Drive the analyst-mode proposal-creation pipeline to completion.
+ * Describes which openspec instructions subcommand to run for the
+ * artifact we're generating, and which path inside the change
+ * folder the finished artifact is expected at (used to gate
+ * readiness checks and to detect when an artifact is missing).
  *
- * The pipeline is split across three auto-triggered steps, each guarded
- * by a disk-side-effect flag (per `feedback/auto-trigger-from-observed-lifecycle.md`):
+ * For each analyst stage the pair is fixed:
+ *   proposal → { instructionsArtifact: "proposal", artifactSubpath: "proposal.md" }
+ *   specs     → { instructionsArtifact: "specs",     artifactSubpath: "specs" /* dir *\/ }
+ *   design    → { instructionsArtifact: "design",    artifactSubpath: "design.md" }
+ *   adr       → { instructionsArtifact: "adr",      artifactSubpath: "docs/adr" }
+ */
+export interface ArtifactConfig {
+  stage: string;
+  instructionsArtifact: "proposal" | "specs" | "design" | "adr";
+  /**
+   * Path relative to `<worktree>/openspec/changes/<tag>/`. Use a
+   * trailing slash convention (or a directory marker) so the
+   * existence check knows whether it's looking for a file or a
+   * directory. For "specs" we expect a directory.
+   */
+  artifactSubpath: string;
+}
+
+const STAGE_CONFIG: Record<string, ArtifactConfig> = {
+  proposal: {
+    stage: "proposal",
+    instructionsArtifact: "proposal",
+    artifactSubpath: "proposal.md",
+  },
+  "delta-spec": {
+    stage: "delta-spec",
+    instructionsArtifact: "specs",
+    artifactSubpath: "specs",
+  },
+};
+
+/**
+ * Return true if the artifact for the given stage exists in the
+ * change folder. For "specs" we look for a non-empty directory;
+ * for proposal/design/adr we look for a file.
+ */
+export async function isStageReady(
+  worktree: string,
+  changeName: string,
+  config: ArtifactConfig,
+): Promise<boolean> {
+  const target = path.join(
+    worktree,
+    "openspec",
+    "changes",
+    changeName,
+    config.artifactSubpath,
+  );
+  if (config.artifactSubpath.endsWith("/")) {
+    try {
+      const entries = await fs.readdir(target);
+      return entries.length > 0;
+    } catch {
+      return false;
+    }
+  }
+  return exists(target);
+}
+
+// ============================================================================
+// Auto-trigger loop
+// ============================================================================
+
+/**
+ * Drive every auto-triggerable analyst-mode stage for every task.
  *
- *   step 1 (handled by POST /api/changes):
- *     `openspec new change <tag> --description <desc>` in worktree.
- *     produces: <worktree>/changes/<tag>/.openspec.yaml
+ * Each stage is a small pipeline observed via disk side-effects
+ * (per `feedback/auto-trigger-from-observed-lifecycle.md`):
  *
- *   step 2 (this function, when .openspec.yaml present but proposal.md
- *     not yet):
- *     `openspec instructions proposal --change <tag> --json` in worktree,
- *     then `gigacode --approval-mode=auto-edit --add-dir <worktree>
- *     --prompt <template-with-json>`.
- *     produces: <worktree>/changes/<tag>/proposal.md
+ *   stage = "proposal"
+ *     step 1 (handled by POST /api/changes):
+ *       `openspec new change <tag> --description <desc>` in worktree.
+ *     step 2 (this function, when .openspec.yaml present but
+ *       proposal.md not yet):
+ *       `openspec instructions proposal --change <tag> --json` then
+ *       `gigacode --prompt <template-with-json>`.
+ *     step 3:
+ *       git commit on the feature branch. Gated on user pressing
+ *       "Подтверждаю" — invoked from POST /api/changes/[tag]/confirm,
+ *       NOT from here.
  *
- *   step 3 (this function, when proposal.md present but not yet committed):
- *     synchronous `git -C <worktree> add . && git -C <worktree> commit -m ...`.
- *     Side-effect: a new commit on the feature branch. Idempotent via
- *     `committedAt`.
+ *   stage = "delta-spec"
+ *     step 2 only (proposal is already done + committed):
+ *       `openspec instructions specs --change <tag> --json` then
+ *       `gigacode --prompt <template-with-json>`.
+ *     step 3:
+ *       git commit, gated on "Подтверждаю" on the delta-spec card.
  *
- * Safe to call on every render and from the background watcher —
- * each step has its own idempotency flag.
- *
- * Returns the list of changeNames whose state was advanced this tick.
+ * Each step is idempotent via per-stage PIDs / commit flags in
+ * state. Safe to call on every render and from the watcher.
  */
 export async function triggerContinueIfNeeded(
-  openspecDir: string,
+  _openspecDir: string,
 ): Promise<string[]> {
   const state = await readState();
   const triggered: string[] = [];
-  const now = new Date().toISOString();
   await ensureLogDir();
 
   for (const [changeName, task] of Object.entries(state.tasks)) {
-    if (task.stage !== "proposal") continue;
     if (!task.openspecWorktreePath) continue;
+    const config = STAGE_CONFIG[task.stage];
+    if (!config) continue;
     const changePath = path.join(
       task.openspecWorktreePath,
       "openspec",
@@ -139,42 +213,69 @@ export async function triggerContinueIfNeeded(
       changeName,
     );
     if (!(await exists(changePath))) continue;
-    if (!(await exists(path.join(changePath, ".openspec.yaml")))) continue;
 
-    const proposalExists = await exists(path.join(changePath, "proposal.md"));
-
-    if (proposalExists) {
-      // proposal.md is ready on disk; the analyst (human) will press
+    const ready = await isStageReady(
+      task.openspecWorktreePath,
+      changeName,
+      config,
+    );
+    if (ready) {
+      // Artifact is on disk; the analyst (human) will press
       // "Подтверждаю" on the detail page, and that POST commits the
-      // worktree and advances stage to "delta-spec". Auto-triggering
-      // the commit here would skip the explicit confirmation step the
-      // user wants as a gate. See commitProposalChange (exported
-      // below) which is now invoked only from /api/changes/[tag]/confirm.
+      // worktree and advances stage. Auto-triggering the commit here
+      // would skip the explicit confirmation step the user wants as
+      // a gate.
       continue;
     }
 
-    // Step 2: openspec instructions → gigacode --prompt.
-    if (task.gigacodeContinuePid) continue;
-    const spawned = await spawnProposalGigacode(task, changeName, changePath);
+    // Spawn the gigacode pipeline for this stage (idempotent: only
+    // when no live or completed-but-failed PID is set).
+    if (getCreatePid(task)) continue;
+    const spawned = await spawnCreateArtifactGigacode(
+      task,
+      changeName,
+      changePath,
+      config,
+    );
     if (spawned) triggered.push(changeName);
   }
   return triggered;
 }
 
-async function spawnProposalGigacode(
+/**
+ * Stage-specific getter for the gigacode-create PID. Different
+ * stages store it under different state fields (legacy
+ * `gigacodeContinuePid` for proposal, dedicated
+ * `deltaSpecCreatePid` for delta-spec, …). New stages should add
+ * their field here.
+ */
+function getCreatePid(task: import("./state").TaskEntry): number | null {
+  switch (task.stage) {
+    case "proposal":
+      return task.gigacodeContinuePid ?? null;
+    case "delta-spec":
+      return task.deltaSpecCreatePid ?? null;
+    default:
+      return null;
+  }
+}
+
+async function spawnCreateArtifactGigacode(
   task: import("./state").TaskEntry,
   changeName: string,
-  changePath: string,
+  _changePath: string,
+  config: ArtifactConfig,
 ): Promise<boolean> {
   const worktree = task.openspecWorktreePath!;
-  // 2a. Get the proposal-generation instructions as JSON.
+
+  // Get the artifact-generation instructions as JSON.
   let instructionsJson: string;
   try {
     const { stdout } = await run(
       "openspec",
       [
         "instructions",
-        "proposal",
+        config.instructionsArtifact,
         "--change",
         changeName,
         "--json",
@@ -186,30 +287,28 @@ async function spawnProposalGigacode(
     instructionsJson = stdout;
   } catch (e) {
     console.error(
-      `openspec instructions proposal failed for ${changeName}:`,
+      `openspec instructions ${config.instructionsArtifact} failed for ${changeName}:`,
       e,
     );
     // Mark as error so the UI surfaces it; don't retry forever (the
-    // openSpec-new step exit code stays unchanged — this is a separate
+    // earlier step exit code stays unchanged — this is a separate
     // failure mode we want to make visible).
+    const errField =
+      config.stage === "proposal" ? "commitError" : "deltaSpecCommitError";
     await updateTask(changeName, {
-      commitError: `openspec instructions: ${(e as Error).message}`,
-    });
+      [errField]: `openspec instructions: ${(e as Error).message}`,
+    } as Partial<import("./state").TaskEntry>);
     return false;
   }
 
-  const template = await loadProposalPromptTemplate();
+  const template = await loadCreateArtifactPromptTemplate();
   const prompt = template.replace("{json}", instructionsJson);
 
-  const logFile = processLogPath(changeName, "continue", "proposal");
-  // Persist the parameters and full prompt to the log file BEFORE
-  // spawning gigacode — gigacode's stdout/stderr will be appended
-  // after this block. Useful for post-mortem: re-read which exact
-  // arguments and prompt the assistant saw.
+  const logFile = processLogPath(changeName, "continue", config.stage);
   await fs.writeFile(
     logFile,
     [
-      `# gigacode --prompt (proposal) for ${changeName}`,
+      `# gigacode --prompt (${config.stage} create) for ${changeName}`,
       `# add-dir: ${worktree}`,
       `# approval-mode: auto-edit`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
@@ -234,15 +333,15 @@ async function spawnProposalGigacode(
       approvalMode: "auto-edit",
     });
     pid = result.pid || null;
+    const exitHandler = (code: number | null, signal: string | null) =>
+      updateTask(
+        changeName,
+        buildCreateExitPatch(config.stage, code, signal),
+      );
     result.promise
-      .then(async ({ exitCode, signal }) => {
-        await updateTask(changeName, {
-          gigacodeContinueExitCode: exitCode,
-          gigacodeContinueExitSignal: signal,
-        });
-      })
+      .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
-        console.error(`gigacode-continue exit handler error:`, e),
+        console.error(`gigacode-continue (${config.stage}) exit handler error:`, e),
       );
   } catch (e) {
     console.error(
@@ -252,57 +351,154 @@ async function spawnProposalGigacode(
   }
 
   if (pid != null) {
-    await updateTask(changeName, {
-      gigacodeContinuePid: pid,
-      gigacodeContinueStartedAt: new Date().toISOString(),
-      gigacodeContinueLogPath: logFile,
-    });
+    await updateTask(
+      changeName,
+      buildCreateSpawnPatch(config.stage, pid, logFile),
+    );
     return true;
   }
   console.error(
-    `Failed to spawn gigacode --prompt for ${changeName}`,
+    `Failed to spawn gigacode --prompt for ${changeName} (${config.stage})`,
   );
   return false;
 }
 
-export async function commitProposalChange(
+function buildCreateExitPatch(
+  stage: string,
+  exitCode: number | null,
+  signal: string | null,
+): Partial<import("./state").TaskEntry> {
+  switch (stage) {
+    case "proposal":
+      return {
+        gigacodeContinueExitCode: exitCode,
+        gigacodeContinueExitSignal: signal,
+      };
+    case "delta-spec":
+      return {
+        deltaSpecCreateExitCode: exitCode,
+        deltaSpecCreateExitSignal: signal,
+      };
+    default:
+      return {};
+  }
+}
+
+function buildCreateSpawnPatch(
+  stage: string,
+  pid: number,
+  logFile: string,
+): Partial<import("./state").TaskEntry> {
+  switch (stage) {
+    case "proposal":
+      return {
+        gigacodeContinuePid: pid,
+        gigacodeContinueStartedAt: new Date().toISOString(),
+        gigacodeContinueLogPath: logFile,
+      };
+    case "delta-spec":
+      return {
+        deltaSpecCreatePid: pid,
+        deltaSpecCreateStartedAt: new Date().toISOString(),
+        deltaSpecCreateLogPath: logFile,
+      };
+    default:
+      return {};
+  }
+}
+
+// ============================================================================
+// Git commit helper
+// ============================================================================
+
+/**
+ * `git add .` + `git commit` on the feature-branch worktree. Used
+ * by the confirm endpoint to record the artifacts written by
+ * gigacode on disk. Idempotent via `committedAt` /
+ * `deltaSpecCommittedAt` — the confirm endpoint only invokes this
+ * once per stage.
+ */
+export async function commitChange(
   task: import("./state").TaskEntry,
   changeName: string,
+  stage: string,
 ): Promise<boolean> {
   const worktree = task.openspecWorktreePath!;
-  const message = buildCommitMessage(task, changeName);
+  const message = buildCommitMessage(task, changeName, stage);
   try {
     await run("git", ["-C", worktree, "add", "."]);
     await run("git", ["-C", worktree, "commit", "-m", message]);
-    await updateTask(changeName, {
-      committedAt: new Date().toISOString(),
-      commitExitCode: 0,
-      commitError: undefined,
-    });
+    await updateTask(
+      changeName,
+      buildCommitPatch(stage, { ok: true }),
+    );
     return true;
   } catch (e) {
     const err = e as Error;
-    console.error(`git commit failed for ${changeName}:`, err);
+    console.error(`git commit failed for ${changeName} (${stage}):`, err);
     // Non-zero exit: surface but DON'T mark as committed — leave the
     // idempotency flag null so a later trigger can retry once the user
     // fixes whatever blocked the commit.
-    await updateTask(changeName, {
-      commitExitCode: 1,
-      commitError: err.message,
-    });
+    await updateTask(
+      changeName,
+      buildCommitPatch(stage, { ok: false, error: err.message }),
+    );
     return false;
+  }
+}
+
+function buildCommitPatch(
+  stage: string,
+  result: { ok: boolean; error?: string },
+): Partial<import("./state").TaskEntry> {
+  if (result.ok) {
+    const ts = new Date().toISOString();
+    switch (stage) {
+      case "proposal":
+        return {
+          committedAt: ts,
+          commitExitCode: 0,
+          commitError: undefined,
+        };
+      case "delta-spec":
+        return {
+          deltaSpecCommittedAt: ts,
+          deltaSpecCommitExitCode: 0,
+          deltaSpecCommitError: undefined,
+        };
+      default:
+        return {};
+    }
+  }
+  switch (stage) {
+    case "proposal":
+      return { commitExitCode: 1, commitError: result.error };
+    case "delta-spec":
+      return {
+        deltaSpecCommitExitCode: 1,
+        deltaSpecCommitError: result.error,
+      };
+    default:
+      return {};
   }
 }
 
 function buildCommitMessage(
   task: import("./state").TaskEntry,
   changeName: string,
+  stage: string,
 ): string {
   const title = task.summary.title;
   const description = task.description ?? "";
   const jira = task.jiraUrl ?? "";
+  const stageLabel =
+    stage === "delta-spec"
+      ? "delta-spec"
+      : stage === "proposal"
+        ? "change-proposal"
+        : stage;
   const lines = [
-    `[openspec] Add change-proposal: ${title}`,
+    `[openspec] Add ${stageLabel}: ${title}`,
     "",
     `Tag: ${changeName}`,
   ];
@@ -312,10 +508,10 @@ function buildCommitMessage(
 }
 
 // ============================================================================
-// Proposal update — analyst-initiated re-run after editing the request
+// Artifact update — analyst-initiated re-run with comments
 // ============================================================================
 
-export interface ProposalUpdateResult {
+export interface UpdateArtifactResult {
   ok: boolean;
   pid?: number | null;
   logFile?: string;
@@ -323,31 +519,32 @@ export interface ProposalUpdateResult {
 }
 
 /**
- * Re-run the proposal-generation step with the analyst's free-form
- * request folded in. Reads the existing proposal.md, fetches fresh
+ * Re-run the artifact-generation step with the analyst's free-form
+ * request folded in. Reads the existing artifact, fetches fresh
  * openspec instructions, builds the update prompt from
- * templates/proposal/proposal-update-prompt-template.md and spawns
- * gigacode --prompt.
+ * templates/spec-driven/update-artifact-prompt-template.md and
+ * spawns gigacode --prompt.
  *
- * The result is written to the same `proposal.md` path (gigacode
- * decides from `resolvedOutputPath` in the JSON). Updates
- * `task.proposalUpdatePid/StartedAt/ExitCode/ExitSignal/LogPath`
- * on state for UI visibility; idempotent re-runs are guarded by
- * `proposalUpdatePid` — if a previous run is still alive we skip.
+ * Each stage stores its update PID / log under stage-specific
+ * state fields (proposalUpdate* for proposal, deltaSpecUpdate*
+ * for delta-spec). Used by the update-proposal / update-delta-spec
+ * endpoints and the ConfirmButton pencil buttons.
  */
-export async function runProposalUpdate(
+export async function runUpdateArtifact(
   task: import("./state").TaskEntry,
   changeName: string,
+  config: ArtifactConfig,
   comments: string,
-): Promise<ProposalUpdateResult> {
+): Promise<UpdateArtifactResult> {
   if (!task.openspecWorktreePath) {
     return { ok: false, error: "Не задан worktree задачи" };
   }
   const worktree = task.openspecWorktreePath;
 
-  // Idempotency: if a previous run is still alive, refuse to spawn
-  // a duplicate. The user can wait for it to finish or check the log.
-  if (task.proposalUpdatePid && isProcessAliveByPid(task.proposalUpdatePid)) {
+  // Idempotency: refuse a second spawn while the previous one is
+  // still alive. PIDs are stage-specific — see getUpdatePid.
+  const livePid = getUpdatePid(task);
+  if (livePid && isProcessAliveByPid(livePid)) {
     return {
       ok: false,
       error:
@@ -356,29 +553,27 @@ export async function runProposalUpdate(
   }
 
   const changePath = path.join(worktree, "openspec", "changes", changeName);
-  const proposalPath = path.join(changePath, "proposal.md");
+  const artifactAbsPath = path.join(changePath, config.artifactSubpath);
 
-  // Read existing proposal.md so we can include its current content
-  // in the prompt.
-  let proposalText: string;
+  // Read existing artifact text. For directory-style artifacts
+  // (e.g. specs/) we concatenate every .md file under the dir.
+  let artifactText: string;
   try {
-    proposalText = await fs.readFile(proposalPath, "utf-8");
+    artifactText = await readArtifactForPrompt(artifactAbsPath);
   } catch (e) {
     return {
       ok: false,
-      error: `Не удалось прочитать текущий proposal.md: ${(e as Error).message}`,
+      error: `Не удалось прочитать артефакт: ${(e as Error).message}`,
     };
   }
 
-  // Fresh openspec instructions — same JSON the original step used,
-  // so gigacode gets the same template/rules/resolvedOutputPath.
   let instructionsJson: string;
   try {
     const { stdout } = await run(
       "openspec",
       [
         "instructions",
-        "proposal",
+        config.instructionsArtifact,
         "--change",
         changeName,
         "--json",
@@ -391,25 +586,25 @@ export async function runProposalUpdate(
   } catch (e) {
     return {
       ok: false,
-      error: `openspec instructions proposal: ${(e as Error).message}`,
+      error: `openspec instructions ${config.instructionsArtifact}: ${(e as Error).message}`,
     };
   }
 
-  const template = await loadProposalUpdatePromptTemplate();
+  const template = await loadUpdateArtifactPromptTemplate();
   const prompt = template
-    .replace("{proposal}", proposalText)
+    .replace("{artifact}", artifactText)
     .replace("{json}", instructionsJson)
     .replace("{comments}", comments);
 
-  const logFile = processLogPath(changeName, "update", "proposal");
+  const logFile = processLogPath(changeName, "update", config.stage);
   await fs.writeFile(
     logFile,
     [
-      `# gigacode --prompt (proposal update) for ${changeName}`,
+      `# gigacode --prompt (${config.stage} update) for ${changeName}`,
       `# add-dir: ${worktree}`,
       `# approval-mode: auto-edit`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
-      `# proposal-length: ${proposalText.length} chars`,
+      `# artifact-length: ${artifactText.length} chars`,
       `# comments-length: ${comments.length} chars`,
       `# openspec instructions output-length: ${instructionsJson.length} chars`,
       "",
@@ -431,15 +626,15 @@ export async function runProposalUpdate(
       approvalMode: "auto-edit",
     });
     pid = result.pid || null;
+    const exitHandler = (code: number | null, signal: string | null) =>
+      updateTask(
+        changeName,
+        buildUpdateExitPatch(config.stage, code, signal),
+      );
     result.promise
-      .then(async ({ exitCode, signal }) => {
-        await updateTask(changeName, {
-          proposalUpdateExitCode: exitCode,
-          proposalUpdateExitSignal: signal,
-        });
-      })
+      .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
-        console.error(`gigacode-update exit handler error:`, e),
+        console.error(`gigacode-update (${config.stage}) exit handler error:`, e),
       );
   } catch (e) {
     return {
@@ -451,13 +646,98 @@ export async function runProposalUpdate(
   if (pid == null) {
     return { ok: false, error: "Не удалось получить PID gigacode" };
   }
-  await updateTask(changeName, {
-    proposalUpdatePid: pid,
-    proposalUpdateStartedAt: new Date().toISOString(),
-    proposalUpdateLogPath: logFile,
-    proposalUpdateComments: comments,
-  });
+  await updateTask(
+    changeName,
+    buildUpdateSpawnPatch(config.stage, pid, logFile, comments),
+  );
   return { ok: true, pid, logFile };
+}
+
+/**
+ * Read an artifact for the update prompt. For directories
+ * (artifactSubpath ending with "/" or being a directory on disk)
+ * concatenate every .md file. For files return the file content.
+ */
+async function readArtifactForPrompt(absolutePath: string): Promise<string> {
+  const stat = await fs.stat(absolutePath);
+  if (stat.isDirectory()) {
+    const entries = await fs.readdir(absolutePath, {
+      withFileTypes: true,
+    });
+    const parts: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(".md")) continue;
+      const content = await fs.readFile(
+        path.join(absolutePath, entry.name),
+        "utf-8",
+      );
+      parts.push(
+        `--- ${entry.name} ---\n${content}`,
+      );
+    }
+    return parts.join("\n\n");
+  }
+  return fs.readFile(absolutePath, "utf-8");
+}
+
+function getUpdatePid(task: import("./state").TaskEntry): number | null {
+  switch (task.stage) {
+    case "proposal":
+      return task.proposalUpdatePid ?? null;
+    case "delta-spec":
+      return task.deltaSpecUpdatePid ?? null;
+    default:
+      return null;
+  }
+}
+
+function buildUpdateExitPatch(
+  stage: string,
+  exitCode: number | null,
+  signal: string | null,
+): Partial<import("./state").TaskEntry> {
+  switch (stage) {
+    case "proposal":
+      return {
+        proposalUpdateExitCode: exitCode,
+        proposalUpdateExitSignal: signal,
+      };
+    case "delta-spec":
+      return {
+        deltaSpecUpdateExitCode: exitCode,
+        deltaSpecUpdateExitSignal: signal,
+      };
+    default:
+      return {};
+  }
+}
+
+function buildUpdateSpawnPatch(
+  stage: string,
+  pid: number,
+  logFile: string,
+  comments: string,
+): Partial<import("./state").TaskEntry> {
+  const ts = new Date().toISOString();
+  switch (stage) {
+    case "proposal":
+      return {
+        proposalUpdatePid: pid,
+        proposalUpdateStartedAt: ts,
+        proposalUpdateLogPath: logFile,
+        proposalUpdateComments: comments,
+      };
+    case "delta-spec":
+      return {
+        deltaSpecUpdatePid: pid,
+        deltaSpecUpdateStartedAt: ts,
+        deltaSpecUpdateLogPath: logFile,
+        deltaSpecUpdateComments: comments,
+      };
+    default:
+      return {};
+  }
 }
 
 function isProcessAliveByPid(pid: number): boolean {
@@ -467,4 +747,32 @@ function isProcessAliveByPid(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+// ============================================================================
+// Backwards-compatible wrappers for the proposal-only stage
+// ============================================================================
+
+/**
+ * @deprecated Use commitChange(task, changeName, "proposal") instead.
+ * Kept for the existing POST /api/changes/[tag]/confirm caller until
+ * the confirm handler is migrated to the generic helper.
+ */
+export async function commitProposalChange(
+  task: import("./state").TaskEntry,
+  changeName: string,
+): Promise<boolean> {
+  return commitChange(task, changeName, "proposal");
+}
+
+/**
+ * @deprecated Use runUpdateArtifact(task, changeName, STAGE_CONFIG.proposal, comments).
+ * Kept for POST /api/changes/[tag]/update-proposal.
+ */
+export async function runProposalUpdate(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  comments: string,
+): Promise<UpdateArtifactResult> {
+  return runUpdateArtifact(task, changeName, STAGE_CONFIG.proposal, comments);
 }
