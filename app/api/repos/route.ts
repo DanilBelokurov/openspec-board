@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  deriveRepoNameFromUrl,
   isValidRepoBranch,
   isValidRepoName,
   isValidRepoUrl,
-  readConfig,
-  writeConfig,
-} from "@/lib/config";
+} from "@/lib/repo-name";
+import { readConfig, writeConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
 import { addOrCheckoutSubmodule } from "@/lib/git-submodule";
 
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { name?: string; url?: string; branch?: string } = {};
+  let body: { url?: string; branch?: string } = {};
   try {
     body = await req.json();
   } catch {
@@ -35,25 +35,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const name = (body.name ?? "").trim();
   const url = (body.url ?? "").trim();
   const branch = (body.branch ?? "").trim();
 
-  if (!name) {
-    return NextResponse.json(
-      { error: "Укажите имя репозитория" },
-      { status: 400 },
-    );
-  }
-  if (!isValidRepoName(name)) {
-    return NextResponse.json(
-      {
-        error:
-          "Имя должно быть в kebab-case: строчные латинские буквы, цифры и одиночные дефисы, начинается с буквы, без двойных дефисов, 1-40 символов",
-      },
-      { status: 400 },
-    );
-  }
   if (!url) {
     return NextResponse.json(
       { error: "Укажите URL репозитория" },
@@ -69,6 +53,27 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+
+  // Derive the directory name from the URL — the user no longer
+  // types it in. This keeps the two in sync and removes the
+  // chance of typos that conflict with existing repos.
+  const derivedName = deriveRepoNameFromUrl(url);
+  if (!derivedName) {
+    return NextResponse.json(
+      { error: "Не удалось извлечь имя репозитория из URL" },
+      { status: 400 },
+    );
+  }
+  if (!isValidRepoName(derivedName)) {
+    return NextResponse.json(
+      {
+        error: `Имя "${derivedName}" не подходит под kebab-case (строчные латинские буквы, цифры, одиночные дефисы, начинается с буквы)`,
+      },
+      { status: 400 },
+    );
+  }
+  const name = derivedName;
+
   if (!branch) {
     return NextResponse.json(
       { error: "Укажите ветку для отслеживания" },

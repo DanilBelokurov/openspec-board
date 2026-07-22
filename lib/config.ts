@@ -2,6 +2,16 @@ import fs from "fs/promises";
 import path from "path";
 import { DEFAULT_MODE, isBoardModeId, type BoardModeId } from "./modes";
 
+// Pure (no-fs) helpers live in lib/repo-name.ts so client components
+// can import them without dragging in fs/promises. Re-exported here
+// for server-side callers that prefer one-stop imports.
+export {
+  isValidRepoName,
+  isValidRepoUrl,
+  isValidRepoBranch,
+  deriveRepoNameFromUrl,
+} from "./repo-name";
+
 export const DEFAULT_BRANCH = "master";
 
 /**
@@ -86,45 +96,4 @@ export async function writeConfig(
     "utf-8",
   );
   return next;
-}
-
-/**
- * kebab-case path-segment validator. Same shape as
- * `lib/tag.ts → isValidOpenspecTag` — lowercase letters, digits,
- * and single dashes; must start with a letter; 1–40 chars; no
- * double dashes. We use it for both the openspec change name and
- * the repo submodule name, so the two cannot collide (repos live
- * under <openspecDirParent>/repos/, change folders live deeper
- * inside openspec/changes/).
- */
-export function isValidRepoName(name: string): boolean {
-  return (
-    /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) &&
-    name.length >= 1 &&
-    name.length <= 40
-  );
-}
-
-/**
- * Lightweight URL validation for the repos panel — accepts http(s)
- * and ssh-style git URLs. Not a full RFC-3986 check; just enough to
- * catch typos before we shell out to `git submodule add`.
- */
-export function isValidRepoUrl(url: string): boolean {
-  const trimmed = url.trim();
-  if (trimmed.length === 0) return false;
-  return /^(https?:\/\/|ssh:\/\/|git@|git:\/\/)/i.test(trimmed);
-}
-
-/**
- * Validates a ref-ish branch name. Reject empty / whitespace,
- * control chars, leading dashes, double dots, etc. — anything git
- * itself would refuse.
- */
-export function isValidRepoBranch(branch: string): boolean {
-  const trimmed = branch.trim();
-  if (trimmed.length === 0) return false;
-  return /^(?!.*\.\.)(?!\/)(?!.*\/\/)(?!.*@\{)[^\x00-\x20\x7f]+$/.test(
-    trimmed,
-  );
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, FolderSearch, Plus, Loader2, Trash2 } from "lucide-react";
 import { MODES, type BoardModeId } from "@/lib/modes";
+import { deriveRepoNameFromUrl } from "@/lib/repo-name";
 
 interface RepoEntry {
   url: string;
@@ -38,7 +39,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   // Repos section state
   const [repos, setRepos] = useState<Record<string, RepoEntry>>({});
   const [initialRepos, setInitialRepos] = useState<Record<string, RepoEntry>>({});
-  const [newRepoName, setNewRepoName] = useState("");
   const [newRepoUrl, setNewRepoUrl] = useState("");
   const [newRepoBranch, setNewRepoBranch] = useState("");
   const [repoAdd, setRepoAdd] = useState<RepoAddState>({
@@ -51,7 +51,6 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setStatus("idle");
     setError(null);
     setPickedName(null);
-    setNewRepoName("");
     setNewRepoUrl("");
     setNewRepoBranch("");
     setRepoAdd({ submitting: false, error: null });
@@ -121,14 +120,15 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
 
   async function addRepo() {
     setRepoAdd({ submitting: true, error: null });
+    const trimmedUrl = newRepoUrl.trim();
+    const trimmedBranch = newRepoBranch.trim();
     try {
       const res = await fetch("/api/repos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: newRepoName.trim(),
-          url: newRepoUrl.trim(),
-          branch: newRepoBranch.trim(),
+          url: trimmedUrl,
+          branch: trimmedBranch,
         }),
       });
       const data = await res.json();
@@ -139,10 +139,21 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         });
         return;
       }
-      const next = { ...repos, [newRepoName.trim()]: { url: newRepoUrl.trim(), branch: newRepoBranch.trim() } };
+      // Server tells us the canonical name it used (derived from URL).
+      const name: string = data.repo?.name ?? deriveRepoNameFromUrl(trimmedUrl) ?? "";
+      if (!name) {
+        setRepoAdd({
+          submitting: false,
+          error: "Сервер не вернул имя репозитория",
+        });
+        return;
+      }
+      const next = {
+        ...repos,
+        [name]: { url: trimmedUrl, branch: trimmedBranch },
+      };
       setRepos(next);
       setInitialRepos(next);
-      setNewRepoName("");
       setNewRepoUrl("");
       setNewRepoBranch("");
       setRepoAdd({ submitting: false, error: null });
@@ -383,18 +394,19 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <div className="grid gap-1.5">
               <input
                 type="text"
-                value={newRepoName}
-                onChange={(e) => setNewRepoName(e.target.value)}
-                placeholder="Имя (kebab-case: my-service)"
-                className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
-              />
-              <input
-                type="text"
                 value={newRepoUrl}
                 onChange={(e) => setNewRepoUrl(e.target.value)}
                 placeholder="URL (https://github.com/... или git@github.com:...)"
                 className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
               />
+              {newRepoUrl.trim() && (
+                <div className="text-[11px] text-slate-500">
+                  Имя (из URL):{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                    {deriveRepoNameFromUrl(newRepoUrl) ?? "— не удалось извлечь —"}
+                  </code>
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -408,9 +420,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   onClick={addRepo}
                   disabled={
                     repoAdd.submitting ||
-                    newRepoName.trim() === "" ||
                     newRepoUrl.trim() === "" ||
-                    newRepoBranch.trim() === ""
+                    newRepoBranch.trim() === "" ||
+                    !deriveRepoNameFromUrl(newRepoUrl)
                   }
                   className="flex h-8 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-[12px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
