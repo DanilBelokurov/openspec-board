@@ -2,8 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, FolderSearch } from "lucide-react";
+import { X, FolderSearch, Plus, Loader2, Trash2 } from "lucide-react";
 import { MODES, type BoardModeId } from "@/lib/modes";
+
+interface RepoEntry {
+  url: string;
+  branch: string;
+}
+
+interface RepoAddState {
+  submitting: boolean;
+  error: string | null;
+}
 
 interface SettingsDialogProps {
   open: boolean;
@@ -25,11 +35,26 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Repos section state
+  const [repos, setRepos] = useState<Record<string, RepoEntry>>({});
+  const [initialRepos, setInitialRepos] = useState<Record<string, RepoEntry>>({});
+  const [newRepoName, setNewRepoName] = useState("");
+  const [newRepoUrl, setNewRepoUrl] = useState("");
+  const [newRepoBranch, setNewRepoBranch] = useState("");
+  const [repoAdd, setRepoAdd] = useState<RepoAddState>({
+    submitting: false,
+    error: null,
+  });
+
   useEffect(() => {
     if (!open) return;
     setStatus("idle");
     setError(null);
     setPickedName(null);
+    setNewRepoName("");
+    setNewRepoUrl("");
+    setNewRepoBranch("");
+    setRepoAdd({ submitting: false, error: null });
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => {
@@ -46,6 +71,10 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             : "master";
         setDefaultBranch(b);
         setInitialDefaultBranch(b);
+        const r: Record<string, RepoEntry> =
+          data?.repos && typeof data.repos === "object" ? data.repos : {};
+        setRepos(r);
+        setInitialRepos(r);
       })
       .catch((e) => setError(String(e)));
   }, [open]);
@@ -88,6 +117,63 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       setStatus("error");
       setError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  async function addRepo() {
+    setRepoAdd({ submitting: true, error: null });
+    try {
+      const res = await fetch("/api/repos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newRepoName.trim(),
+          url: newRepoUrl.trim(),
+          branch: newRepoBranch.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRepoAdd({
+          submitting: false,
+          error: data.error ?? `HTTP ${res.status}`,
+        });
+        return;
+      }
+      const next = { ...repos, [newRepoName.trim()]: { url: newRepoUrl.trim(), branch: newRepoBranch.trim() } };
+      setRepos(next);
+      setInitialRepos(next);
+      setNewRepoName("");
+      setNewRepoUrl("");
+      setNewRepoBranch("");
+      setRepoAdd({ submitting: false, error: null });
+    } catch (e) {
+      setRepoAdd({
+        submitting: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  async function removeRepo(name: string) {
+    // The backend DELETE handler ships in a follow-up commit; for
+    // now we just drop it from local state and let the next save
+    // reflect that. The submodule on disk will be removed when the
+    // matching DELETE endpoint lands.
+    const next = { ...repos };
+    delete next[name];
+    setRepos(next);
+    setInitialRepos(next);
+    // Best-effort: also tell the server. If it fails, fall back to
+    // a local-only delete so the dialog isn't stuck.
+    try {
+      await fetch(
+        `/api/repos/${encodeURIComponent(name)}`,
+        { method: "DELETE" },
+      );
+    } catch {
+      /* ignore — local state already updated */
+    }
+    router.refresh();
   }
 
   function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -244,6 +330,114 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               .
             </span>
           </label>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[12px] font-medium text-slate-800">
+              Репозитории (git submodules)
+            </span>
+
+            {Object.keys(repos).length > 0 ? (
+              <ul className="flex flex-col gap-1.5">
+                {Object.entries(repos).map(([name, repo]) => (
+                  <li
+                    key={name}
+                    className="flex items-start gap-2 rounded-md border border-border bg-slate-50 px-2.5 py-1.5 text-[11px]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[12px] font-semibold text-slate-800">
+                        {name}
+                      </div>
+                      <div className="mt-0.5 truncate text-[10px] text-slate-500">
+                        <span className="text-slate-400">URL:</span>{" "}
+                        <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px]">
+                          {repo.url}
+                        </code>
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">
+                        <span className="text-slate-400">Ветка:</span>{" "}
+                        <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px]">
+                          {repo.branch}
+                        </code>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeRepo(name)}
+                      title="Удалить репозиторий"
+                      aria-label={`Удалить репозиторий ${name}`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-red-50 hover:text-red-700"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="rounded-md border border-dashed border-border bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+                Нет добавленных репозиториев. Заполните форму ниже, чтобы
+                установить submodule в <code className="font-mono">repos/&lt;имя&gt;</code>{" "}
+                и сразу перейти на указанную ветку.
+              </div>
+            )}
+
+            <div className="grid gap-1.5">
+              <input
+                type="text"
+                value={newRepoName}
+                onChange={(e) => setNewRepoName(e.target.value)}
+                placeholder="Имя (kebab-case: my-service)"
+                className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+              />
+              <input
+                type="text"
+                value={newRepoUrl}
+                onChange={(e) => setNewRepoUrl(e.target.value)}
+                placeholder="URL (https://github.com/... или git@github.com:...)"
+                className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newRepoBranch}
+                  onChange={(e) => setNewRepoBranch(e.target.value)}
+                  placeholder="Ветка (master, main, dev, …)"
+                  className="h-8 flex-1 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                />
+                <button
+                  type="button"
+                  onClick={addRepo}
+                  disabled={
+                    repoAdd.submitting ||
+                    newRepoName.trim() === "" ||
+                    newRepoUrl.trim() === "" ||
+                    newRepoBranch.trim() === ""
+                  }
+                  className="flex h-8 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-[12px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {repoAdd.submitting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="h-3.5 w-3.5" />
+                  )}
+                  <span>Добавить</span>
+                </button>
+              </div>
+            </div>
+
+            {repoAdd.error && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+                {repoAdd.error}
+              </div>
+            )}
+
+            <span className="text-[11px] text-slate-500">
+              После добавления репозиторий появится в{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                &lt;openspecDir&gt;/repos/&lt;имя&gt;
+              </code>{" "}
+              как git submodule и сразу переключится на указанную ветку.
+            </span>
+          </div>
 
           {error && (
             <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
