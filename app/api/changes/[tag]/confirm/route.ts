@@ -11,6 +11,7 @@ const NEXT_STAGE: Record<string, string> = {
   proposal: "delta-spec",
   "delta-spec": "design",
   design: "adr",
+  adr: "done",
 };
 
 async function exists(p: string): Promise<boolean> {
@@ -82,6 +83,7 @@ export async function POST(
       refreshed.tasks[params.tag]?.commitError ??
       refreshed.tasks[params.tag]?.deltaSpecCommitError ??
       refreshed.tasks[params.tag]?.designCommitError ??
+      refreshed.tasks[params.tag]?.adrCommitError ??
       "Не удалось сделать git commit";
     return NextResponse.json({ error: errMsg }, { status: 500 });
   }
@@ -99,6 +101,7 @@ function expectedArtifactPath(stage: string, changePath: string): string {
   if (stage === "delta-spec") return `${changePath}/specs/`;
   if (stage === "proposal") return `${changePath}/proposal.md`;
   if (stage === "design") return `${changePath}/design.md`;
+  if (stage === "adr") return `${changePath}/docs/adr/`;
   return changePath;
 }
 
@@ -123,6 +126,13 @@ async function checkStageArtifact(
     return exists(
       path.join(worktree, "openspec", "changes", changeName, "design.md"),
     );
+  }
+  if (stage === "adr") {
+    return isStageReady(worktree, changeName, {
+      stage: "adr",
+      instructionsArtifact: "adr",
+      artifactSubpath: "docs/adr",
+    });
   }
   return false;
 }

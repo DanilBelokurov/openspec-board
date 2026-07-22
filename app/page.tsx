@@ -76,6 +76,13 @@ export default async function Home() {
           instructionsArtifact: "design",
           artifactSubpath: "design.md",
         });
+        // adr readiness — non-empty docs/adr/ dir at change folder
+        // root.
+        const adrReady = await isStageReady(proposalRoot, t.summary.changeName, {
+          stage: "adr",
+          instructionsArtifact: "adr",
+          artifactSubpath: "docs/adr",
+        });
         // In analyst mode, "error" means either CLI step exited non-zero.
         // In developer mode, gigacodeExitCode tracks /opsx:plan (the only
         // background step), so including it is still correct there.
@@ -88,6 +95,8 @@ export default async function Home() {
           t.deltaSpecCreateExitCode != null && t.deltaSpecCreateExitCode !== 0;
         const designCreateError =
           t.designCreateExitCode != null && t.designCreateExitCode !== 0;
+        const adrCreateError =
+          t.adrCreateExitCode != null && t.adrCreateExitCode !== 0;
         const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
         return {
           ...t.summary,
@@ -98,13 +107,16 @@ export default async function Home() {
           gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
           deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),
           designCreateStatus: processStatusFor(t.designCreatePid),
+          adrCreateStatus: processStatusFor(t.adrCreatePid),
           gigacodeStatus: processStatusFor(t.gigacodePid),
           proposalReady,
           deltaSpecReady,
           designReady,
+          adrReady,
           gigacodeError: stepError || undefined,
           deltaSpecCreateError: deltaSpecCreateError || undefined,
           designCreateError: designCreateError || undefined,
+          adrCreateError: adrCreateError || undefined,
         };
       }),
   );

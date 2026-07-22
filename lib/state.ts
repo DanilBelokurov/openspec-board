@@ -99,6 +99,23 @@ export interface TaskEntry {
   designCommittedAt?: string;
   designCommitExitCode?: number | null;
   designCommitError?: string;
+  // adr (analyst-mode) step: openspec instructions adr →
+  // gigacode --prompt → write <change>/docs/adr/<id>-<title>.md.
+  // Mirror of the proposal* / deltaSpec* / design* fields.
+  adrCreatePid?: number | null;
+  adrCreateStartedAt?: string;
+  adrCreateExitCode?: number | null;
+  adrCreateExitSignal?: string | null;
+  adrCreateLogPath?: string;
+  adrUpdatePid?: number | null;
+  adrUpdateStartedAt?: string;
+  adrUpdateExitCode?: number | null;
+  adrUpdateExitSignal?: string | null;
+  adrUpdateLogPath?: string;
+  adrUpdateComments?: string;
+  adrCommittedAt?: string;
+  adrCommitExitCode?: number | null;
+  adrCommitError?: string;
 }
 
 export interface AppState {

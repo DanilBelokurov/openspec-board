@@ -73,6 +73,15 @@ export default async function ChangePage({
       artifactSubpath: "design.md",
     });
   }
+  // adr is "ready" when docs/adr/ contains at least one file.
+  let adrReady = false;
+  if (task.stage === "adr" && proposalRoot) {
+    adrReady = await isStageReady(proposalRoot, tag, {
+      stage: "adr",
+      instructionsArtifact: "adr",
+      artifactSubpath: "docs/adr",
+    });
+  }
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
 
@@ -106,6 +115,13 @@ export default async function ChangePage({
   const designUpdateAlive = task.designUpdatePid
     ? isProcessAlive(task.designUpdatePid)
     : false;
+  // adr step PIDs — same shape.
+  const adrCreateAlive = task.adrCreatePid
+    ? isProcessAlive(task.adrCreatePid)
+    : false;
+  const adrUpdateAlive = task.adrUpdatePid
+    ? isProcessAlive(task.adrUpdatePid)
+    : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
     : null;
@@ -125,7 +141,10 @@ export default async function ChangePage({
         : task.stage === "design"
           ? task.designCreateExitCode != null &&
             task.designCreateExitCode !== 0
-          : false;
+          : task.stage === "adr"
+            ? task.adrCreateExitCode != null &&
+              task.adrCreateExitCode !== 0
+            : false;
   const currentStageReady =
     task.stage === "proposal"
       ? proposalReady
@@ -133,7 +152,9 @@ export default async function ChangePage({
         ? deltaSpecReady
         : task.stage === "design"
           ? designReady
-          : false;
+          : task.stage === "adr"
+            ? adrReady
+            : false;
   const showConfirmButton = currentStageReady && !currentStageError;
 
   return (
@@ -184,24 +205,31 @@ export default async function ChangePage({
           {showConfirmButton &&
             (task.stage === "proposal" ||
               task.stage === "delta-spec" ||
-              task.stage === "design") && (
+              task.stage === "design" ||
+              task.stage === "adr") && (
               <section className="mb-5">
                 <ConfirmArtifactButton
                   tag={tag}
-                  stage={task.stage as "proposal" | "delta-spec" | "design"}
+                  stage={
+                    task.stage as "proposal" | "delta-spec" | "design" | "adr"
+                  }
                   title={
                     task.stage === "proposal"
                       ? "Proposal готов"
                       : task.stage === "delta-spec"
                         ? "Дельта-спецификация готова"
-                        : "Дизайн готов"
+                        : task.stage === "design"
+                          ? "Дизайн готов"
+                          : "ADR готов"
                   }
                   artifactLabel={
                     task.stage === "proposal"
                       ? "proposal.md"
                       : task.stage === "delta-spec"
                         ? "specs/"
-                        : "design.md"
+                        : task.stage === "design"
+                          ? "design.md"
+                          : "docs/adr/"
                   }
                   artifactHint="Подтвердите, чтобы перейти к следующему шагу."
                 />
@@ -553,6 +581,100 @@ export default async function ChangePage({
                       <dt className="text-slate-500">Лог</dt>
                       <dd className="font-mono text-[10px] break-all text-slate-500">
                         {task.designUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.adrCreatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={adrCreateAlive}
+                  exitCode={task.adrCreateExitCode}
+                />
+                <span>Создание ADR</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.adrCreateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.adrCreateStartedAt)}
+                  </div>
+                )}
+                {!adrCreateAlive &&
+                  task.adrCreateExitCode != null &&
+                  task.adrCreateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.adrCreateExitCode}) — см. лог
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.adrCreatePid}
+                  </dd>
+                  {task.adrCreateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.adrCreateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.adrUpdatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={adrUpdateAlive}
+                  exitCode={task.adrUpdateExitCode}
+                />
+                <span>Обновление ADR</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.adrUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.adrUpdateStartedAt)}
+                  </div>
+                )}
+                {!adrUpdateAlive &&
+                  task.adrUpdateExitCode != null &&
+                  task.adrUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      Ошибка (exit {task.adrUpdateExitCode}) — см. лог
+                    </div>
+                  )}
+                {task.adrUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.adrUpdateComments}
+                    </span>
+                  </div>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.adrUpdatePid}
+                  </dd>
+                  {task.adrUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.adrUpdateLogPath}
                       </dd>
                     </>
                   )}

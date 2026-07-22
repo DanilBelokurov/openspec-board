@@ -138,6 +138,11 @@ const STAGE_CONFIG: Record<string, ArtifactConfig> = {
     instructionsArtifact: "design",
     artifactSubpath: "design.md",
   },
+  adr: {
+    stage: "adr",
+    instructionsArtifact: "adr",
+    artifactSubpath: "docs/adr",
+  },
 };
 
 /**
@@ -262,6 +267,8 @@ function getCreatePid(task: import("./state").TaskEntry): number | null {
       return task.deltaSpecCreatePid ?? null;
     case "design":
       return task.designCreatePid ?? null;
+    case "adr":
+      return task.adrCreatePid ?? null;
     default:
       return null;
   }
@@ -391,6 +398,11 @@ function buildCreateExitPatch(
         designCreateExitCode: exitCode,
         designCreateExitSignal: signal,
       };
+    case "adr":
+      return {
+        adrCreateExitCode: exitCode,
+        adrCreateExitSignal: signal,
+      };
     default:
       return {};
   }
@@ -419,6 +431,12 @@ function buildCreateSpawnPatch(
         designCreatePid: pid,
         designCreateStartedAt: new Date().toISOString(),
         designCreateLogPath: logFile,
+      };
+    case "adr":
+      return {
+        adrCreatePid: pid,
+        adrCreateStartedAt: new Date().toISOString(),
+        adrCreateLogPath: logFile,
       };
     default:
       return {};
@@ -490,6 +508,12 @@ function buildCommitPatch(
           designCommitExitCode: 0,
           designCommitError: undefined,
         };
+      case "adr":
+        return {
+          adrCommittedAt: ts,
+          adrCommitExitCode: 0,
+          adrCommitError: undefined,
+        };
       default:
         return {};
     }
@@ -506,6 +530,11 @@ function buildCommitPatch(
       return {
         designCommitExitCode: 1,
         designCommitError: result.error,
+      };
+    case "adr":
+      return {
+        adrCommitExitCode: 1,
+        adrCommitError: result.error,
       };
     default:
       return {};
@@ -527,7 +556,9 @@ function buildCommitMessage(
         ? "change-proposal"
         : stage === "design"
           ? "design"
-          : stage;
+          : stage === "adr"
+            ? "ADR"
+            : stage;
   const lines = [
     `[openspec] Add ${stageLabel}: ${title}`,
     "",
@@ -720,6 +751,8 @@ function getUpdatePid(task: import("./state").TaskEntry): number | null {
       return task.deltaSpecUpdatePid ?? null;
     case "design":
       return task.designUpdatePid ?? null;
+    case "adr":
+      return task.adrUpdatePid ?? null;
     default:
       return null;
   }
@@ -745,6 +778,11 @@ function buildUpdateExitPatch(
       return {
         designUpdateExitCode: exitCode,
         designUpdateExitSignal: signal,
+      };
+    case "adr":
+      return {
+        adrUpdateExitCode: exitCode,
+        adrUpdateExitSignal: signal,
       };
     default:
       return {};
@@ -779,6 +817,13 @@ function buildUpdateSpawnPatch(
         designUpdateStartedAt: ts,
         designUpdateLogPath: logFile,
         designUpdateComments: comments,
+      };
+    case "adr":
+      return {
+        adrUpdatePid: pid,
+        adrUpdateStartedAt: ts,
+        adrUpdateLogPath: logFile,
+        adrUpdateComments: comments,
       };
     default:
       return {};

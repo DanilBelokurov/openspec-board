@@ -79,11 +79,11 @@ export function SessionCard({ item, mode }: SessionCardProps) {
           {/* After the current stage's CLI steps finished + the artifact
               for this stage exists on disk, and the task hasn't been
               confirmed yet → "Ожидает". Works for proposal
-              (proposalReady), delta-spec (deltaSpecReady), and
-              design (designReady). The stage guard hides the badge
-              once the user has moved on to the next column — at
-              that point the card already lives there and the badge
-              is just noise. */}
+              (proposalReady), delta-spec (deltaSpecReady), design
+              (designReady), and adr (adrReady). The stage guard
+              hides the badge once the user has moved on to the next
+              column — at that point the card already lives there
+              and the badge is just noise. */}
           {((item.stage === "proposal" &&
             item.proposalReady &&
             !item.gigacodeError) ||
@@ -92,7 +92,10 @@ export function SessionCard({ item, mode }: SessionCardProps) {
               !item.deltaSpecCreateError) ||
             (item.stage === "design" &&
               item.designReady &&
-              !item.designCreateError)) && (
+              !item.designCreateError) ||
+            (item.stage === "adr" &&
+              item.adrReady &&
+              !item.adrCreateError)) && (
               <span
                 className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
                 title={
@@ -100,7 +103,9 @@ export function SessionCard({ item, mode }: SessionCardProps) {
                     ? "Proposal создан — ожидает следующего шага"
                     : item.stage === "delta-spec"
                       ? "Дельта-спецификация создана — ожидает следующего шага"
-                      : "Дизайн создан — ожидает следующего шага"
+                      : item.stage === "design"
+                        ? "Дизайн создан — ожидает следующего шага"
+                        : "ADR создан — ожидает следующего шага"
                 }
               >
                 <Hourglass className="h-2.5 w-2.5" />
