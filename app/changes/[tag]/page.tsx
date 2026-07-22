@@ -73,13 +73,13 @@ export default async function ChangePage({
       artifactSubpath: "design.md",
     });
   }
-  // adr is "ready" when docs/adr/ contains at least one file.
+  // adr is "ready" when adr.md exists at the change folder root.
   let adrReady = false;
   if (task.stage === "adr" && proposalRoot) {
     adrReady = await isStageReady(proposalRoot, tag, {
       stage: "adr",
       instructionsArtifact: "adr",
-      artifactSubpath: "docs/adr",
+      artifactSubpath: "adr.md",
     });
   }
   const dateStr = formatDateTime(task.lastScannedAt);
@@ -229,7 +229,7 @@ export default async function ChangePage({
                         ? "specs/"
                         : task.stage === "design"
                           ? "design.md"
-                          : "docs/adr/"
+                          : "adr.md"
                   }
                   artifactHint="Подтвердите, чтобы перейти к следующему шагу."
                 />

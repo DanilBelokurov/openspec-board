@@ -115,8 +115,7 @@ export interface BoardItem extends ChangeSummary {
   // design artifact readiness — design.md exists under
   // <worktree>/openspec/changes/<tag>/.
   designReady?: boolean;
-  // adr artifact readiness — non-empty docs/adr/ dir under
-  // <worktree>/openspec/changes/<tag>/.
+  // adr artifact readiness — adr.md exists at change folder root.
   adrReady?: boolean;
   gigacodeError?: boolean;
   // delta-spec create step error (separate from gigacodeContinueError

@@ -101,7 +101,7 @@ function expectedArtifactPath(stage: string, changePath: string): string {
   if (stage === "delta-spec") return `${changePath}/specs/`;
   if (stage === "proposal") return `${changePath}/proposal.md`;
   if (stage === "design") return `${changePath}/design.md`;
-  if (stage === "adr") return `${changePath}/docs/adr/`;
+  if (stage === "adr") return `${changePath}/adr.md`;
   return changePath;
 }
 
@@ -128,11 +128,9 @@ async function checkStageArtifact(
     );
   }
   if (stage === "adr") {
-    return isStageReady(worktree, changeName, {
-      stage: "adr",
-      instructionsArtifact: "adr",
-      artifactSubpath: "docs/adr",
-    });
+    return exists(
+      path.join(worktree, "openspec", "changes", changeName, "adr.md"),
+    );
   }
   return false;
 }

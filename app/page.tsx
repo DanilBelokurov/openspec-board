@@ -76,12 +76,11 @@ export default async function Home() {
           instructionsArtifact: "design",
           artifactSubpath: "design.md",
         });
-        // adr readiness — non-empty docs/adr/ dir at change folder
-        // root.
+        // adr readiness — adr.md exists at change folder root.
         const adrReady = await isStageReady(proposalRoot, t.summary.changeName, {
           stage: "adr",
           instructionsArtifact: "adr",
-          artifactSubpath: "docs/adr",
+          artifactSubpath: "adr.md",
         });
         // In analyst mode, "error" means either CLI step exited non-zero.
         // In developer mode, gigacodeExitCode tracks /opsx:plan (the only

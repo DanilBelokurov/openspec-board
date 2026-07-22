@@ -141,7 +141,7 @@ const STAGE_CONFIG: Record<string, ArtifactConfig> = {
   adr: {
     stage: "adr",
     instructionsArtifact: "adr",
-    artifactSubpath: "docs/adr",
+    artifactSubpath: "adr.md",
   },
 };
 

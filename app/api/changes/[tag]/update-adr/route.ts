@@ -53,7 +53,7 @@ export async function POST(
     {
       stage: "adr",
       instructionsArtifact: "adr",
-      artifactSubpath: "docs/adr",
+      artifactSubpath: "adr.md",
     },
     comments,
   );
