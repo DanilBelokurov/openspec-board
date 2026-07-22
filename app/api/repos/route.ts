@@ -1,3 +1,4 @@
+import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import {
   deriveRepoNameFromUrl,
@@ -8,6 +9,7 @@ import {
 import { readConfig, writeConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
 import { addOrCheckoutSubmodule } from "@/lib/git-submodule";
+import { spawnCodeReviewGraphBuild } from "@/lib/code-review-graph";
 
 export async function POST(req: NextRequest) {
   const config = await readConfig();
@@ -119,7 +121,20 @@ export async function POST(req: NextRequest) {
   }
 
   // Persist into config.json so subsequent restarts see the repo.
-  const nextRepos = { ...existing, [name]: { url, branch } };
+  // After the submodule is registered, kick off the
+  // `uvx code-review-graph build` pipeline against the freshly-
+  // cloned working tree. The build runs detached; the watcher in
+  // lib/watcher.ts will write buildExitCode once it exits.
+  const buildPid = spawnCodeReviewGraphBuild(config.openspecDir, name);
+  const buildLogPath = `.sdd-board/logs/repos/${name}.graph-build.log`;
+  const repoEntry = {
+    url,
+    branch,
+    buildPid: buildPid ?? null,
+    buildStartedAt: buildPid != null ? new Date().toISOString() : undefined,
+    buildLogPath,
+  };
+  const nextRepos = { ...existing, [name]: repoEntry };
   const updated = await writeConfig({ repos: nextRepos });
 
   return NextResponse.json(
@@ -128,6 +143,11 @@ export async function POST(req: NextRequest) {
       repo: { name, url, branch },
       path: result.path,
       onDisk: result.created ? "created" : "reused",
+      build: {
+        spawned: buildPid != null,
+        pid: buildPid,
+        logFile: path.join(config.openspecDir, buildLogPath),
+      },
       repos: updated.repos,
     },
     { status: 201 },

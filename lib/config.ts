@@ -19,10 +19,21 @@ export const DEFAULT_BRANCH = "master";
  * The `name` is the key under `repos` in the config — it doubles
  * as the directory name inside `repos/`, so it has to be a safe
  * path segment (kebab-case, no slashes / dots).
+ *
+ * `build*` fields track the optional `uvx code-review-graph build`
+ * process that gets kicked off right after `git submodule add`
+ * succeeds. They mirror the shape of the proposal-stage PIDs in
+ * TaskEntry (pid / startedAt / exitCode / exitSignal / logPath) so
+ * the same watcher.ts + lib/process.ts code can poll them.
  */
 export interface RepoConfig {
   url: string;
   branch: string;
+  buildPid?: number | null;
+  buildStartedAt?: string;
+  buildExitCode?: number | null;
+  buildExitSignal?: string | null;
+  buildLogPath?: string;
 }
 
 export interface AppConfig {
@@ -96,4 +107,29 @@ export async function writeConfig(
     "utf-8",
   );
   return next;
+}
+
+/**
+ * Patch a single repo's config without touching the other entries.
+ * Used by lib/watcher.ts to flip buildExitCode on the repo whose
+ * `uvx code-review-graph build` process just died — passing the
+ * whole repos map through writeConfig every tick would race with
+ * any concurrent user add/remove and is more work than needed.
+ */
+export async function updateRepoEntry(
+  name: string,
+  patch: Partial<RepoConfig>,
+): Promise<RepoConfig | null> {
+  const current = await readConfig();
+  const existing = current.repos?.[name];
+  if (!existing) return null;
+  const updated: RepoConfig = { ...existing, ...patch };
+  const nextRepos = { ...(current.repos ?? {}), [name]: updated };
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
+  await fs.writeFile(
+    CONFIG_FILE,
+    JSON.stringify({ ...current, repos: nextRepos }, null, 2) + "\n",
+    "utf-8",
+  );
+  return updated;
 }
