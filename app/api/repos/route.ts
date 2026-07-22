@@ -121,18 +121,20 @@ export async function POST(req: NextRequest) {
   }
 
   // Persist into config.json so subsequent restarts see the repo.
-  // After the submodule is registered, kick off the
-  // `uvx code-review-graph build` pipeline against the freshly-
-  // cloned working tree. The build runs detached; the watcher in
-  // lib/watcher.ts will write buildExitCode once it exits.
-  const buildPid = spawnCodeReviewGraphBuild(config.openspecDir, name);
+  // After the submodule is registered, kick off step 1 of the
+  // code-review-graph pipeline (`build`). Step 2 (`visualize`)
+  // is chained by lib/watcher.ts once the build exits 0 — that's
+  // why the response only reports the build PID/log here.
+  const spawned = await spawnCodeReviewGraphBuild(config.openspecDir, name);
   const buildLogPath = `.sdd-board/logs/repos/${name}.graph-build.log`;
+  const visualizeLogPath = `.sdd-board/logs/repos/${name}.graph-visualize.log`;
   const repoEntry = {
     url,
     branch,
-    buildPid: buildPid ?? null,
-    buildStartedAt: buildPid != null ? new Date().toISOString() : undefined,
+    buildPid: spawned.pid ?? null,
+    buildStartedAt: spawned.pid != null ? new Date().toISOString() : undefined,
     buildLogPath,
+    visualizeLogPath,
   };
   const nextRepos = { ...existing, [name]: repoEntry };
   const updated = await writeConfig({ repos: nextRepos });
@@ -144,8 +146,8 @@ export async function POST(req: NextRequest) {
       path: result.path,
       onDisk: result.created ? "created" : "reused",
       build: {
-        spawned: buildPid != null,
-        pid: buildPid,
+        spawned: spawned.pid != null,
+        pid: spawned.pid,
         logFile: path.join(config.openspecDir, buildLogPath),
       },
       repos: updated.repos,

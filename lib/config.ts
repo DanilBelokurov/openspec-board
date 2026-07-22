@@ -20,11 +20,15 @@ export const DEFAULT_BRANCH = "master";
  * as the directory name inside `repos/`, so it has to be a safe
  * path segment (kebab-case, no slashes / dots).
  *
- * `build*` fields track the optional `uvx code-review-graph build`
- * process that gets kicked off right after `git submodule add`
- * succeeds. They mirror the shape of the proposal-stage PIDs in
- * TaskEntry (pid / startedAt / exitCode / exitSignal / logPath) so
- * the same watcher.ts + lib/process.ts code can poll them.
+ * `build*` and `visualize*` fields track the two-step
+ * `uvx code-review-graph build && uvx code-review-graph visualize`
+ * pipeline that runs detached right after `git submodule add`
+ * succeeds. The graph is considered "built" only after the
+ * visualize step exits with code 0.
+ *
+ * Shape mirrors the proposal-stage PIDs in TaskEntry (pid /
+ * startedAt / exitCode / exitSignal / logPath) so the same
+ * watcher.ts + lib/process.ts code can poll them.
  */
 export interface RepoConfig {
   url: string;
@@ -34,6 +38,11 @@ export interface RepoConfig {
   buildExitCode?: number | null;
   buildExitSignal?: string | null;
   buildLogPath?: string;
+  visualizePid?: number | null;
+  visualizeStartedAt?: string;
+  visualizeExitCode?: number | null;
+  visualizeExitSignal?: string | null;
+  visualizeLogPath?: string;
 }
 
 export interface AppConfig {
