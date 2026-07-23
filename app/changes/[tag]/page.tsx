@@ -150,25 +150,36 @@ export default async function ChangePage({
   // "Ready" only counts when no create-step process is still alive
   // — otherwise the artifact file might exist on disk but be only
   // partially written by the running gigacode process, and the
-  // user would click "Подтверждаю" against an incomplete artefact.
-  // (For proposal we also gate on openspecNew so we don't show
-  // "ready" before the openspec-new-change step has finished.)
-  const createStillRunning =
+  // "Ready" only counts when no background sub-step is still
+  // alive — otherwise the user would click "Подтверждаю" against
+  // an artefact that gigacode is still writing. We gate on BOTH
+  // the create-step (proposal / delta-spec / design / adr) AND
+  // the update-step (the pencil button on ConfirmArtifactButton
+  // spawns a separate gigacode process for the same stage that
+  // also needs to finish before the artefact is safe to commit).
+  const pipelineRunning =
     (task.stage === "proposal" &&
       ((task.openspecNewPid != null && isProcessAlive(task.openspecNewPid)) ||
         (task.gigacodeContinuePid != null &&
-          isProcessAlive(task.gigacodeContinuePid)))) ||
+          isProcessAlive(task.gigacodeContinuePid)) ||
+        (task.proposalUpdatePid != null &&
+          isProcessAlive(task.proposalUpdatePid)))) ||
     (task.stage === "delta-spec" &&
-      task.deltaSpecCreatePid != null &&
-      isProcessAlive(task.deltaSpecCreatePid)) ||
+      ((task.deltaSpecCreatePid != null &&
+        isProcessAlive(task.deltaSpecCreatePid)) ||
+        (task.deltaSpecUpdatePid != null &&
+          isProcessAlive(task.deltaSpecUpdatePid)))) ||
     (task.stage === "design" &&
-      task.designCreatePid != null &&
-      isProcessAlive(task.designCreatePid)) ||
+      ((task.designCreatePid != null &&
+        isProcessAlive(task.designCreatePid)) ||
+        (task.designUpdatePid != null &&
+          isProcessAlive(task.designUpdatePid)))) ||
     (task.stage === "adr" &&
-      task.adrCreatePid != null &&
-      isProcessAlive(task.adrCreatePid));
+      ((task.adrCreatePid != null && isProcessAlive(task.adrCreatePid)) ||
+        (task.adrUpdatePid != null &&
+          isProcessAlive(task.adrUpdatePid))));
   const currentStageReady =
-    !createStillRunning &&
+    !pipelineRunning &&
     (task.stage === "proposal"
       ? proposalReady
       : task.stage === "delta-spec"
