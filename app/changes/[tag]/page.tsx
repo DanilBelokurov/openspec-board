@@ -27,6 +27,7 @@ import { OpenInFinderForm } from "@/components/OpenInFinderForm";
 import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { TaskActions } from "@/components/TaskActions";
+import { DoneTaskActions } from "@/components/DoneTaskActions";
 
 export default async function ChangePage({
   params,
@@ -725,12 +726,16 @@ export default async function ChangePage({
               {folderExists && <OpenInFinderForm tag={tag} />}
               <CopyPathButton path={relPath} />
             </div>
-            <TaskActions
-              tag={tag}
-              title={task.summary.title}
-              description={task.description}
-              jiraUrl={task.jiraUrl ?? undefined}
-            />
+            {task.stage === "done" && task.mode === "analyst" ? (
+              <DoneTaskActions tag={tag} />
+            ) : (
+              <TaskActions
+                tag={tag}
+                title={task.summary.title}
+                description={task.description}
+                jiraUrl={task.jiraUrl ?? undefined}
+              />
+            )}
           </div>
         </div>
       </div>
