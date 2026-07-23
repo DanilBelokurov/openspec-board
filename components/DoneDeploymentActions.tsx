@@ -157,7 +157,7 @@ export function DoneDeploymentActions({ tag }: DoneDeploymentActionsProps) {
         />
         <div className="flex-1">
           <div className="font-semibold">
-            {prDone ? "Деплой завершён" : "Готово к деплою"}
+            {prDone ? "Опубликовано" : "Готово к публикации"}
           </div>
           <div className={`mt-0.5 text-[11px] ${hintClass}`}>
             {prDone
