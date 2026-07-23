@@ -18,29 +18,27 @@ import type { Stage } from "./openspec";
 
 /**
  * Map of each "revert-target" stage to the set of artefacts to
- * delete because they were produced by a later stage. The sets
- * are inclusive of the target stage itself so that "revert to
- * proposal" wipes everything that was generated after the
- * proposal, including the proposal.md file itself.
+ * delete because they were produced by a *later* stage. The set
+ * is **exclusive** of the target stage itself — "revert to
+ * delta-spec" leaves specs/ untouched so the analyst keeps the
+ * existing spec context. Only the stages strictly AFTER the
+ * target are wiped, so the re-write can read the target's own
+ * artefact as `{artifact}` and gigacode has full context.
  */
 const ARTEFACTS_TO_DELETE: Record<Stage, string[]> = {
   proposal: [
-    "proposal.md",
-    "design.md",
-    "adr.md",
-  ],
-  "delta-spec": [
     "specs",
     "design.md",
     "adr.md",
   ],
-  design: [
+  "delta-spec": [
     "design.md",
     "adr.md",
   ],
-  adr: [
+  design: [
     "adr.md",
   ],
+  adr: [],
   // developer-mode stages — not used by the analyst "Редактировать"
   // flow, but kept here so the helper stays total.
   backlog: [],

@@ -143,13 +143,12 @@ export function ReopenTaskDialog({
               ))}
             </select>
             <span className="text-[11px] text-slate-500">
-              Будут удалены:{" "}
-              {stage === "proposal" &&
-                "proposal.md, design.md, adr.md, каталог specs/"}
-              {stage === "delta-spec" &&
-                "каталог specs/, design.md, adr.md"}
-              {stage === "design" && "design.md, adr.md"}
-              {stage === "adr" && "adr.md"}
+              Будут удалены артефакты этапов, идущих после
+              выбранного:{" "}
+              {stage === "proposal" && "каталог specs/, design.md, adr.md"}
+              {stage === "delta-spec" && "design.md, adr.md"}
+              {stage === "design" && "adr.md"}
+              {stage === "adr" && "ничего — это последний этап"}
             </span>
           </label>
 
