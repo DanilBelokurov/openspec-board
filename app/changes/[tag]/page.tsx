@@ -271,6 +271,12 @@ export default async function ChangePage({
               </section>
             )}
 
+          {task.stage === "done" && task.mode === "analyst" && (
+            <section className="mb-5">
+              <DoneDeploymentActions tag={tag} />
+            </section>
+          )}
+
           {task.description && (
             <section className="mb-5">
               <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
@@ -855,9 +861,6 @@ export default async function ChangePage({
               <CopyPathButton path={relPath} />
             </div>
             <div className="flex flex-col items-end gap-2">
-              {task.stage === "done" && task.mode === "analyst" && (
-                <DoneDeploymentActions tag={tag} />
-              )}
               {task.stage === "done" && task.mode === "analyst" ? (
                 <DoneTaskActions tag={tag} />
               ) : (
