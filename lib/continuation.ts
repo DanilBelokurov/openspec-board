@@ -721,7 +721,21 @@ export async function runUpdateArtifact(
  * concatenate every .md file. For files return the file content.
  */
 async function readArtifactForPrompt(absolutePath: string): Promise<string> {
-  const stat = await fs.stat(absolutePath);
+  // The 'edit' / 'reopen' pipeline deletes the target stage's
+  // artefact before calling us, on purpose — the new write is
+  // supposed to start from scratch. A missing file here is the
+  // normal "no prior content" case, not an error: gigacode will
+  // generate the artefact from scratch. Return an empty string
+  // so the {artifact} placeholder in the update template
+  // substitutes cleanly instead of throwing ENOENT.
+  let stat;
+  try {
+    stat = await fs.stat(absolutePath);
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") return "";
+    throw e;
+  }
   if (stat.isDirectory()) {
     const entries = await fs.readdir(absolutePath, {
       withFileTypes: true,
