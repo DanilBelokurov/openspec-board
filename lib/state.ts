@@ -134,6 +134,26 @@ export interface TaskEntry {
   adrCommittedAt?: string;
   adrCommitExitCode?: number | null;
   adrCommitError?: string;
+  // 'Опубликовать ветку' / 'Сделать pull request' actions on the
+  // done stage (analyst mode only). The push is a one-shot
+  // git operation; pushedAt is set on success. The PR is a
+  // detached gigacode --prompt run that reads
+  // templates/git/create-pull-request-template.md.
+  pushedAt?: string;
+  pushPid?: number | null;
+  pushStartedAt?: string;
+  pushExitCode?: number | null;
+  pushExitSignal?: string | null;
+  pushLogPath?: string;
+  pushError?: string;
+  pushRemoteUrl?: string;
+  pullRequestPid?: number | null;
+  pullRequestStartedAt?: string;
+  pullRequestExitCode?: number | null;
+  pullRequestExitSignal?: string | null;
+  pullRequestLogPath?: string;
+  pullRequestError?: string;
+  pullRequestUrl?: string;
 }
 
 export interface AppState {

@@ -66,6 +66,16 @@ const UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH = path.join(
   "spec-driven",
   "update-artifact-prompt-template.md",
 );
+// 'Сделать pull request' uses its own template — PRs are not
+// an OpenSpec artefact (no openspec instructions <art> for them),
+// so the prompt is hand-written to drive `gh pr create` against
+// the already-pushed feature branch.
+const CREATE_PULL_REQUEST_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "git",
+  "create-pull-request-template.md",
+);
 
 // In-memory cache for template content. Keyed by absolute path +
 // file's mtime so edits are picked up on the next invocation without
@@ -91,6 +101,8 @@ const loadCreateArtifactPromptTemplate = () =>
   loadTemplate(CREATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
 const loadUpdateArtifactPromptTemplate = () =>
   loadTemplate(UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
+const loadCreatePullRequestPromptTemplate = () =>
+  loadTemplate(CREATE_PULL_REQUEST_TEMPLATE_PATH);
 
 // ============================================================================
 // Generic artifact pipeline
@@ -851,6 +863,152 @@ function isProcessAliveByPid(pid: number): boolean {
   } catch {
     return false;
   }
+}
+// ============================================================================
+// Pull request — gigacode --prompt that drives `gh pr create`
+// ============================================================================
+
+export interface CreatePullRequestResult {
+  ok: boolean;
+  pid?: number | null;
+  logFile?: string;
+  error?: string;
+}
+
+/**
+ * Spawn the gigacode --prompt run that opens a PR for the
+ * already-pushed feature branch. The template
+ * (templates/git/create-pull-request-template.md) is hand-written
+ * — there's no `openspec instructions pr` artefact, so we don't
+ * run that CLI. The template carries the full instructions
+ * (read proposal.md / design.md / adr.md / specs/, then run
+ * `gh pr create` and report the URL).
+ *
+ * `task.pullRequestPid` is the idempotency key: if a previous run
+ * is still alive, the second call refuses. `task.pushedAt` is
+ * the gate — the endpoint must ensure the branch is pushed
+ * before calling us.
+ */
+export async function spawnCreatePullRequestGigacode(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  comments: string,
+): Promise<CreatePullRequestResult> {
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "Не задан worktree задачи" };
+  }
+  const worktree = task.openspecWorktreePath;
+
+  if (task.pullRequestPid && isProcessAliveByPid(task.pullRequestPid)) {
+    return {
+      ok: false,
+      error:
+        "Создание pull request уже выполняется — дождитесь завершения",
+    };
+  }
+
+  // Read the feature branch from the worktree. We don't have a
+  // stored value for it on the task; the user is expected to have
+  // pushed via 'Опубликовать ветку' which the endpoint already
+  // captured as pushRemoteUrl / pushedAt.
+  const branch = await runGit(worktree, [
+    "rev-parse",
+    "--abbrev-ref",
+    "HEAD",
+  ])
+    .then((r) => r.stdout.trim())
+    .catch((e) => "");
+
+  const template = await loadCreatePullRequestPromptTemplate();
+  const prompt = template
+    .replace("{branch}", branch || "(unknown branch)")
+    .replace("{tag}", changeName)
+    .replace("{repoUrl}", task.pushRemoteUrl || "(unknown remote)")
+    .replace("{comments}", comments);
+
+  const logFile = processLogPath(changeName, "update", task.stage);
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (pull request) for ${changeName}`,
+      `# add-dir: ${worktree}`,
+      `# approval-mode: auto-edit`,
+      `# branch: ${branch}`,
+      `# repo: ${task.pushRemoteUrl ?? "(unknown)"}`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# comments-length: ${comments.length} chars`,
+      "",
+      "# ----- prompt ----->",
+      prompt,
+      "# <----- prompt -----",
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: undefined,
+      addDir: worktree,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    result.promise
+      .then(({ exitCode, signal }) =>
+        updateTask(changeName, {
+          pullRequestExitCode: exitCode,
+          pullRequestExitSignal: signal,
+        }),
+      )
+      .catch((e) =>
+        console.error(
+          `gigacode (pull request) exit handler error:`,
+          e,
+        ),
+      );
+  } catch (e) {
+    return {
+      ok: false,
+      error: `gigacode spawn: ${(e as Error).message}`,
+    };
+  }
+
+  if (pid == null) {
+    return { ok: false, error: "Не удалось получить PID gigacode" };
+  }
+  await updateTask(changeName, {
+    pullRequestPid: pid,
+    pullRequestStartedAt: new Date().toISOString(),
+    pullRequestLogPath: logFile,
+  });
+  return { ok: true, pid, logFile };
+}
+
+function runGit(
+  cwd: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      ["-C", cwd, ...args],
+      { maxBuffer: 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(
+            new Error(
+              `git ${args.join(" ")} failed: ${err.message}\n${stderr}`,
+            ),
+          );
+          return;
+        }
+        resolve({ stdout: String(stdout), stderr: String(stderr) });
+      },
+    );
+  });
 }
 
 // ============================================================================

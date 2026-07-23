@@ -16,6 +16,7 @@
 
 import { isProcessAlive } from "./process";
 import { readConfig, updateRepoEntry } from "./config";
+import { readState, updateTask } from "./state";
 import { triggerContinueIfNeeded } from "./continuation";
 import {
   buildLogPath,
@@ -96,6 +97,40 @@ async function tick(): Promise<void> {
         await updateRepoEntry(name, {
           visualizeExitCode: 0,
           visualizeExitSignal: null,
+        });
+      }
+    }
+
+    // Stage 3: per-task push + pull-request liveness. We don't
+    // watch every TaskEntry (the tick is shared with the repo
+    // pass), so we read state again to avoid the earlier repos
+    // loop. The push process is short-lived, so this loop is
+    // mostly waiting for the gigacode PR run to settle.
+    const stateForTasks = await readState();
+    for (const [tag, task] of Object.entries(stateForTasks.tasks)) {
+      if (task.stage !== "done") continue;
+      if (task.mode !== "analyst") continue;
+      // Push: flip exit code once the detached `git push` process
+      // is gone and we haven't recorded its result yet.
+      if (
+        task.pushPid != null &&
+        task.pushExitCode == null &&
+        !isProcessAlive(task.pushPid)
+      ) {
+        await updateTask(tag, {
+          pushExitCode: 0,
+          pushExitSignal: null,
+        });
+      }
+      // Pull request: same for the gigacode --prompt run.
+      if (
+        task.pullRequestPid != null &&
+        task.pullRequestExitCode == null &&
+        !isProcessAlive(task.pullRequestPid)
+      ) {
+        await updateTask(tag, {
+          pullRequestExitCode: 0,
+          pullRequestExitSignal: null,
         });
       }
     }

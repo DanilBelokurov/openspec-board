@@ -28,6 +28,7 @@ import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { TaskActions } from "@/components/TaskActions";
 import { DoneTaskActions } from "@/components/DoneTaskActions";
+import { DoneDeploymentActions } from "@/components/DoneDeploymentActions";
 
 export default async function ChangePage({
   params,
@@ -717,6 +718,122 @@ export default async function ChangePage({
             </details>
           )}
 
+          {/* Done-stage deploy cards (analyst mode only). They sit
+              next to the other process cards because they're
+              sub-steps of the same final pipeline. */}
+          {task.stage === "done" && task.mode === "analyst" && task.pushPid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={
+                    task.pushExitCode == null && isProcessAlive(task.pushPid)
+                  }
+                  exitCode={task.pushExitCode}
+                />
+                <span>Опубликовать ветку</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.pushedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Опубликовано: {formatDateTime(task.pushedAt)}
+                  </div>
+                )}
+                {task.pushExitCode != null &&
+                  task.pushExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {task.pushError ??
+                        `Ошибка (exit ${task.pushExitCode}) — см. лог`}
+                    </div>
+                  )}
+                {task.pushRemoteUrl && (
+                  <div className="text-[11px] text-slate-500">
+                    Remote:{" "}
+                    <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                      {task.pushRemoteUrl}
+                    </code>
+                  </div>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">{task.pushPid}</dd>
+                  {task.pushLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.pushLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {task.stage === "done" &&
+            task.mode === "analyst" &&
+            task.pullRequestPid && (
+              <details
+                className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+              >
+                <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                  <ProcessStatusIcon
+                    alive={
+                      task.pullRequestExitCode == null &&
+                      isProcessAlive(task.pullRequestPid)
+                    }
+                    exitCode={task.pullRequestExitCode}
+                  />
+                  <span>Создание pull request</span>
+                  <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+                </summary>
+                <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                  {task.pullRequestStartedAt && (
+                    <div className="text-[11px] text-slate-500">
+                      Запущено:{" "}
+                      {formatDateTime(task.pullRequestStartedAt)}
+                    </div>
+                  )}
+                  {task.pullRequestExitCode != null &&
+                    task.pullRequestExitCode !== 0 && (
+                      <div className="text-[11px] text-red-700">
+                        {task.pullRequestError ??
+                          `Ошибка (exit ${task.pullRequestExitCode}) — см. лог`}
+                      </div>
+                    )}
+                  {task.pullRequestUrl && (
+                    <div className="text-[11px] text-slate-500">
+                      PR:{" "}
+                      <a
+                        className="text-blue-700 underline break-all"
+                        href={task.pullRequestUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {task.pullRequestUrl}
+                      </a>
+                    </div>
+                  )}
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                    <dt className="text-slate-500">PID</dt>
+                    <dd className="font-mono text-[10px]">
+                      {task.pullRequestPid}
+                    </dd>
+                    {task.pullRequestLogPath && (
+                      <>
+                        <dt className="text-slate-500">Лог</dt>
+                        <dd className="font-mono text-[10px] break-all text-slate-500">
+                          {task.pullRequestLogPath}
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+              </details>
+            )}
+
           {task.stage === "backlog" && (
             <section className="mt-5">
               <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
@@ -737,16 +854,21 @@ export default async function ChangePage({
               {folderExists && <OpenInFinderForm tag={tag} />}
               <CopyPathButton path={relPath} />
             </div>
-            {task.stage === "done" && task.mode === "analyst" ? (
-              <DoneTaskActions tag={tag} />
-            ) : (
-              <TaskActions
-                tag={tag}
-                title={task.summary.title}
-                description={task.description}
-                jiraUrl={task.jiraUrl ?? undefined}
-              />
-            )}
+            <div className="flex flex-col items-end gap-2">
+              {task.stage === "done" && task.mode === "analyst" && (
+                <DoneDeploymentActions tag={tag} />
+              )}
+              {task.stage === "done" && task.mode === "analyst" ? (
+                <DoneTaskActions tag={tag} />
+              ) : (
+                <TaskActions
+                  tag={tag}
+                  title={task.summary.title}
+                  description={task.description}
+                  jiraUrl={task.jiraUrl ?? undefined}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
