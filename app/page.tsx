@@ -118,6 +118,13 @@ export default async function Home() {
           deltaSpecCreateError: deltaSpecCreateError || undefined,
           designCreateError: designCreateError || undefined,
           adrCreateError: adrCreateError || undefined,
+          // Developer-mode signals: archived badge + the SHA of
+          // the commit on the tracked branch that owns the change.
+          // Both are populated by mergeDeveloperScan in
+          // lib/state.ts; the SessionCard renders the badge and
+          // the detail page links to the SHA.
+          archived: t.archived || undefined,
+          codeBaseSha: t.codeBaseSha,
           // Single-status badge for the task's current stage.
           // 'running' / 'error' / 'waiting' / null. Computed here
           // (server-side) so SessionCard doesn't need access to

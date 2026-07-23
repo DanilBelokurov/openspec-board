@@ -154,6 +154,20 @@ export interface TaskEntry {
   pullRequestLogPath?: string;
   pullRequestError?: string;
   pullRequestUrl?: string;
+  // Developer-mode backlog scan. Set when the task was created
+  // (or refreshed) from a change-proposal on
+  // config.defaultBranch of the sdd-store remote. The SHA is
+  // the commit on the tracked branch where the change lives;
+  // surfacing it in the UI lets the dev jump straight to the
+  // merged commit on GitHub.
+  codeBranch?: string;
+  codeBaseSha?: string;
+  // `true` when the change-proposal has been moved to
+  // openspec/changes/archive/ upstream. Tasks in `backlog` are
+  // removed outright; tasks in any other stage get a red
+  // "архив" badge and stay on the board for the dev to close
+  // manually.
+  archived?: boolean;
 }
 
 export interface AppState {
@@ -257,6 +271,143 @@ export async function mergeScanWithState(
   const merged: AppState = { tasks: Object.fromEntries(tasks) };
   await writeState(merged);
   return merged;
+}
+
+/**
+ * Developer-mode scan: walk `openspecDir`'s `config.defaultBranch`
+ * via `scanChangeProposalsOnBranch`, then merge the result into
+ * `state.tasks`:
+ *
+ *   - Live change-proposal  → new task in `backlog` (or update
+ *     the existing one with the new title / description /
+ *     codeBaseSha).
+ *   - Archived change-proposal that's no longer live →
+ *     `archived: true` on the existing task. The dev's task
+ *     stays in whatever stage it was at; the red "архив" badge
+ *     will appear on the card so they know to close it.
+ *   - Archived change-proposal whose existing task is in
+ *     `backlog` → task removed outright (the dev workflow
+ *     never picked it up).
+ *   - A task that has neither live nor archived proposal
+ *     upstream is left alone — it might be an old local task
+ *     the dev is still working on, or one whose remote we
+ *     couldn't see.
+ */
+export async function mergeDeveloperScan(
+  openspecDir: string,
+  branch: string,
+): Promise<{ scanned: number; created: number; archived: number; removed: number }> {
+  const { scanChangeProposalsOnBranch } = await import("./openspec-scanner");
+  const proposals = await scanChangeProposalsOnBranch(
+    openspecDir,
+    branch,
+  );
+  const state = await readState();
+  const tasks = new Map<string, TaskEntry>(Object.entries(state.tasks));
+  const now = new Date().toISOString();
+
+  const liveTags = new Set<string>();
+  const archivedTags = new Set<string>();
+  let liveByTag = new Map<string, (typeof proposals)[number]>();
+  for (const p of proposals) {
+    if (p.archived) archivedTags.add(p.tag);
+    else {
+      liveTags.add(p.tag);
+      liveByTag.set(p.tag, p);
+    }
+  }
+
+  let created = 0;
+  let archived = 0;
+  let removed = 0;
+
+  for (const p of proposals) {
+    const existing = tasks.get(p.tag);
+    if (p.archived) {
+      // Live + archived: change lives in both, treat as live.
+      // (The dev can still pick it up — `git show origin/<branch>`
+      // would resolve to the live copy.)
+      if (liveTags.has(p.tag)) continue;
+      if (!existing) continue; // not in our board yet
+      tasks.set(p.tag, {
+        ...existing,
+        lastScannedAt: now,
+        archived: true,
+      });
+      archived++;
+      continue;
+    }
+
+    // Live proposal.
+    if (existing) {
+      // Preserve stage, mode, all dev-managed fields. Just
+      // refresh the content + sha + archived flag.
+      tasks.set(p.tag, {
+        ...existing,
+        lastScannedAt: now,
+        archived: false,
+        codeBranch: branch,
+        codeBaseSha: p.sha,
+        summary: {
+          ...existing.summary,
+          title: p.title,
+          changeName: p.tag,
+        },
+        description: p.description,
+        jiraUrl: p.jiraUrl ?? existing.jiraUrl,
+      });
+    } else {
+      const id = randomUUID();
+      tasks.set(p.tag, {
+        id,
+        mode: "developer",
+        stage: "backlog",
+        lastScannedAt: now,
+        summary: {
+          id,
+          changeName: p.tag,
+          path: "",
+          title: p.title,
+          stage: "backlog",
+          hasProposal: true,
+          hasDesign: false,
+          hasSpecs: false,
+          capabilityTags: [],
+          newCapabilities: [],
+          modifiedCapabilities: [],
+          specCounts: { added: 0, modified: 0, removed: 0, scenarios: 0 },
+          updatedAt: now,
+          fileCount: 0,
+          totalSize: 0,
+        },
+        description: p.description,
+        jiraUrl: p.jiraUrl ?? undefined,
+        codeBranch: branch,
+        codeBaseSha: p.sha,
+        archived: false,
+      });
+      created++;
+    }
+  }
+
+  // Cleanup: tasks that no longer have a live proposal upstream
+  // and have moved to archive. Backlog tasks are removed;
+  // anything past backlog is flagged archived.
+  for (const [tag, task] of Array.from(tasks.entries())) {
+    if (task.mode !== "developer") continue;
+    if (liveTags.has(tag)) continue; // still live
+    if (!archivedTags.has(tag)) continue; // not archived upstream either
+    if (task.stage === "backlog") {
+      tasks.delete(tag);
+      removed++;
+    } else if (!task.archived) {
+      tasks.set(tag, { ...task, lastScannedAt: now, archived: true });
+      archived++;
+    }
+  }
+
+  await writeState({ tasks: Object.fromEntries(tasks) });
+  return { scanned: proposals.length, created, archived, removed };
 }
 
 export async function updateTask(

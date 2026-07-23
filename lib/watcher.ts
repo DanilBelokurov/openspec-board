@@ -16,7 +16,7 @@
 
 import { isProcessAlive } from "./process";
 import { readConfig, updateRepoEntry } from "./config";
-import { readState, updateTask } from "./state";
+import { readState, updateTask, mergeDeveloperScan } from "./state";
 import { triggerContinueIfNeeded } from "./continuation";
 import {
   buildLogPath,
@@ -27,11 +27,36 @@ const POLL_MS = 5000;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 let started = false;
+let lastDeveloperScanAt = 0;
 
 async function tick(): Promise<void> {
   try {
     const config = await readConfig();
     if (!config.openspecDir) return;
+
+    // Stage 0: developer-mode backlog scan. Runs on its own
+    // cadence (config.developerScanIntervalMinutes, default 0
+    // = off) so the board auto-populates when new change-
+    // proposals get merged into the tracked branch. The scan
+    // itself is also reachable via POST /api/refresh.
+    if (
+      config.mode === "developer" &&
+      (config.developerScanIntervalMinutes ?? 0) > 0
+    ) {
+      const intervalMs =
+        (config.developerScanIntervalMinutes ?? 0) * 60 * 1000;
+      if (Date.now() - lastDeveloperScanAt >= intervalMs) {
+        lastDeveloperScanAt = Date.now();
+        try {
+          await mergeDeveloperScan(
+            config.openspecDir,
+            config.defaultBranch || "master",
+          );
+        } catch (e) {
+          console.warn("[watcher] developer scan failed:", e);
+        }
+      }
+    }
 
     // Stage 1: proposal / delta-spec auto-trigger.
     await triggerContinueIfNeeded(config.openspecDir);

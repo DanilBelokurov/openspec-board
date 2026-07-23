@@ -125,6 +125,14 @@ export interface BoardItem extends ChangeSummary {
   designCreateError?: boolean;
   // adr create step error.
   adrCreateError?: boolean;
+  // Developer-mode archived flag. Set when the corresponding
+  // change-proposal has been moved to openspec/changes/archive/
+  // upstream; rendered as a red 'архив' badge on the card.
+  archived?: boolean;
+  // The commit SHA on the tracked branch where the change lives.
+  // Surfaced in the detail-page header so the dev can jump
+  // straight to the merged commit on GitHub.
+  codeBaseSha?: string;
   // Pipeline status badge for the task's current stage. Computed
   // server-side on each board render and forwarded on BoardItem so
   // SessionCard can show one of {running, error, waiting} without

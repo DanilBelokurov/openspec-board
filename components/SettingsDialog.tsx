@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, FolderSearch, Plus, Loader2, Trash2 } from "lucide-react";
 import { MODES, type BoardModeId } from "@/lib/modes";
+import { useCreateProposal } from "./CreateProposalContext";
 import { deriveRepoNameFromUrl } from "@/lib/repo-name";
 
 interface RepoEntry {
@@ -32,6 +33,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [initialMode, setInitialMode] = useState<BoardModeId>("developer");
   const [defaultBranch, setDefaultBranch] = useState("master");
   const [initialDefaultBranch, setInitialDefaultBranch] = useState("master");
+  const [developerScanInterval, setDeveloperScanInterval] = useState(0);
+  const [initialDeveloperScanInterval, setInitialDeveloperScanInterval] =
+    useState(0);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +74,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             : "master";
         setDefaultBranch(b);
         setInitialDefaultBranch(b);
+        const interval =
+          typeof data?.developerScanIntervalMinutes === "number" &&
+          Number.isFinite(data.developerScanIntervalMinutes)
+            ? data.developerScanIntervalMinutes
+            : 0;
+        setDeveloperScanInterval(interval);
+        setInitialDeveloperScanInterval(interval);
         const r: Record<string, RepoEntry> =
           data?.repos && typeof data.repos === "object" ? data.repos : {};
         setRepos(r);
@@ -100,6 +111,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           openspecDir: path.trim(),
           mode,
           defaultBranch: defaultBranch.trim(),
+          developerScanIntervalMinutes: developerScanInterval,
         }),
       });
       if (!res.ok) {
@@ -110,6 +122,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       setInitialPath(data.openspecDir ?? "");
       setInitialMode(data.mode ?? mode);
       setInitialDefaultBranch(data.defaultBranch ?? defaultBranch);
+      setInitialDeveloperScanInterval(
+        data.developerScanIntervalMinutes ?? developerScanInterval,
+      );
       setStatus("saved");
       router.refresh();
     } catch (e) {
@@ -200,7 +215,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const dirty =
     path !== initialPath ||
     mode !== initialMode ||
-    defaultBranch !== initialDefaultBranch;
+    defaultBranch !== initialDefaultBranch ||
+    developerScanInterval !== initialDeveloperScanInterval;
 
   return (
     <div
@@ -341,6 +357,39 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               .
             </span>
           </label>
+
+          {mode === "developer" && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-slate-800">
+                Интервал автосканирования (мин)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={1440}
+                value={developerScanInterval}
+                onChange={(e) =>
+                  setDeveloperScanInterval(
+                    Math.max(0, Number(e.target.value) || 0),
+                  )
+                }
+                placeholder="0"
+                className="h-8 w-32 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+              />
+              <span className="text-[11px] text-slate-500">
+                Каждые N минут фоновый watcher сканирует{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  origin/{defaultBranch || "master"}
+                </code>{" "}
+                на наличие новых change-proposal и добавляет их в
+                бэклог.{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  0
+                </code>{" "}
+                — отключить авто-сканирование (только по кнопке ↻).
+              </span>
+            </label>
+          )}
 
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-medium text-slate-800">

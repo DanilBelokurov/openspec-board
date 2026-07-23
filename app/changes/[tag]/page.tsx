@@ -237,6 +237,34 @@ export default async function ChangePage({
             </div>
           </header>
 
+          {task.archived && (
+            <section className="mb-5 rounded-md border border-red-300 bg-red-50 px-4 py-3 text-[12px] text-red-900">
+              <div className="font-semibold">
+                ⚠ Change-proposal архивирован upstream
+              </div>
+              <div className="mt-1 text-red-800/80">
+                Задача остаётся на доске, потому что вы уже работаете
+                над ней. Закройте её вручную, когда будете готовы.
+              </div>
+            </section>
+          )}
+
+          {task.codeBaseSha && task.mode === "developer" && (
+            <section className="mb-5 flex items-center gap-2 rounded-md border border-border bg-white px-4 py-2 text-[12px] text-slate-700">
+              <span className="text-slate-500">Commit в</span>
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
+                {task.codeBranch ?? config.defaultBranch ?? "master"}
+              </code>
+              <span className="text-slate-500">:</span>
+              <code
+                className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800"
+                title="SHA коммита, в котором change-proposal присутствует в tracked branch"
+              >
+                {task.codeBaseSha.slice(0, 12)}
+              </code>
+            </section>
+          )}
+
           {showConfirmButton &&
             (task.stage === "proposal" ||
               task.stage === "delta-spec" ||

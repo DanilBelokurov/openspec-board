@@ -25,12 +25,14 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  const { openspecDir, mode, defaultBranch } = body as Record<string, unknown>;
+  const { openspecDir, mode, defaultBranch, developerScanIntervalMinutes } =
+    body as Record<string, unknown>;
 
   const patch: {
     openspecDir?: string;
     mode?: "developer" | "analyst";
     defaultBranch?: string;
+    developerScanIntervalMinutes?: number;
   } = {};
 
   if (openspecDir !== undefined) {
@@ -69,6 +71,24 @@ export async function PUT(req: NextRequest) {
     if (trimmed.length > 0) {
       patch.defaultBranch = trimmed;
     }
+  }
+
+  if (developerScanIntervalMinutes !== undefined) {
+    if (
+      typeof developerScanIntervalMinutes !== "number" ||
+      !Number.isFinite(developerScanIntervalMinutes) ||
+      developerScanIntervalMinutes < 0 ||
+      developerScanIntervalMinutes > 1440
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "developerScanIntervalMinutes must be a number between 0 and 1440",
+        },
+        { status: 400 },
+      );
+    }
+    patch.developerScanIntervalMinutes = developerScanIntervalMinutes;
   }
 
   const next = await writeConfig(patch);

@@ -83,6 +83,14 @@ export function SessionCard({ item, mode }: SessionCardProps) {
               ожидает
             </span>
           )}
+          {item.archived && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+              title="Change-proposal архивирован upstream — закройте задачу вручную"
+            >
+              архив
+            </span>
+          )}
           {jiraId && (
             // Use <button> not <a> here: nested <a> inside the outer <Link>
             // causes the browser's "active formatting elements" rule to close

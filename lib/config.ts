@@ -58,6 +58,15 @@ export interface AppConfig {
   // URL + branch to track. Backed by `git submodule add` + checkout
   // under <openspecDirParent>/repos/<name>/.
   repos?: Record<string, RepoConfig>;
+  /**
+   * Developer-mode auto-scan cadence, in minutes. The watcher
+   * runs `scanChangeProposalsOnBranch(openspecDir,
+   * defaultBranch)` every N minutes so the backlog auto-populates
+   * without the dev having to click ↻. Only consulted in
+   * developer mode (in analyst mode the scan is a one-shot
+   * trigger, not periodic). 0 disables auto-scan entirely.
+   */
+  developerScanIntervalMinutes?: number;
 }
 
 const CONFIG_DIR = path.join(process.cwd(), ".sdd-board");
@@ -107,6 +116,12 @@ export async function writeConfig(
   // editing). Fall back to the existing value.
   if (typeof next.defaultBranch !== "string" || next.defaultBranch.trim() === "") {
     next.defaultBranch = current.defaultBranch;
+  }
+  // developerScanIntervalMinutes: 0 is a legitimate value
+  // (disable auto-scan), so we don't filter it out. Just normalise
+  // undefined / non-numbers to a sane default of 0 (i.e. off).
+  if (typeof next.developerScanIntervalMinutes !== "number" || !Number.isFinite(next.developerScanIntervalMinutes)) {
+    next.developerScanIntervalMinutes = current.developerScanIntervalMinutes ?? 0;
   }
   // Make sure repos is always present in the on-disk file (even if
   // empty) so callers reading JSON directly see a consistent shape.
