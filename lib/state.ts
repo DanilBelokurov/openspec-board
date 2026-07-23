@@ -2,12 +2,30 @@ import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import type { ChangeSummary, Stage } from "./openspec";
+import { MODES, type BoardModeId } from "./modes";
 
 const STATE_DIR = path.join(process.cwd(), ".sdd-board");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 
+/**
+ * The mode the task was created in. Tasks live in exactly one
+ * mode — analyst (proposal / specs / design / ADR) or developer
+ * (start / implement / test / deploy). The 'done' stage exists
+ * in both modes' stage lists, so without this field a
+ * finished-analyst task would show up in the developer board too.
+ * We infer it from the stage for legacy entries that don't have
+ * the field set.
+ */
+export type TaskMode = BoardModeId;
+
 export interface TaskEntry {
   id: string;
+  /**
+   * Which board mode this task belongs to. Set on creation; never
+   * changes. Defaults to "developer" for legacy state.json entries
+   * that predate this field.
+   */
+  mode: TaskMode;
   stage: Stage;
   lastScannedAt: string;
   summary: ChangeSummary;
@@ -122,6 +140,19 @@ export interface AppState {
   tasks: Record<string, TaskEntry>;
 }
 
+/**
+ * For tasks predating the `mode` field, infer it from the current
+ * stage. Stages that exist only in the analyst stages list map
+ * to "analyst"; everything else maps to "developer". "done" is
+ * ambiguous (both modes have it) — we break the tie by defaulting
+ * to "developer" since older entries are most likely developer
+ * tasks that finished before the analyst flow existed.
+ */
+function inferModeFromStage(stage: Stage): TaskMode {
+  if (MODES.analyst.stages.includes(stage)) return "analyst";
+  return "developer";
+}
+
 const EMPTY_STATE: AppState = { tasks: {} };
 
 export async function readState(): Promise<AppState> {
@@ -138,6 +169,13 @@ export async function readState(): Promise<AppState> {
     for (const task of Object.values(tasks)) {
       if (task.summary.stage !== task.stage) {
         task.summary = { ...task.summary, stage: task.stage };
+      }
+      // Backfill the mode field for legacy entries that predate it.
+      // We don't persist the inferred mode here — it'll be written
+      // back on the next updateTask / mergeScanWithState call.
+      // For other tasks this is a no-op.
+      if (task.mode == null) {
+        task.mode = inferModeFromStage(task.stage);
       }
     }
     return { tasks };
@@ -178,8 +216,17 @@ export async function mergeScanWithState(
       });
     } else {
       const id = nextTaskId(tasks);
+      // A task discovered purely from disk (no prior state entry)
+      // is most likely a developer-mode task — change-proposals
+      // created through the API always have an explicit mode set,
+      // and the openspec change-folder layout doesn't collide
+      // with the developer-mode <repo>/changes/ layout we use.
+      // If we ever support discovery-driven analyst tasks, the
+      // mode can be flipped here.
+      const mode: TaskMode = inferModeFromStage("backlog");
       tasks.set(summary.changeName, {
         id,
+        mode,
         stage: "backlog",
         lastScannedAt: now,
         summary: { ...summary, id, stage: "backlog" },

@@ -192,6 +192,7 @@ export async function POST(req: NextRequest) {
 
   const newTask = {
     id,
+    mode: config.mode,  // tasks live in exactly one board mode
     stage: "proposal" as const,
     lastScannedAt: now,
     summary,

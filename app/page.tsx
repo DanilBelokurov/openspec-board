@@ -49,7 +49,7 @@ export default async function Home() {
   // a single fs.access so it's cheap enough for a scaffold.
   const items: BoardItem[] = await Promise.all(
     Object.values(state.tasks)
-      .filter((t) => mode.stages.includes(t.stage))
+.filter((t) => t.mode === config.mode)
       .map(async (t) => {
         const proposalRoot = await resolveProposalRootForTask(
           t,
