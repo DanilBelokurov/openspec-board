@@ -2,11 +2,19 @@ import fs from "fs/promises";
 import path from "path";
 import { execFile } from "child_process";
 import { readState, updateTask } from "./state";
+import { readConfig } from "./config";
 import {
   ensureLogDir,
   processLogPath,
   spawnGigacodeWithLog,
 } from "./process-logger";
+import {
+  indexBuildLogPathFor,
+  indexVisualizeLogPathFor,
+  loadBuildPromptFor,
+  spawnCodeReviewGraphBuild,
+  spawnCodeReviewGraphVisualize,
+} from "./code-review-graph";
 
 async function exists(p: string): Promise<boolean> {
   try {
@@ -253,6 +261,25 @@ export async function triggerContinueIfNeeded(
     // Spawn the gigacode pipeline for this stage (idempotent: only
     // when no live or completed-but-failed PID is set).
     if (getCreatePid(task)) continue;
+
+    // For the proposal stage, the openspec-new-change spawn
+    // happens AFTER the openspec-store index refresh. The
+    // index-refresh gigacode writes a fresh code-review-graph
+    // index that the later proposal.md generation agent can
+    // consult. We chain here: if the index refresh is still
+    // running, don't spawn openspec new change yet; if it's
+    // already done, spawn openspec new change now.
+    if (task.stage === "proposal") {
+      const spawned = await ensureIndexRefreshAndOpenspecNew(
+        task,
+        changeName,
+        changePath,
+        config,
+      );
+      if (spawned) triggered.push(changeName);
+      continue;
+    }
+
     const spawned = await spawnCreateArtifactGigacode(
       task,
       changeName,
@@ -262,6 +289,138 @@ export async function triggerContinueIfNeeded(
     if (spawned) triggered.push(changeName);
   }
   return triggered;
+}
+
+/**
+ * Spawn the openspec-store index-refresh gigacode process. This
+ * is the per-task "step 0" of the proposal pipeline — runs
+ * BEFORE `openspec new change` so the gigacode agent that
+ * writes proposal.md has a fresh code-review-graph to consult.
+ *
+ * The gigacode prompt is built from
+ * `templates/code-graph-review/build-graph.md` (the same one
+ * used for user-added repos) with `{repoName}` substituted to
+ * the openspec-store name and `{repoPath}` to the store's git
+ * root (parent of `config.openspecDir` so the indexed tree
+ * covers the whole repo, not just the `openspec/` subdir).
+ */
+export async function spawnIndexRefresh(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  changePath: string,
+): Promise<boolean> {
+  if (!task.openspecWorktreePath) return false;
+  // Need config.openspecDir — read it from config so we can
+  // derive both the repo root (parent of openspecDir) and the
+  // graph data dir (sibling of repos/ under ssd-board cwd).
+  const config = await readConfig();
+  const openspecDir = config.openspecDir;
+  if (!openspecDir) return false;
+  const repoRoot = path.dirname(openspecDir);
+  // Per-task data dir so two tasks don't clobber each other.
+  const dataDir = path.join(
+    process.cwd(),
+    "graphs",
+    `openspec-store-${changeName}`,
+  );
+
+  const logFile = indexBuildLogPathFor(openspecDir);
+  let prompt: string;
+  try {
+    prompt = await loadBuildPromptFor({
+      name: `openspec-store/${changeName}`,
+      repoPath: repoRoot,
+      dataDir,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(
+      `index-refresh: cannot load build prompt for ${changeName}:`,
+      message,
+    );
+    return false;
+  }
+
+  // Persist the full prompt into the log file BEFORE the spawn so
+  // a post-mortem can see what the LLM was asked.
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode (code-review-graph build, openspec-store) for ${changeName}`,
+      `# task:       ${task.id}`,
+      `# worktree:   ${task.openspecWorktreePath}`,
+      `# change:     ${changePath}`,
+      `# repo root:  ${repoRoot}`,
+      `# data dir:   ${dataDir}`,
+      `# add-dir:    ${process.cwd()}`,
+      `# approval:   auto-edit`,
+      "# prompt:",
+      prompt,
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: `code-review-graph build (openspec-store) for ${changeName}`,
+      addDir: process.cwd(),
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`index-refresh spawn threw:`, message);
+    return false;
+  }
+  if (pid == null) {
+    return false;
+  }
+
+  await updateTask(changeName, {
+    indexRefreshPid: pid,
+    indexRefreshStartedAt: new Date().toISOString(),
+    indexRefreshLogPath: logFile,
+  });
+  return true;
+}
+
+/**
+ * Chain helper for the proposal stage.
+ *
+ *   step 0  — index refresh: gigacode build-graph on the
+ *             openspec-store git tree (idempotent via
+ *             indexRefreshPid).
+ *   step 1  — openspec new change: spawns the CLI that creates
+ *             <worktree>/openspec/changes/<tag>/ and writes
+ *             .openspec.yaml. Chained after the index refresh
+ *             finishes successfully — see app/api/changes/route.ts
+ *             (spawnProposalOpenspecNew is only invoked when
+ *             indexRefreshExitCode is set AND openspecNewPid is
+ *             null).
+ *
+ * Both steps are stored on the task via per-step state fields.
+ * The watcher flips exit codes on death.
+ */
+async function ensureIndexRefreshAndOpenspecNew(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  changePath: string,
+  _config: ArtifactConfig,
+): Promise<boolean> {
+  // 1) Spawn the index refresh (gigacode build-graph on the
+  //    openspec store) if it hasn't been started yet. The
+  //    openspec-new-change spawn is owned by
+  //    app/api/changes/route.ts, not by this chain — see
+  //    POST /api/changes which now reads indexRefreshExitCode
+  //    before scheduling the openspec-new-change spawn.
+  if (!task.indexRefreshPid) {
+    return await spawnIndexRefresh(task, changeName, changePath);
+  }
+  return false;
 }
 
 /**

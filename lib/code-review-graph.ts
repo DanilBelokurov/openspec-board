@@ -109,6 +109,23 @@ async function loadBuildPrompt(repoName: string): Promise<string> {
     .replace(/\{dataDir\}/g, dataDir(repoName));
 }
 
+/**
+ * Load the build prompt and substitute placeholders with caller-
+ * supplied paths. Use this for non-submodule repos like the
+ * openspec store (the index-refresh step in the analyst flow).
+ */
+export async function loadBuildPromptFor(opts: {
+  name: string;
+  repoPath: string;
+  dataDir: string;
+}): Promise<string> {
+  const tpl = await loadTemplate(BUILD_PROMPT_TEMPLATE_PATH);
+  return tpl
+    .replace(/\{repoName\}/g, opts.name)
+    .replace(/\{repoPath\}/g, opts.repoPath)
+    .replace(/\{dataDir\}/g, opts.dataDir);
+}
+
 async function loadVisualizePrompt(repoName: string): Promise<string> {
   const tpl = await loadTemplate(VISUALIZE_PROMPT_TEMPLATE_PATH);
   return tpl
@@ -123,6 +140,20 @@ export function buildLogPath(repoName: string): string {
 
 export function visualizeLogPath(repoName: string): string {
   return `.sdd-board/logs/repos/${repoName}.graph-visualize.log`;
+}
+
+/**
+ * Generic log paths for non-submodule repositories. The openspec
+ * store for instance — it lives in the same sdd-board project
+ * tree (under process.cwd()) but isn't a git submodule. The
+ * index-refresh step that runs at task creation uses these.
+ */
+export function indexBuildLogPathFor(openspecDir: string): string {
+  return `.sdd-board/logs/openspec-store.graph-build.log`;
+}
+
+export function indexVisualizeLogPathFor(openspecDir: string): string {
+  return `.sdd-board/logs/openspec-store.graph-visualize.log`;
 }
 
 /**

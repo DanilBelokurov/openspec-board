@@ -201,6 +201,14 @@ export async function POST(req: NextRequest) {
     openspecWorktreePath: openspecWorktree,
     openspecNewPid: null,
     openspecNewStartedAt: now,
+    // Step 0: code-review-graph index refresh on the openspec-store
+    // git tree. Gigacode spawn with templates/code-graph-review/
+    // build-graph.md. Recorded as indexRefreshPid so the watcher
+    // can flip indexRefreshExitCode when the process dies, and
+    // so this handler below can chain `openspec new change`
+    // only after the index refresh has finished.
+    indexRefreshPid: null,
+    indexRefreshStartedAt: now,
   };
 
   const next = {
@@ -208,13 +216,6 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Spawn `openspec new change` headless INSIDE the worktree (cwd=<worktree>).
-  // This creates the change directory and .openspec.yaml metadata file.
-  // The next step (openspec instructions proposal + gigacode /opsx-continue
-  // with --prompt) is auto-triggered from lib/continuation.ts once the
-  // watcher or page render sees .openspec.yaml on disk without
-  // proposal.md yet.
-  //
   // --description writes the body into README.md inside the change folder,
   // preserved as ground truth for the proposal-generation step.
   // --schema is passed explicitly so the pipeline keeps working even if
@@ -222,20 +223,47 @@ export async function POST(req: NextRequest) {
   const logFile = processLogPath(tag, "new", "proposal");
   await ensureLogDir();
 
-  const openspecNewPid = await spawnProposalOpenspecNew(
+  // Step 0: spawn the openspec-store index-refresh gigacode
+  // process. Detached, so we return immediately. The watcher
+  // will flip indexRefreshExitCode when it dies, and either
+  // this handler (on the next tick) or triggerContinueIfNeeded
+  // chains `openspec new change` once the refresh is done.
+  const { spawnIndexRefresh } = await import("@/lib/continuation");
+  const refreshStarted = await spawnIndexRefresh(
+    newTask,
     tag,
-    description,
-    logFile,
-    openspecWorktree,
+    `${openspecWorktree}/openspec/changes/${tag}`,
   );
-
-  if (openspecNewPid != null) {
+  if (refreshStarted) {
     next.tasks[tag] = {
       ...newTask,
-      openspecNewPid,
-      openspecNewLogPath: logFile,
+      indexRefreshPid: newTask.indexRefreshPid, // will be set by spawnIndexRefresh
     };
-    await writeState(next);
+  }
+
+  // Step 1: chain `openspec new change` after the index
+  // refresh. If the refresh has just been spawned (not done yet),
+  // we wait for the next watcher tick to chain it. If the
+  // refresh already finished (e.g. previous task reused state),
+  // spawn `openspec new change` synchronously.
+  const currentState = await readState();
+  const currentTask = currentState.tasks[tag];
+  let openspecNewPid: number | null = null;
+  if (currentTask?.indexRefreshExitCode != null) {
+    openspecNewPid = await spawnProposalOpenspecNew(
+      tag,
+      description,
+      logFile,
+      openspecWorktree,
+    );
+    if (openspecNewPid != null) {
+      next.tasks[tag] = {
+        ...newTask,
+        openspecNewPid,
+        openspecNewLogPath: logFile,
+      };
+      await writeState(next);
+    }
   }
 
   return NextResponse.json(

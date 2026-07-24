@@ -133,6 +133,20 @@ async function tick(): Promise<void> {
     // mostly waiting for the gigacode PR run to settle.
     const stateForTasks = await readState();
     for (const [tag, task] of Object.entries(stateForTasks.tasks)) {
+      // Index refresh: when the openspec-store code-review-graph
+      // build gigacode finishes, flip its exit code so
+      // triggerContinueIfNeeded can chain openspec-new-change on
+      // the next watcher tick.
+      if (
+        task.indexRefreshPid != null &&
+        task.indexRefreshExitCode == null &&
+        !isProcessAlive(task.indexRefreshPid)
+      ) {
+        await updateTask(tag, {
+          indexRefreshExitCode: 0,
+          indexRefreshExitSignal: null,
+        });
+      }
       if (task.stage !== "done") continue;
       if (task.mode !== "analyst") continue;
       // Push: flip exit code once the detached `git push` process

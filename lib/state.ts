@@ -56,6 +56,19 @@ export interface TaskEntry {
   openspecNewExitCode?: number | null;
   openspecNewExitSignal?: string | null;
   openspecNewLogPath?: string;
+  // Pre-step: index refresh of the openspec-store git tree,
+  // running BEFORE openspec new change so the gigacode agent
+  // that writes proposal.md has a fresh code-review-graph
+  // to consult. Spawned as a detached gigacode process that
+  // drives mcp__code-review-graph__build_or_update_graph_tool
+  // + mcp__code-review-graph__get_architecture_overview_tool,
+  // exactly like the per-repo build-graph pipeline but pointed
+  // at the openspec store rather than a user-added submodule.
+  indexRefreshPid?: number | null;
+  indexRefreshStartedAt?: string;
+  indexRefreshExitCode?: number | null;
+  indexRefreshExitSignal?: string | null;
+  indexRefreshLogPath?: string;
   // Second proposal-creation step (analyst mode) — gigacode /opsx-continue,
   // auto-triggered from lib/continuation.ts once the change directory and
   // .openspec.yaml exist but proposal.md does not.
