@@ -63,7 +63,7 @@ sdd-board/
 │   ├── continuation.ts                # STAGE_CONFIG, triggerContinueIfNeeded, runUpdateArtifact, commitChange, spawnCreatePullRequestGigacode
 │   ├── process.ts                      # isProcessAlive(process.kill(pid, 0))
 │   ├── process-logger.ts               # spawnDetachedWithLog (логи в .sdd-board/logs/)
-│   ├── code-review-graph.ts            # spawnCodeReviewGraphBuild/Visualize (uvx code-review-graph)
+│   ├── code-review-graph.ts            # spawnCodeReviewGraphBuild/Visualize — gigacode + MCP server code-review-graph
 │   ├── git-push.ts                     # spawnGitPush (detached)
 │   ├── git.ts / git-worktree.ts /      # developer-mode worktree create/remove
 │   │   git-cleanup.ts                  # (тоже для reopen)
@@ -81,6 +81,9 @@ sdd-board/
 │   │   └── update-artifact-prompt-template.md   # для карандашика в ConfirmArtifactButton
 │   └── git/
 │       └── create-pull-request-template.md      # для /create-pull-request
+│   └── code-graph-review/
+│       ├── build-graph.md               # gigacode: build_or_update_graph_tool + architecture_overview_tool
+│       └── visualize-graph.md           # gigacode: re-emit architecture overview as JSON
 ├── docs/
 │   └── sdd-directory.md                # описание структуры OpenSpec-каталога
 ├── tailwind.config.ts
@@ -338,10 +341,12 @@ npm start
 ## Code-review-graph pipeline (repos)
 
 Для каждого репо в `repos[name]`:
-1. `POST /api/repos` спавнит `git submodule add <url> repos/<name>` + checkout
-2. Watcher (или POST /api/refresh) детектит `buildPid` живой + `buildExitCode == null` → когда умер, флипает в 0
-3. Затем спавнит `uvx code-review-graph visualize --repo <cwd>/repos/<name> --data-dir <cwd>/graphs/<name> --format json`
-4. `RepoBuildToaster` (client component в layout) polling'ит `/api/repos/build-status` каждые 5с, показывает toast «Граф построен» или ошибку
+1. `POST /api/repos` спавнит `git submodule add <url> repos/<name>` + checkout, затем spawn'ит `gigacode` с промптом из `templates/code-graph-review/build-graph.md`. Gigacode LLM-агент вызывает `mcp__code-review-graph__build_or_update_graph_tool` (индексирует репо) + `mcp__code-review-graph__get_architecture_overview_tool` (sanity read). stdout/stderr → `.sdd-board/logs/repos/<name>.graph-build.log`.
+2. Watcher (или POST /api/refresh) детектит `buildPid` живой + `buildExitCode == null` → когда умер, флипает в 0.
+3. Затем спавнит `gigacode` с промптом из `templates/code-graph-review/visualize-graph.md`. Агент вызывает тот же `get_architecture_overview_tool` и оборачивает результат в JSON `{repo, repoRoot, dataDir, generatedAt, overview}` на stdout.
+4. `RepoBuildToaster` (client component в layout) polling'ит `/api/repos/build-status` каждые 5с, показывает toast «Граф построен» или ошибку.
+
+**Зачем через gigacode + MCP, а не `uvx code-review-graph build/visualize`?** MCP-сервер уже запущен в этом окружении; `gigacode` — это LLM-агент, который маршрутизирует вызовы к нему. Драйв графа через тот же LLM-driven pipeline, что генерирует proposal.md / design.md и т.д., оставляет билд расширяемым (LLM может восстановиться после частичной ошибки, повторить sub-step) и логирует prompt для post-mortem.
 
 ## Логи
 
