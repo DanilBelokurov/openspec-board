@@ -42,11 +42,11 @@ export async function DELETE(
   delete next[name];
   const updated = await writeConfig({ repos: next });
 
-  // Surface a 500 only if BOTH cleanups failed — otherwise the
+  // Surface a 500 only if either cleanup failed — otherwise the
   // partial failure is enough to not pretend "ok" but the user
   // can still see which dir is left over via the result body.
   const cleanupFailed =
-    !submoduleResult.dirRemoved || !graphResult.dirRemoved;
+    !submoduleResult.workTreeRemoved || !graphResult.dirRemoved;
   return NextResponse.json(
     {
       ok: !cleanupFailed,

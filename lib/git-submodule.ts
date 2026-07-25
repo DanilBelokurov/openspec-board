@@ -175,115 +175,160 @@ export interface RemoveSubmoduleResult {
   parentIsGitRepo: boolean;
   buildPid: KillOutcome;
   visualizePid: KillOutcome;
-  submoduleDeinit: "ok" | "failed" | "skipped";
-  submoduleRm: "ok" | "failed" | "skipped";
-  dirRemoved: boolean;
+  /** Step 1: `git submodule deinit -f -- <path>`. */
+  deinit: "ok" | "failed" | "skipped";
+  /** Step 2: `rm -rf .git/modules/<path>`. */
+  modulesDirRemoved: boolean;
+  /** Step 3: `git rm -f <path>`. */
+  gitRm: "ok" | "failed" | "skipped";
+  /** Working tree at `<cwd>/repos/<name>` is gone (via step 3 or the fs.rm fallback). */
+  workTreeRemoved: boolean;
+  /** Step 4: `[submodule "<name>"]` block trimmed from `.gitmodules`. */
   gitmodulesTrimmed: boolean;
 }
 
 /**
- * Tear down a repo's git submodule footprint at `<cwd>/repos/<name>/`.
- * Best-effort throughout: any individual step that fails is logged
- * but does not abort the operation, so the caller always gets a
- * `RemoveSubmoduleResult` back to decide whether to surface
- * partial-failure to the user.
+ * Tear down the git submodule at `<cwd>/repos/<name>/`. Implements
+ * the canonical three-step removal procedure:
  *
- * Order matters:
- *   1. SIGTERM any in-flight build/visualize PIDs so they don't
- *      keep writing into the files we're about to remove.
- *   2. `git submodule deinit -f` to unregister the worktree.
- *   3. `git submodule rm -f` to remove the entry from `.gitmodules`
- *      and the git index.
- *   4. Fallback `rm -rf` of the directory if any of the above
- *      left it behind (parent not a git repo, or git ops failed).
- *   5. Trim `.gitmodules` manually only if step 3 skipped/failed —
- *      otherwise git already updated the file.
+ *   1. `git -C <cwd> submodule deinit -f -- <path>`
+ *   2. `rm -rf <cwd>/.git/modules/<path>`
+ *   3. `git -C <cwd> rm -f <path>`
+ *
+ * …plus a manual `.gitmodules` sweep (step 4) because `git rm -f`
+ * does NOT update `.gitmodules` (only `git submodule rm` does, and
+ * we explicitly avoid that convenience wrapper). Idempotent:
+ * re-running on a missing directory is a no-op.
+ *
+ * In-flight build/visualize PIDs are SIGTERMed first so an active
+ * indexer doesn't race the rm.
  */
 export async function removeSubmodule(
   name: string,
   pids?: { buildPid?: number | null; visualizePid?: number | null },
 ): Promise<RemoveSubmoduleResult> {
   const repoDir = process.cwd();
+  const subPath = path.posix.join("repos", name);
   const target = path.join(repoDir, "repos", name);
+  const modulesDir = path.join(repoDir, ".git", "modules", "repos", name);
 
+  // SIGTERM any in-flight build/visualize so they don't race the rm.
   const buildOutcome = killPid(pids?.buildPid);
   const visualizeOutcome = killPid(pids?.visualizePid);
 
   const parentIsGitRepo = await isGitRepo(repoDir);
-  let submoduleDeinit: "ok" | "failed" | "skipped" = "skipped";
-  let submoduleRm: "ok" | "failed" | "skipped" = "skipped";
+  let deinit: "ok" | "failed" | "skipped" = "skipped";
+  let gitRm: "ok" | "failed" | "skipped" = "skipped";
 
+  // Pre-check: does the submodule exist in the index?
+  // Without an index entry, both `git submodule deinit` and
+  // `git rm -f` fail with "did not match any files" — which
+  // is the desired state, not a failure (no entry to remove).
+  // This project's setup keeps submodules untracked, so the
+  // index entry is typically absent.
+  let hasIndexEntry = false;
   if (parentIsGitRepo) {
     try {
-      await run(
+      const { stdout } = await run(
         "git",
-        [
-          "-C",
-          repoDir,
-          "submodule",
-          "deinit",
-          "-f",
-          path.posix.join("repos", name),
-        ],
+        ["-C", repoDir, "ls-files", "--stage", "--", subPath],
         { cwd: repoDir },
       );
-      submoduleDeinit = "ok";
+      hasIndexEntry = stdout.trim().length > 0;
     } catch (e) {
-      console.warn(`git submodule deinit for ${name} failed:`, e);
-      submoduleDeinit = "failed";
-    }
-    try {
-      await run(
-        "git",
-        [
-          "-C",
-          repoDir,
-          "submodule",
-          "rm",
-          "-f",
-          path.posix.join("repos", name),
-        ],
-        { cwd: repoDir },
-      );
-      submoduleRm = "ok";
-    } catch (e) {
-      console.warn(`git submodule rm for ${name} failed:`, e);
-      submoduleRm = "failed";
+      console.warn(`git ls-files for ${name} failed:`, e);
     }
   }
 
-  // Fallback: nuke the directory if any of the git ops left it
-  // behind. Safe to run even when nothing's there — `fs.rm` with
+  if (parentIsGitRepo) {
+    // Step 1: git submodule deinit -f -- <path>
+    // The `--` ensures the path can't be parsed as a flag.
+    if (hasIndexEntry) {
+      try {
+        await run(
+          "git",
+          ["-C", repoDir, "submodule", "deinit", "-f", "--", subPath],
+          { cwd: repoDir },
+        );
+        deinit = "ok";
+      } catch (e) {
+        console.warn(`git submodule deinit for ${name} failed:`, e);
+        deinit = "failed";
+      }
+    } else {
+      deinit = "skipped";
+    }
+  }
+
+  // Step 2: rm -rf .git/modules/<path>
+  // Run after step 1 so deinit has had a chance to clean up its
+  // internal state. Safe to run unconditionally — `fs.rm` with
   // `force: true` ignores ENOENT.
-  let dirRemoved = false;
+  let modulesDirRemoved = false;
+  if (await exists(modulesDir)) {
+    try {
+      await fs.rm(modulesDir, { recursive: true, force: true });
+      modulesDirRemoved = true;
+    } catch (e) {
+      console.warn(`rm -rf ${modulesDir} failed:`, e);
+    }
+  } else {
+    modulesDirRemoved = true;
+  }
+
+  if (parentIsGitRepo) {
+    // Step 3: git rm -f <path>
+    // `git rm -f` removes both the index entry and the working
+    // tree. After step 1's deinit the working tree may already
+    // be gone — git rm -f still works on the index entry alone.
+    // Skipped when the index has no entry (see pre-check above).
+    if (hasIndexEntry) {
+      try {
+        await run(
+          "git",
+          ["-C", repoDir, "rm", "-f", subPath],
+          { cwd: repoDir },
+        );
+        gitRm = "ok";
+      } catch (e) {
+        console.warn(`git rm -f for ${name} failed:`, e);
+        gitRm = "failed";
+      }
+    } else {
+      gitRm = "skipped";
+    }
+  }
+
+  // Fallback: ensure the working tree is gone regardless of what
+  // the git ops did (handles the case where parent isn't a git
+  // repo, or all of steps 1–3 were skipped).
+  let workTreeRemoved = false;
   if (await exists(target)) {
     try {
       await fs.rm(target, { recursive: true, force: true });
-      dirRemoved = true;
+      workTreeRemoved = true;
     } catch (e) {
       console.warn(`rm -rf ${target} failed:`, e);
     }
   } else {
-    dirRemoved = true;
+    workTreeRemoved = true;
   }
 
-  // If `git submodule rm` didn't take care of `.gitmodules`,
-  // do it manually so the next add of the same name doesn't see
-  // a stale entry.
+  // Step 4: trim .gitmodules manually. `git rm -f` does NOT touch
+  // .gitmodules — only `git submodule rm` does. Since we use the
+  // explicit three-step procedure, we own this cleanup.
   let gitmodulesTrimmed = false;
-  if (submoduleRm !== "ok") {
-    const gitmodulesPath = path.join(repoDir, ".gitmodules");
-    if (await exists(gitmodulesPath)) {
-      try {
-        const content = await fs.readFile(gitmodulesPath, "utf-8");
-        const trimmed = trimSubmoduleSection(content, name);
-        if (trimmed !== content) {
-          await fs.writeFile(gitmodulesPath, trimmed, "utf-8");
-          gitmodulesTrimmed = true;
-        }
-      } catch (e) {
-        console.warn(`trimming .gitmodules for ${name} failed:`, e);
+  const gitmodulesPath = path.join(repoDir, ".gitmodules");
+  if (await exists(gitmodulesPath)) {
+    try {
+      const content = await fs.readFile(gitmodulesPath, "utf-8");
+      const trimmed = trimSubmoduleSection(content, name);
+      if (trimmed !== content) {
+        await fs.writeFile(gitmodulesPath, trimmed, "utf-8");
+        gitmodulesTrimmed = true;
       }
+    } catch (e) {
+      console.warn(`trimming .gitmodules for ${name} failed:`, e);
     }
   }
 
@@ -292,9 +337,10 @@ export async function removeSubmodule(
     parentIsGitRepo,
     buildPid: buildOutcome,
     visualizePid: visualizeOutcome,
-    submoduleDeinit,
-    submoduleRm,
-    dirRemoved,
+    deinit,
+    modulesDirRemoved,
+    gitRm,
+    workTreeRemoved,
     gitmodulesTrimmed,
   };
 }
