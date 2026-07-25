@@ -174,7 +174,7 @@ export interface RemoveSubmoduleResult {
   name: string;
   parentIsGitRepo: boolean;
   buildPid: KillOutcome;
-  visualizePid: KillOutcome;
+  wikiPid: KillOutcome;
   /** Step 1: `git submodule deinit -f -- <path>`. */
   deinit: "ok" | "failed" | "skipped";
   /** Step 2: `rm -rf .git/modules/<path>`. */
@@ -200,21 +200,21 @@ export interface RemoveSubmoduleResult {
  * we explicitly avoid that convenience wrapper). Idempotent:
  * re-running on a missing directory is a no-op.
  *
- * In-flight build/visualize PIDs are SIGTERMed first so an active
+ * In-flight build/wiki PIDs are SIGTERMed first so an active
  * indexer doesn't race the rm.
  */
 export async function removeSubmodule(
   name: string,
-  pids?: { buildPid?: number | null; visualizePid?: number | null },
+  pids?: { buildPid?: number | null; wikiPid?: number | null },
 ): Promise<RemoveSubmoduleResult> {
   const repoDir = process.cwd();
   const subPath = path.posix.join("repos", name);
   const target = path.join(repoDir, "repos", name);
   const modulesDir = path.join(repoDir, ".git", "modules", "repos", name);
 
-  // SIGTERM any in-flight build/visualize so they don't race the rm.
+  // SIGTERM any in-flight build/wiki so they don't race the rm.
   const buildOutcome = killPid(pids?.buildPid);
-  const visualizeOutcome = killPid(pids?.visualizePid);
+  const wikiOutcome = killPid(pids?.wikiPid);
 
   const parentIsGitRepo = await isGitRepo(repoDir);
   let deinit: "ok" | "failed" | "skipped" = "skipped";
@@ -336,7 +336,7 @@ export async function removeSubmodule(
     name,
     parentIsGitRepo,
     buildPid: buildOutcome,
-    visualizePid: visualizeOutcome,
+    wikiPid: wikiOutcome,
     deinit,
     modulesDirRemoved,
     gitRm,

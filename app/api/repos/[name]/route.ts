@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readConfig, writeConfig } from "@/lib/config";
 import { removeSubmodule } from "@/lib/git-submodule";
-import { removeRepoData } from "@/lib/code-review-graph";
 
 export async function DELETE(
   _req: NextRequest,
@@ -23,16 +22,15 @@ export async function DELETE(
     );
   }
 
-  // Tear down the on-disk footprint. Both helpers are best-effort
-  // and return a typed result so the caller can surface partial
-  // failures. Order matters: submodule footgun first (it kills
-  // in-flight build/visualize PIDs), then the graph index.
+  // Tear down the git submodule. The MCP tool writes its index
+  // to `<repoRoot>/.code-review-graph/`, which lives INSIDE the
+  // submodule directory — so removing the submodule also drops
+  // the graph without a separate cleanup step.
   const repo = repos[name];
   const submoduleResult = await removeSubmodule(name, {
     buildPid: repo.buildPid,
-    visualizePid: repo.visualizePid,
+    wikiPid: repo.wikiPid,
   });
-  const graphResult = await removeRepoData(name);
 
   // Drop the entry from config.json last — only after the on-disk
   // cleanup has had its chance. If writeConfig fails, the entry
@@ -42,18 +40,12 @@ export async function DELETE(
   delete next[name];
   const updated = await writeConfig({ repos: next });
 
-  // Surface a 500 only if either cleanup failed — otherwise the
-  // partial failure is enough to not pretend "ok" but the user
-  // can still see which dir is left over via the result body.
-  const cleanupFailed =
-    !submoduleResult.workTreeRemoved || !graphResult.dirRemoved;
   return NextResponse.json(
     {
-      ok: !cleanupFailed,
+      ok: submoduleResult.workTreeRemoved,
       repos: updated.repos,
       submodule: submoduleResult,
-      graph: graphResult,
     },
-    { status: cleanupFailed ? 500 : 200 },
+    { status: submoduleResult.workTreeRemoved ? 200 : 500 },
   );
 }

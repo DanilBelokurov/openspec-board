@@ -8,8 +8,8 @@ import { CheckCircle2, X, CircleAlert } from "lucide-react";
  *
  * Polls /api/repos/build-status every POLL_MS and shows a small
  * floating toast for each repo whose two-step pipeline
- * (build → visualize) has just finished. The graph is considered
- * 'built' only after the visualize step exits with code 0.
+ * (build → wiki) has just finished. The pipeline is considered
+ * 'done' only after the wiki step exits with code 0.
  *
  * Each toast has a 'Notified' sessionStorage flag so the same
  * completion isn't shown twice in a row.
@@ -25,40 +25,40 @@ interface RepoBuild {
   buildExitCode: number | null;
   buildLogPath?: string;
   buildError?: string | null;
-  visualizePid: number | null;
-  visualizeStartedAt?: string;
-  visualizeExitCode: number | null;
-  visualizeLogPath?: string;
-  visualizeError?: string | null;
+  wikiPid: number | null;
+  wikiStartedAt?: string;
+  wikiExitCode: number | null;
+  wikiLogPath?: string;
+  wikiError?: string | null;
 }
 
 type PipelineStage =
   | "idle"
   | "building"
-  | "visualizing"
+  | "wiki"
   | "done"
   | "failed";
 
 /**
- * Reduce a repo's build + visualize state to a single stage.
+ * Reduce a repo's build + wiki state to a single stage.
  * `done` and `failed` are terminal — those are the only states
- * that should surface a toast. We look at visualize first because
- * "graph is built" means visualize finished.
+ * that should surface a toast. We look at wiki first because
+ * "pipeline is done" means wiki finished.
  *
  * Two non-happy paths route to `failed`:
  *   - any non-zero exit code on either step
- *   - a recorded spawn error (uvx missing, etc.) — in that case
- *     the PID is null and there's an `error` string the toaster
- *     surfaces verbatim.
+ *   - a recorded spawn error (gigacode missing, etc.) — in that
+ *     case the PID is null and there's an `error` string the
+ *     toaster surfaces verbatim.
  */
 function classify(build: RepoBuild): PipelineStage {
-  if (build.visualizeExitCode != null) {
-    return build.visualizeExitCode === 0 ? "done" : "failed";
+  if (build.wikiExitCode != null) {
+    return build.wikiExitCode === 0 ? "done" : "failed";
   }
   if (build.buildExitCode != null) {
     if (build.buildExitCode !== 0) return "failed";
-    // build OK — visualize is the next thing to wait on
-    return build.visualizePid != null ? "visualizing" : "building";
+    // build OK — wiki is the next thing to wait on
+    return build.wikiPid != null ? "wiki" : "building";
   }
   if (build.buildPid != null) return "building";
   // PID is null and we have a startedAt + error → spawn failed.
@@ -139,14 +139,14 @@ export function RepoBuildToaster() {
           // guard missed:
           //   - the repo completed before this page mounted
           //     (the first poll already classifies it as done/failed)
-          //   - the build/visualize never started (uvx missing, etc.)
+          //   - the build/wiki never started (gigacode missing, etc.)
           const id = keyFor(build.name, stage);
           if (notifiedRef.current.has(id)) continue;
           newlyDone.push({
             name: build.name,
             status: stage,
-            logPath: build.visualizeLogPath ?? build.buildLogPath,
-            error: build.visualizeError ?? build.buildError ?? null,
+            logPath: build.wikiLogPath ?? build.buildLogPath,
+            error: build.wikiError ?? build.buildError ?? null,
           });
           notifiedRef.current.add(id);
           writeNotified(notifiedRef.current);
@@ -196,7 +196,7 @@ export function RepoBuildToaster() {
           <div className="min-w-0 flex-1 text-[12px] text-slate-800">
             <div className="font-semibold">
               {t.status === "done"
-                ? "Граф построен"
+                ? "Граф и wiki построены"
                 : "Ошибка построения графа"}
             </div>
             <div className="mt-0.5 text-[11px] text-slate-600">

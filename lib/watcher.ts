@@ -4,9 +4,9 @@
  *   - triggers /opsx-continue for any proposal-stage task ready
  *     for it (via triggerContinueIfNeeded)
  *   - flips buildExitCode on any repo whose code-review-graph
- *     build process has just died, and chains a `visualize` step
- *     on top of a successful build
- *   - flips visualizeExitCode once the visualize step dies
+ *     build process has just died, and chains a `wiki` step on
+ *     top of a successful build
+ *   - flips wikiExitCode once the wiki step dies
  *
  * Runs only on the server (module-level setInterval is started
  * when this file is first imported from server-side code).
@@ -20,7 +20,7 @@ import { readState, updateTask, mergeDeveloperScan } from "./state";
 import { triggerContinueIfNeeded } from "./continuation";
 import {
   buildLogPath,
-  spawnCodeReviewGraphVisualize,
+  spawnCodeReviewGraphWiki,
 } from "./code-review-graph";
 
 const POLL_MS = 5000;
@@ -62,17 +62,17 @@ async function tick(): Promise<void> {
     await triggerContinueIfNeeded(config.openspecDir);
 
     // Stage 2: code-review-graph pipeline progress. For every
-    // repo we look at the build and visualize PIDs in order:
+    // repo we look at the build and wiki PIDs in order:
     //
     //   build alive, exit unset  → still running, skip
     //   build dead, exit unset   → mark build done (exit 0) and
-    //                              chain a visualize step on top of
-    //                              the freshly-built data
-    //   visualize alive          → still running, skip
-    //   visualize dead, exit unset → mark visualize done
+    //                              chain a wiki step on top of
+    //                              the freshly-built graph
+    //   wiki alive               → still running, skip
+    //   wiki dead, exit unset    → mark wiki done
     //
-    // The graph is considered "built" only when visualizeExitCode
-    // === 0; the UI's toast logic uses both signals.
+    // The pipeline is considered "wiki done" only when
+    // wikiExitCode === 0; the UI's toast logic uses both signals.
     const repos = config.repos ?? {};
     for (const [name, repo] of Object.entries(repos)) {
       const buildPid = repo.buildPid;
@@ -84,44 +84,44 @@ async function tick(): Promise<void> {
         // Build finished. We don't have the real exit code — the
         // spawner only captured stdout/stderr to the log file.
         // isProcessAlive returning false implies the process
-        // exited; surface that as exitCode 0 so the visualize
-        // step is chained. The user can read the log to see if
-        // anything actually failed.
+        // exited; surface that as exitCode 0 so the wiki step is
+        // chained. The user can read the log to see if anything
+        // actually failed.
         await updateRepoEntry(name, {
           buildExitCode: 0,
           buildExitSignal: null,
         });
-        // Re-read so the visualize check below sees the updated
+        // Re-read so the wiki check below sees the updated
         // buildExitCode.
         repo.buildExitCode = 0;
       }
 
-      // Chain the visualize step after a successful build.
+      // Chain the wiki step after a successful build.
       if (
         repo.buildExitCode === 0 &&
-        repo.visualizePid == null &&
+        repo.wikiPid == null &&
         !isProcessAlive(buildPid ?? -1)
       ) {
-        const spawned = await spawnCodeReviewGraphVisualize(name);
+        const spawned = await spawnCodeReviewGraphWiki(name);
         if (spawned.pid != null) {
           await updateRepoEntry(name, {
-            visualizePid: spawned.pid,
-            visualizeStartedAt: new Date().toISOString(),
-            visualizeLogPath: spawned.logFile || buildLogPath(name),
+            wikiPid: spawned.pid,
+            wikiStartedAt: new Date().toISOString(),
+            wikiLogPath: spawned.logFile || buildLogPath(name),
           });
         }
         continue;
       }
 
-      const visualizePid = repo.visualizePid;
+      const wikiPid = repo.wikiPid;
       if (
-        visualizePid != null &&
-        repo.visualizeExitCode == null &&
-        !isProcessAlive(visualizePid)
+        wikiPid != null &&
+        repo.wikiExitCode == null &&
+        !isProcessAlive(wikiPid)
       ) {
         await updateRepoEntry(name, {
-          visualizeExitCode: 0,
-          visualizeExitSignal: null,
+          wikiExitCode: 0,
+          wikiExitSignal: null,
         });
       }
     }

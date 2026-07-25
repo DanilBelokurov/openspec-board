@@ -20,11 +20,16 @@ export const DEFAULT_BRANCH = "master";
  * as the directory name inside `repos/`, so it has to be a safe
  * path segment (kebab-case, no slashes / dots).
  *
- * `build*` and `visualize*` fields track the two-step
- * `uvx code-review-graph build && uvx code-review-graph visualize`
+ * `build*` and `wiki*` fields track the two-step code-review-graph
  * pipeline that runs detached right after `git submodule add`
- * succeeds. The graph is considered "built" only after the
- * visualize step exits with code 0.
+ * succeeds:
+ *   1. build  — `mcp__code-review-graph__build_or_update_graph_tool`
+ *               on the repo (the tool writes its index to
+ *               `<repoRoot>/.code-review-graph/`)
+ *   2. wiki   — `mcp__code-review-graph__generate_wiki_tool` on
+ *               the same repo
+ * The pipeline is considered "wiki done" only after step 2 exits
+ * with code 0.
  *
  * Shape mirrors the proposal-stage PIDs in TaskEntry (pid /
  * startedAt / exitCode / exitSignal / logPath) so the same
@@ -39,12 +44,12 @@ export interface RepoConfig {
   buildExitSignal?: string | null;
   buildLogPath?: string;
   buildError?: string;
-  visualizePid?: number | null;
-  visualizeStartedAt?: string;
-  visualizeExitCode?: number | null;
-  visualizeExitSignal?: string | null;
-  visualizeLogPath?: string;
-  visualizeError?: string;
+  wikiPid?: number | null;
+  wikiStartedAt?: string;
+  wikiExitCode?: number | null;
+  wikiExitSignal?: string | null;
+  wikiLogPath?: string;
+  wikiError?: string;
 }
 
 export interface AppConfig {
@@ -138,9 +143,9 @@ export async function writeConfig(
 /**
  * Patch a single repo's config without touching the other entries.
  * Used by lib/watcher.ts to flip buildExitCode on the repo whose
- * `uvx code-review-graph build` process just died — passing the
- * whole repos map through writeConfig every tick would race with
- * any concurrent user add/remove and is more work than needed.
+ * code-review-graph build process just died — passing the whole
+ * repos map through writeConfig every tick would race with any
+ * concurrent user add/remove and is more work than needed.
  */
 export async function updateRepoEntry(
   name: string,

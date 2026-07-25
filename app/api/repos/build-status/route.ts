@@ -5,7 +5,7 @@ import { readConfig } from "@/lib/config";
  * Return the two-step code-review-graph status for every configured
  * repo so the UI toaster (components/RepoBuildToaster.tsx) can
  * poll it cheaply. Each repo entry carries PIDs / startedAt /
- * exitCode / logPath for both the build and the visualize step.
+ * exitCode / logPath for both the build and the wiki step.
  */
 export async function GET() {
   const config = await readConfig();
@@ -17,11 +17,11 @@ export async function GET() {
     buildExitCode: repo.buildExitCode ?? null,
     buildLogPath: repo.buildLogPath ?? null,
     buildError: repo.buildError ?? null,
-    visualizePid: repo.visualizePid ?? null,
-    visualizeStartedAt: repo.visualizeStartedAt ?? null,
-    visualizeExitCode: repo.visualizeExitCode ?? null,
-    visualizeLogPath: repo.visualizeLogPath ?? null,
-    visualizeError: repo.visualizeError ?? null,
+    wikiPid: repo.wikiPid ?? null,
+    wikiStartedAt: repo.wikiStartedAt ?? null,
+    wikiExitCode: repo.wikiExitCode ?? null,
+    wikiLogPath: repo.wikiLogPath ?? null,
+    wikiError: repo.wikiError ?? null,
   }));
   return NextResponse.json({ repos: out });
 }

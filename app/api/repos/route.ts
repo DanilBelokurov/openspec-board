@@ -117,12 +117,12 @@ export async function POST(req: NextRequest) {
 
   // Persist into config.json so subsequent restarts see the repo.
   // After the submodule is registered, kick off step 1 of the
-  // code-review-graph pipeline (`build`). Step 2 (`visualize`)
-  // is chained by lib/watcher.ts once the build exits 0 — that's
+  // code-review-graph pipeline (`build`). Step 2 (`wiki`) is
+  // chained by lib/watcher.ts once the build exits 0 — that's
   // why the response only reports the build PID/log here.
   const spawned = await spawnCodeReviewGraphBuild(name);
   const buildLogPath = `.sdd-board/logs/repos/${name}.graph-build.log`;
-  const visualizeLogPath = `.sdd-board/logs/repos/${name}.graph-visualize.log`;
+  const wikiLogPath = `.sdd-board/logs/repos/${name}.graph-wiki.log`;
   // Record the build start time even when the spawn itself failed
   // (uvx missing on PATH, for example) — the toaster then has a
   // signal that something was attempted and can show an error.
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
     buildStartedAt: now,
     buildLogPath,
     buildError: spawned.error,
-    visualizeLogPath,
+    wikiLogPath,
   };
   const nextRepos = { ...existing, [name]: repoEntry };
   const updated = await writeConfig({ repos: nextRepos });

@@ -34,7 +34,7 @@ sdd-board/
 │   │   ├── refresh/                    # POST — scan (analyst или developer в зависимости от mode)
 │   │   ├── repos/                      # POST — добавить submodule репо
 │   │   ├── repos/[name]/               # DELETE — удалить submodule репо
-│   │   └── repos/build-status/         # GET — статус code-review-graph build/visualize
+│   │   └── repos/build-status/         # GET — статус code-review-graph build/wiki
 ├── components/
 │   ├── TopBar.tsx                      # Хедер: mode-switcher, settings, refresh, New proposal
 │   ├── SettingsDialog.tsx              # Модалка настроек
@@ -63,7 +63,7 @@ sdd-board/
 │   ├── continuation.ts                # STAGE_CONFIG, triggerContinueIfNeeded, runUpdateArtifact, commitChange, spawnCreatePullRequestGigacode
 │   ├── process.ts                      # isProcessAlive(process.kill(pid, 0))
 │   ├── process-logger.ts               # spawnDetachedWithLog (логи в .sdd-board/logs/)
-│   ├── code-review-graph.ts            # spawnCodeReviewGraphBuild/Visualize — gigacode + MCP server code-review-graph
+│   ├── code-review-graph.ts            # spawnCodeReviewGraphBuild/Wiki — gigacode + MCP server code-review-graph
 │   ├── git-push.ts                     # spawnGitPush (detached)
 │   ├── git.ts / git-worktree.ts /      # developer-mode worktree create/remove
 │   │   git-cleanup.ts                  # (тоже для reopen)
@@ -83,7 +83,7 @@ sdd-board/
 │       └── create-pull-request-template.md      # для /create-pull-request
 │   └── code-graph-review/
 │       ├── build-graph.md               # gigacode: build_or_update_graph_tool + architecture_overview_tool
-│       └── visualize-graph.md           # gigacode: re-emit architecture overview as JSON
+│       └── wiki-graph.md                # gigacode: generate_wiki_tool → markdown wiki
 ├── docs/
 │   └── sdd-directory.md                # описание структуры OpenSpec-каталога
 ├── tailwind.config.ts
@@ -182,9 +182,9 @@ Pipeline работает в worktree на ветке `feature/<JiraID>`. Каж
 | --- | --- | --- |
 | POST | `/api/repos` | `git submodule add <url> repos/<name>` + checkout. `name` авто-извлекается из URL. |
 | DELETE | `/api/repos/<name>` | `git submodule deinit` + `submodule rm` + удаление из конфига |
-| GET | `/api/repos/build-status` | Статус `uvx code-review-graph build/visualize` для каждого репо |
+| GET | `/api/repos/build-status` | Статус code-review-graph build/wiki для каждого репо |
 
-`repos/` живут в `process.cwd()` sdd-board проекта (не в sdd-store). `graphs/` — сиблинг. `uvx code-review-graph build --repo <cwd>/repos/<name> --data-dir <cwd>/graphs/<name>`.
+`repos/` живут в `process.cwd()` sdd-board проекта (не в sdd-store). Граф-индекс `mcp__code-review-graph__build_or_update_graph_tool` пишет в `<repoRoot>/.code-review-graph/` (отдельного параметра `data_dir` у инструмента нет — это фиксированный путь внутри репо).
 
 ## State schema
 
@@ -333,7 +333,7 @@ npm start
 
 1. **Stage 0 (developer mode)**: если `developerScanIntervalMinutes > 0` и прошло достаточно времени с последнего скана → `mergeDeveloperScan(openspecDir, config.defaultBranch)`. Добавляет/обновляет задачи, проставляет `archived` badge.
 2. **Stage 1 (analyst)**: `triggerContinueIfNeeded(openspecDir)` — для каждой task в `proposal` с `.openspec.yaml` без `proposal.md` спавнит `gigacode --prompt`. Аналогично для `delta-spec`/`design`/`adr` (когда `specs/`, `design.md`, `adr.md` отсутствуют).
-3. **Stage 2 (repos)**: для каждого `repos[name]` если `buildPid` жив и `buildExitCode == null` → флипает в 0. То же для `visualizePid` (только если build уже завершился).
+3. **Stage 2 (repos)**: для каждого `repos[name]` если `buildPid` жив и `buildExitCode == null` → флипает в 0. То же для `wikiPid` (только если build уже завершился).
 4. **Stage 3 (deploy)**: для каждой task в `done` (`analyst`) → `pushExitCode = 0` и `pullRequestExitCode = 0` если соответствующие PID мёртвые.
 
 То есть watcher не «думает» — он только фиксирует exit codes и запускает следующий шаг pipeline. Логика «что делать» живёт в `triggerContinueIfNeeded` + `mergeDeveloperScan` + state-машине.
@@ -341,12 +341,12 @@ npm start
 ## Code-review-graph pipeline (repos)
 
 Для каждого репо в `repos[name]`:
-1. `POST /api/repos` спавнит `git submodule add <url> repos/<name>` + checkout, затем spawn'ит `gigacode` с промптом из `templates/code-graph-review/build-graph.md`. Gigacode LLM-агент вызывает `mcp__code-review-graph__build_or_update_graph_tool` (индексирует репо) + `mcp__code-review-graph__get_architecture_overview_tool` (sanity read). stdout/stderr → `.sdd-board/logs/repos/<name>.graph-build.log`.
+1. `POST /api/repos` спавнит `git submodule add <url> repos/<name>` + checkout, затем spawn'ит `gigacode` с промптом из `templates/code-graph-review/build-graph.md`. Gigacode LLM-агент вызывает `mcp__code-review-graph__build_or_update_graph_tool` (индексирует репо в `<repoRoot>/.code-review-graph/`, единственный путь — параметра `data_dir` у инструмента нет) + `mcp__code-review-graph__get_architecture_overview_tool` (sanity read). stdout/stderr → `.sdd-board/logs/repos/<name>.graph-build.log`.
 2. Watcher (или POST /api/refresh) детектит `buildPid` живой + `buildExitCode == null` → когда умер, флипает в 0.
-3. Затем спавнит `gigacode` с промптом из `templates/code-graph-review/visualize-graph.md`. Агент вызывает тот же `get_architecture_overview_tool` и оборачивает результат в JSON `{repo, repoRoot, dataDir, generatedAt, overview}` на stdout.
+3. Затем спавнит `gigacode` с промптом из `templates/code-graph-review/wiki-graph.md`. Агент вызывает `mcp__code-review-graph__generate_wiki_tool` (`repo_root` = путь к репо) и получает markdown-wiki для свежепостроенного графа. stdout/stderr → `.sdd-board/logs/repos/<name>.graph-wiki.log`.
 4. `RepoBuildToaster` (client component в layout) polling'ит `/api/repos/build-status` каждые 5с, показывает toast «Граф построен» или ошибку.
 
-**Зачем через gigacode + MCP, а не `uvx code-review-graph build/visualize`?** MCP-сервер уже запущен в этом окружении; `gigacode` — это LLM-агент, который маршрутизирует вызовы к нему. Драйв графа через тот же LLM-driven pipeline, что генерирует proposal.md / design.md и т.д., оставляет билд расширяемым (LLM может восстановиться после частичной ошибки, повторить sub-step) и логирует prompt для post-mortem.
+**Зачем через gigacode + MCP, а не прямой CLI?** MCP-сервер уже запущен в этом окружении; `gigacode` — это LLM-агент, который маршрутизирует вызовы к нему. Драйв графа через тот же LLM-driven pipeline, что генерирует proposal.md / design.md и т.д., оставляет билд расширяемым (LLM может восстановиться после частичной ошибки, повторить sub-step) и логирует prompt для post-mortem.
 
 ## Логи
 
@@ -365,7 +365,7 @@ npm start
 ├── <tag>.push.log                      # git push
 ├── <tag>.update.adr.log (PR gigacode)  # PR gigacode (через processLogPath)
 └── repos/<repo>.graph-build.log
-└── repos/<repo>.graph-visualize.log
+└── repos/<repo>.graph-wiki.log
 ```
 
 ## Бейджи на карточке задачи

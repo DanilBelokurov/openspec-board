@@ -10,10 +10,10 @@ import {
 } from "./process-logger";
 import {
   indexBuildLogPathFor,
-  indexVisualizeLogPathFor,
+  indexWikiLogPathFor,
   loadBuildPromptFor,
   spawnCodeReviewGraphBuild,
-  spawnCodeReviewGraphVisualize,
+  spawnCodeReviewGraphWiki,
 } from "./code-review-graph";
 
 async function exists(p: string): Promise<boolean> {
@@ -297,21 +297,13 @@ export async function triggerContinueIfNeeded(
  * BEFORE `openspec new change` so the gigacode agent that
  * writes proposal.md has a fresh code-review-graph to consult.
  *
- * The data dir is `<cwd>/graphs/openspec-store/` — ONE shared
- * dir, NOT per-change. The
- * `mcp__code-review-graph__build_or_update_graph_tool` does
- * incremental updates by default; multiple tasks triggering
- * the refresh in succession all write into the same SQLite
- * graph at the same data-dir, which is the intended usage.
- * Per-change subdirs would just waste disk and break cross-task
- * graph queries.
- *
- * The gigacode prompt is built from
- * `templates/code-graph-review/build-graph.md` (the same one
- * used for user-added repos) with `{repoPath}` set to the
- * openspec-store git root (parent of `config.openspecDir` so the
- * indexed tree covers the whole repo, not just the `openspec/`
- * subdir).
+ * The MCP tool writes its index to `<repoRoot>/.code-review-graph/`
+ * (the tool has no `data_dir` parameter). The gigacode prompt
+ * is built from `templates/code-graph-review/build-graph.md`
+ * (the same one used for user-added repos) with `{repoPath}`
+ * set to the openspec-store git root (parent of
+ * `config.openspecDir` so the indexed tree covers the whole
+ * repo, not just the `openspec/` subdir).
  */
 export async function spawnIndexRefresh(
   task: import("./state").TaskEntry,
@@ -323,11 +315,6 @@ export async function spawnIndexRefresh(
   const openspecDir = config.openspecDir;
   if (!openspecDir) return false;
   const repoRoot = path.dirname(openspecDir);
-  // One shared graph data dir for the openspec-store. Not
-  // per-change, not per-task — the build_or_update_graph_tool
-  // is incremental, so several tasks refreshing in sequence
-  // share the same SQLite.
-  const dataDir = path.join(process.cwd(), "graphs", "openspec-store");
 
   const logFile = indexBuildLogPathFor(openspecDir);
   let prompt: string;
@@ -335,7 +322,6 @@ export async function spawnIndexRefresh(
     prompt = await loadBuildPromptFor({
       name: "openspec-store",
       repoPath: repoRoot,
-      dataDir,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -356,7 +342,6 @@ export async function spawnIndexRefresh(
       `# worktree:   ${task.openspecWorktreePath}`,
       `# change:     ${changePath}`,
       `# repo root:  ${repoRoot}`,
-      `# data dir:   ${dataDir}`,
       `# add-dir:    ${process.cwd()}`,
       `# approval:   auto-edit`,
       "# prompt:",

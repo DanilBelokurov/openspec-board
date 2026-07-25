@@ -6,22 +6,22 @@
  * `gigacode`:
  *
  *   1. `templates/code-graph-review/build-graph.md` — calls
- *      `mcp__code-review-graph__build_or_update_graph_tool`
- *      to index the repo, then
- *      `mcp__code-review-graph__get_architecture_overview_tool`
- *      for a sanity read. Without the second call the sdd-board
- *      can't tell the build actually produced something
- *      indexable.
+ *      `mcp__code-review-graph__build_or_update_graph_tool` to
+ *      index the repo (the tool writes its data dir to
+ *      `.code-review-graph/` inside the repo by default — there
+ *      is no `data_dir` parameter, the tool's behaviour is fixed)
+ *      and then `get_architecture_overview_tool` for a sanity
+ *      read so the sdd-board can tell the build actually
+ *      produced something indexable.
  *
- *   2. `templates/code-graph-review/visualize-graph.md` — same
- *      architecture-overview call, this time wrapped and
- *      emitted as a single JSON document on stdout so the log
- *      file captures a machine-readable snapshot of the graph.
+ *   2. `templates/code-graph-review/wiki-graph.md` — calls
+ *      `mcp__code-review-graph__generate_wiki_tool` to produce a
+ *      markdown wiki for the freshly-built graph.
  *
  * A separate watcher (lib/watcher.ts) flips the exit-code field
  * on each step as it dies, and chains step 2 on after step 1
- * exits with code 0. The sdd-board UI marks the graph as
- * "built" only after step 2 exits with code 0.
+ * exits with code 0. The sdd-board UI marks the pipeline as
+ * "wiki done" only after step 2 exits with code 0.
  *
  * Why gigacode (and not a plain `uvx code-review-graph build …`):
  * the MCP server is already running in this environment and the
@@ -58,20 +58,12 @@ async function ensureRepoLogDir(): Promise<void> {
  * The code-review-graph MCP tools walk a git working tree. The
  * submodules live under `<cwd>/repos/<name>/` where `<cwd>` is
  * the sdd-board project's own working directory (the same place
- * `.sdd-board/` lives in), NOT the openspec store. Keeping both
- * repos/ and graphs/ inside the ssd-board project means the
- * graph index sits next to the tool that drives it.
+ * `.sdd-board/` lives in), NOT the openspec store. The graph
+ * data itself is written by the tool to `<repoRoot>/.code-review-graph/`
+ * (the tool has no `data_dir` parameter — that location is fixed).
  */
 function repoPath(repoName: string): string {
   return path.join(process.cwd(), "repos", repoName);
-}
-
-/**
- * `<cwd>/graphs/<name>/` — sibling of repos/, where the MCP
- * tool writes its SQLite + symbol table by default.
- */
-function dataDir(repoName: string): string {
-  return path.join(process.cwd(), "graphs", repoName);
 }
 
 const BUILD_PROMPT_TEMPLATE_PATH = path.join(
@@ -80,11 +72,11 @@ const BUILD_PROMPT_TEMPLATE_PATH = path.join(
   "code-graph-review",
   "build-graph.md",
 );
-const VISUALIZE_PROMPT_TEMPLATE_PATH = path.join(
+const WIKI_PROMPT_TEMPLATE_PATH = path.join(
   process.cwd(),
   "templates",
   "code-graph-review",
-  "visualize-graph.md",
+  "wiki-graph.md",
 );
 
 const templateCache = new Map<
@@ -105,41 +97,41 @@ async function loadBuildPrompt(repoName: string): Promise<string> {
   const tpl = await loadTemplate(BUILD_PROMPT_TEMPLATE_PATH);
   return tpl
     .replace(/\{repoName\}/g, repoName)
-    .replace(/\{repoPath\}/g, repoPath(repoName))
-    .replace(/\{dataDir\}/g, dataDir(repoName));
+    .replace(/\{repoPath\}/g, repoPath(repoName));
 }
 
 /**
  * Load the build prompt and substitute placeholders with caller-
  * supplied paths. Use this for non-submodule repos like the
  * openspec store (the index-refresh step in the analyst flow).
+ *
+ * Note: the build template no longer takes a `data_dir`
+ * placeholder. The MCP tool writes its index to
+ * `<repoRoot>/.code-review-graph/` regardless.
  */
 export async function loadBuildPromptFor(opts: {
   name: string;
   repoPath: string;
-  dataDir: string;
 }): Promise<string> {
   const tpl = await loadTemplate(BUILD_PROMPT_TEMPLATE_PATH);
   return tpl
     .replace(/\{repoName\}/g, opts.name)
-    .replace(/\{repoPath\}/g, opts.repoPath)
-    .replace(/\{dataDir\}/g, opts.dataDir);
+    .replace(/\{repoPath\}/g, opts.repoPath);
 }
 
-async function loadVisualizePrompt(repoName: string): Promise<string> {
-  const tpl = await loadTemplate(VISUALIZE_PROMPT_TEMPLATE_PATH);
+async function loadWikiPrompt(repoName: string): Promise<string> {
+  const tpl = await loadTemplate(WIKI_PROMPT_TEMPLATE_PATH);
   return tpl
     .replace(/\{repoName\}/g, repoName)
-    .replace(/\{repoPath\}/g, repoPath(repoName))
-    .replace(/\{dataDir\}/g, dataDir(repoName));
+    .replace(/\{repoPath\}/g, repoPath(repoName));
 }
 
 export function buildLogPath(repoName: string): string {
   return `.sdd-board/logs/repos/${repoName}.graph-build.log`;
 }
 
-export function visualizeLogPath(repoName: string): string {
-  return `.sdd-board/logs/repos/${repoName}.graph-visualize.log`;
+export function wikiLogPath(repoName: string): string {
+  return `.sdd-board/logs/repos/${repoName}.graph-wiki.log`;
 }
 
 /**
@@ -152,8 +144,8 @@ export function indexBuildLogPathFor(openspecDir: string): string {
   return `.sdd-board/logs/openspec-store.graph-build.log`;
 }
 
-export function indexVisualizeLogPathFor(openspecDir: string): string {
-  return `.sdd-board/logs/openspec-store.graph-visualize.log`;
+export function indexWikiLogPathFor(openspecDir: string): string {
+  return `.sdd-board/logs/openspec-store.graph-wiki.log`;
 }
 
 /**
@@ -187,7 +179,6 @@ export async function spawnCodeReviewGraphBuild(
     [
       `# gigacode (code-review-graph build) for ${repoName}`,
       `# repo:  ${repoPath(repoName)}`,
-      `# data:  ${dataDir(repoName)}`,
       `# add-dir: ${process.cwd()}`,
       `# approval-mode: auto-edit`,
       "# prompt:",
@@ -219,32 +210,32 @@ export async function spawnCodeReviewGraphBuild(
 }
 
 /**
- * Spawn the visualize step. The spawned process is `gigacode
- * --prompt <built-from-visualize-graph.md>` and the template
- * tells the LLM to call
- * `mcp__code-review-graph__get_architecture_overview_tool` and
- * emit the result as a single JSON document on stdout. That
- * stdout is appended to the same log file by the spawn helper.
+ * Spawn the wiki step. The spawned process is `gigacode
+ * --prompt <built-from-wiki-graph.md>` and the template tells
+ * the LLM to call
+ * `mcp__code-review-graph__generate_wiki_tool` on the repo from
+ * the freshly-built graph. Replaces the previous visualize
+ * step (which called `get_architecture_overview_tool` and
+ * re-emitted it as JSON).
  */
-export async function spawnCodeReviewGraphVisualize(
+export async function spawnCodeReviewGraphWiki(
   repoName: string,
 ): Promise<SpawnBuildResult> {
   await ensureRepoLogDir();
-  const logFile = visualizeLogPath(repoName);
+  const logFile = wikiLogPath(repoName);
   let prompt: string;
   try {
-    prompt = await loadVisualizePrompt(repoName);
+    prompt = await loadWikiPrompt(repoName);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`code-review-graph visualize: cannot load prompt:`, message);
+    console.error(`code-review-graph wiki: cannot load prompt:`, message);
     return { pid: null, logFile, error: message };
   }
   await fs.writeFile(
     logFile,
     [
-      `# gigacode (code-review-graph visualize) for ${repoName}`,
+      `# gigacode (code-review-graph wiki) for ${repoName}`,
       `# repo:  ${repoPath(repoName)}`,
-      `# data:  ${dataDir(repoName)}`,
       `# add-dir: ${process.cwd()}`,
       `# approval-mode: auto-edit`,
       "# prompt:",
@@ -259,66 +250,18 @@ export async function spawnCodeReviewGraphVisualize(
     const result = spawnGigacodeWithLog({
       argv: ["--prompt", prompt],
       logFile,
-      header: `code-review-graph visualize for ${repoName}`,
+      header: `code-review-graph wiki for ${repoName}`,
       addDir: process.cwd(),
       approvalMode: "auto-edit",
     });
     pid = result.pid || null;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`code-review-graph visualize spawn threw:`, message);
+    console.error(`code-review-graph wiki spawn threw:`, message);
     return { pid: null, logFile, error: message };
   }
   if (pid == null) {
     return { pid: null, logFile, error: "Не удалось получить PID gigacode" };
   }
   return { pid, logFile };
-}
-
-/**
- * Result of removing the on-disk graph index for a repo.
- * `dirRemoved` distinguishes "was here, gone now" from "wasn't
- * here to begin with" — both are non-error, but the caller may
- * want to surface the difference for diagnostics.
- */
-export interface RemoveRepoDataResult {
-  name: string;
-  dirRemoved: boolean;
-  existed: boolean;
-}
-
-/**
- * Tear down the code-review-graph index at `<cwd>/graphs/<name>/`.
- * Idempotent: re-running on a missing directory is a no-op and
- * the caller's no-op expectation is signalled via `dirRemoved`.
- *
- * Note: log files under `.sdd-board/logs/repos/<name>.*` are
- * intentionally NOT removed here — they're the post-mortem trail
- * for the build/visualize runs that just got killed in the
- * companion `removeSubmodule` call. They'll naturally roll off
- * via the same code paths that clean up task logs.
- */
-export async function removeRepoData(
-  repoName: string,
-): Promise<RemoveRepoDataResult> {
-  const dir = path.join(process.cwd(), "graphs", repoName);
-  let existed = false;
-  try {
-    await fs.access(dir);
-    existed = true;
-  } catch {
-    existed = false;
-  }
-  let dirRemoved = false;
-  if (existed) {
-    try {
-      await fs.rm(dir, { recursive: true, force: true });
-      dirRemoved = true;
-    } catch (e) {
-      console.warn(`rm -rf ${dir} failed:`, e);
-    }
-  } else {
-    dirRemoved = true;
-  }
-  return { name: repoName, dirRemoved, existed };
 }
