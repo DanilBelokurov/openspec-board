@@ -48,7 +48,7 @@ sdd-board/
 │   ├── ConfirmArtifactButton.tsx      # «Подтверждено» + карандашик (для proposal/delta-spec/design/adr)
 │   ├── TaskActions.tsx                 # Копировать / Удалить (для всех стадий)
 │   ├── DoneTaskActions.tsx             # Закрыть / Редактировать (только analyst mode done)
-│   ├── DoneDeploymentActions.tsx       # Опубликовать ветку / Сделать pull request (только analyst mode done)
+│   ├── DoneDeploymentActions.tsx       # Три состояния deploy-панели: «Опубликовать ветку» + «Сделать pull request» (initial) / те же кнопки (после push, до PR) / одна «Обновить ветку» (после push + PR) — только analyst mode done
 │   ├── ReopenTaskDialog.tsx            # Модалка отката на этап (analyst mode done)
 │   ├── CreateProposalDialog.tsx        # Модалка создания proposal (analyst mode)
 │   ├── CreateProposalContext.tsx       # React Context для открытия диалога из любого места
@@ -167,6 +167,7 @@ Pipeline работает в worktree на ветке `feature/<JiraID>`. Каж
 | POST | `/api/changes/[tag]/reopen` | analyst-mode done: откатить stage + удалить поздние артефакты + gigacode update |
 | POST | `/api/changes/[tag]/push` | developer-mode done: `git push -u origin <branch>` (detached) |
 | POST | `/api/changes/[tag]/create-pull-request` | developer-mode done: gigacode с шаблоном `templates/git/create-pull-request-template.md` |
+| POST | `/api/changes/[tag]/update-branch` | analyst-mode done (после публикации + PR): `git push origin <branch>` (без `-u`) — fast-forward существующей ветки, PR подхватывает новые коммиты |
 | GET | `/api/changes/[tag]/deploy-status` | Статус push + PR (для polling в `DoneDeploymentActions`) |
 | POST | `/api/changes/[tag]/open` | Открыть файл/папку в системном менеджере (`child_process.exec('open', [...])`) |
 
@@ -334,7 +335,7 @@ npm start
 1. **Stage 0 (developer mode)**: если `developerScanIntervalMinutes > 0` и прошло достаточно времени с последнего скана → `mergeDeveloperScan(openspecDir, config.defaultBranch)`. Добавляет/обновляет задачи, проставляет `archived` badge.
 2. **Stage 1 (analyst)**: `triggerContinueIfNeeded(openspecDir)` — для каждой task в `proposal` с `.openspec.yaml` без `proposal.md` спавнит `gigacode --prompt`. Аналогично для `delta-spec`/`design`/`adr` (когда `specs/`, `design.md`, `adr.md` отсутствуют).
 3. **Stage 2 (repos)**: для каждого `repos[name]` если `buildPid` жив и `buildExitCode == null` → флипает в 0. То же для `wikiPid` (только если build уже завершился).
-4. **Stage 3 (deploy)**: для каждой task в `done` (`analyst`) → `pushExitCode = 0` + `pushedAt = <ISO timestamp>` (разблокирует кнопку «Сделать pull request» в `DoneDeploymentActions`), и `pullRequestExitCode = 0` если соответствующие PID мёртвые.
+4. **Stage 3 (deploy)**: для каждой task в `done` (`analyst`) → `pushExitCode = 0` + `pushedAt = <ISO timestamp>` (разблокирует кнопку «Сделать pull request» в `DoneDeploymentActions`), и `pullRequestExitCode = 0` если соответствующие PID мёртвые. После `pullRequestExitCode === 0` панель показывает одну кнопку «Обновить ветку» (`POST /update-branch`), которая пушит новые коммиты через `git push` (без `-u`) — существующий PR подхватывает их через branch tracking.
 
 То есть watcher не «думает» — он только фиксирует exit codes и запускает следующий шаг pipeline. Логика «что делать» живёт в `triggerContinueIfNeeded` + `mergeDeveloperScan` + state-машине.
 

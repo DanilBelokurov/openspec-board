@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UploadCloud, GitPullRequest, Loader2 } from "lucide-react";
+import {
+  UploadCloud,
+  GitPullRequest,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
 
 interface DoneDeploymentActionsProps {
   tag: string;
@@ -26,26 +31,36 @@ interface DeployStatus {
 
 /**
  * Top-of-page deploy panel for tasks in stage "done" (mode
- * "analyst"). Same chrome as ConfirmArtifactButton: an emerald
- * border on the active variant, sky / indigo when the work
- * hasn't run yet, and a green border when both sub-steps are
- * done. Two buttons:
+ * "analyst"). Renders one of three layouts based on what has
+ * already happened on this branch:
  *
- *   - "Опубликовать ветку" → POST /api/changes/<tag>/push, which
- *     spawns `git push -u origin <branch>` detached. One-shot: the
- *     button becomes disabled once `pushedAt` is set, even if
- *     the user reloads the page.
+ *   1. Branch never published (`pushedAt == null`) →
+ *      «Опубликовать ветку» + disabled «Сделать pull request».
  *
- *   - "Сделать pull request" → POST /api/changes/<tag>/create-pull-request.
- *     The endpoint refuses to run unless `pushedAt` is set. We
- *     also gate the button client-side to give the same message
- *     before the request leaves the browser.
+ *   2. Branch published but PR not yet created or failed
+ *      (`pushedAt != null`, `pullRequestExitCode !== 0`) →
+ *      disabled «Опубликовать ветку» + enabled
+ *      «Сделать pull request». Mirrors state 1 from the user's
+ *      perspective but acknowledges the push is done.
+ *
+ *   3. Branch published AND PR created
+ *      (`pushedAt != null`, `pullRequestExitCode === 0`) →
+ *      single «Обновить ветку» button. Reached either by the
+ *      natural initial-publish → create-PR happy path or by
+ *      reopening the task and re-confirming through
+ *      design/adr to done (the local branch now has new commits
+ *      that the existing PR should pick up via branch tracking).
+ *
+ * `pushDisabled` keeps the publish button one-shot per the
+ * existing semantic — a second `-u origin` push would either be
+ * a no-op or hit upstream policy. Use «Обновить ветку» instead.
  */
 export function DoneDeploymentActions({ tag }: DoneDeploymentActionsProps) {
   const router = useRouter();
   const [status, setStatus] = useState<DeployStatus | null>(null);
   const [pushing, setPushing] = useState(false);
   const [prStarting, setPrStarting] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -71,138 +86,190 @@ export function DoneDeploymentActions({ tag }: DoneDeploymentActionsProps) {
     };
   }, [tag]);
 
-  async function handlePush() {
-    setPushing(true);
+  async function postJson(
+    path: string,
+    body: unknown | null,
+    busySetter: (v: boolean) => void,
+  ) {
+    busySetter(true);
     setActionError(null);
     try {
       const res = await fetch(
-        `/api/changes/${encodeURIComponent(tag)}/push`,
-        { method: "POST" },
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setActionError(data.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      router.refresh();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPushing(false);
-    }
-  }
-
-  async function handleCreatePr() {
-    setPrStarting(true);
-    setActionError(null);
-    try {
-      const res = await fetch(
-        `/api/changes/${encodeURIComponent(tag)}/create-pull-request`,
+        `/api/changes/${encodeURIComponent(tag)}${path}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ comments: "" }),
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
         },
       );
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setActionError(data.error ?? `HTTP ${res.status}`);
+        setActionError(
+          (data as { error?: string }).error ?? `HTTP ${res.status}`,
+        );
         return;
       }
       router.refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
     } finally {
-      setPrStarting(false);
+      busySetter(false);
     }
   }
 
   const pushed = status?.pushedAt != null;
-  const pushInFlight = pushing || (status?.pushAlive ?? false);
-  const prInFlight =
-    prStarting || (status?.pullRequestAlive ?? false);
   const prDone =
     status?.pullRequestExitCode != null &&
     status?.pullRequestExitCode === 0;
 
-  // The push button is one-shot: once the branch is up on the
-  // remote, pushing again would either be a no-op or a server
-  // policy error. Keep it disabled to make the lifecycle obvious
-  // in the UI.
-  const pushDisabled = pushed || pushInFlight;
-  const prDisabled = !pushed || prInFlight;
+  const pushInFlight = pushing || (status?.pushAlive ?? false);
+  const prInFlight = prStarting || (status?.pullRequestAlive ?? false);
+  const updateInFlight = updating || (status?.pushAlive ?? false);
 
-  // Border colour follows the same logic as
-  // ConfirmArtifactButton — green when the deploy is done, sky
-  // while work is in flight / not started.
-  const borderClass = prDone
-    ? "border-emerald-200"
-    : "border-sky-200";
-  const bgClass = prDone ? "bg-emerald-50" : "bg-sky-50";
-  const titleClass = prDone ? "text-emerald-900" : "text-sky-900";
-  const hintClass = prDone
-    ? "text-emerald-800/80"
-    : "text-sky-800/80";
-  const iconClass = prDone
-    ? "text-emerald-700"
-    : "text-sky-700";
+  // Three-state layout:
+  //   - branch not yet pushed             → two buttons (publish + PR)
+  //   - branch pushed but PR not created  → two buttons (publish disabled + PR)
+  //   - branch pushed and PR created      → single «Обновить ветку» button
+  const state = !pushed
+    ? "initial"
+    : prDone
+      ? "published-with-pr"
+      : "published-no-pr";
+
+  // Border / colour scheme.
+  //   - initial                  → sky (cool, work pending)
+  //   - published-no-pr          → sky (still work pending — PR step)
+  //   - published-with-pr        → emerald (everything done; updates are an emerald accent)
+  const borderClass =
+    state === "published-with-pr"
+      ? "border-emerald-200"
+      : "border-sky-200";
+  const bgClass =
+    state === "published-with-pr" ? "bg-emerald-50" : "bg-sky-50";
+  const titleClass =
+    state === "published-with-pr"
+      ? "text-emerald-900"
+      : "text-sky-900";
+  const hintClass =
+    state === "published-with-pr"
+      ? "text-emerald-800/80"
+      : "text-sky-800/80";
+  const iconClass =
+    state === "published-with-pr"
+      ? "text-emerald-700"
+      : "text-sky-700";
+
+  const title =
+    state === "initial"
+      ? "Готово к публикации"
+      : state === "published-no-pr"
+        ? "Ветка опубликована"
+        : "Опубликовано";
+  const hint =
+    state === "initial"
+      ? "Опубликуйте ветку в origin, затем создайте pull request через gigacode."
+      : state === "published-no-pr"
+        ? "Ветка в origin. Создайте pull request через gigacode — кнопка ниже."
+        : status?.pullRequestUrl
+          ? "Ветка и pull request опубликованы. При новых коммитах нажмите «Обновить ветку» — PR подхватит их автоматически."
+          : "Ветка и pull request опубликованы. При новых коммитах нажмите «Обновить ветку» — PR подхватит их автоматически.";
+
+  const Icon =
+    state === "published-with-pr" ? RefreshCw : UploadCloud;
 
   return (
     <div
       className={`rounded-md border ${borderClass} ${bgClass} px-4 py-3 text-[12px] ${titleClass}`}
     >
       <div className="flex items-center gap-3">
-        <UploadCloud
-          className={`h-4 w-4 shrink-0 ${iconClass}`}
-        />
+        <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
         <div className="flex-1">
-          <div className="font-semibold">
-            {prDone ? "Опубликовано" : "Готово к публикации"}
-          </div>
-          <div className={`mt-0.5 text-[11px] ${hintClass}`}>
-            {prDone
-              ? "Ветка опубликована, pull request создан. Подтвердите и закройте задачу."
-              : "Опубликуйте ветку в origin, затем создайте pull request через gigacode."}
-          </div>
+          <div className="font-semibold">{title}</div>
+          <div className={`mt-0.5 text-[11px] ${hintClass}`}>{hint}</div>
+          {state === "published-with-pr" && status?.pullRequestUrl && (
+            <div className={`mt-0.5 text-[11px] ${hintClass}`}>
+              PR:{" "}
+              <a
+                href={status.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-700 underline break-all"
+              >
+                {status.pullRequestUrl}
+              </a>
+            </div>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={handlePush}
-          disabled={pushDisabled}
-          title={
-            pushed
-              ? "Ветка уже опубликована"
-              : "Опубликовать ветку в origin"
-          }
-          aria-label="Опубликовать ветку"
-          className="flex h-8 items-center gap-1.5 rounded-md bg-sky-600 px-3 text-[12px] font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
-        >
-          {pushing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <UploadCloud className="h-3.5 w-3.5" />
-          )}
-          <span>Опубликовать ветку</span>
-        </button>
-        <button
-          type="button"
-          onClick={handleCreatePr}
-          disabled={prDisabled}
-          title={
-            !pushed
-              ? "Сначала опубликуйте ветку"
-              : "Создать pull request через gigacode"
-          }
-          aria-label="Сделать pull request"
-          className="flex h-8 items-center gap-1.5 rounded-md bg-indigo-600 px-3 text-[12px] font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-        >
-          {prStarting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <GitPullRequest className="h-3.5 w-3.5" />
-          )}
-          <span>Сделать pull request</span>
-        </button>
+        {state === "published-with-pr" ? (
+          <button
+            type="button"
+            onClick={() =>
+              postJson("/update-branch", null, setUpdating)
+            }
+            disabled={updateInFlight}
+            title={
+              updateInFlight
+                ? "Обновление уже выполняется"
+                : "git push origin <branch> — PR подхватит новые коммиты"
+            }
+            aria-label="Обновить ветку"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+          >
+            {updating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            <span>Обновить ветку</span>
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => postJson("/push", null, setPushing)}
+              disabled={pushed || pushInFlight}
+              title={
+                pushed
+                  ? "Ветка уже опубликована"
+                  : "Опубликовать ветку в origin"
+              }
+              aria-label="Опубликовать ветку"
+              className="flex h-8 items-center gap-1.5 rounded-md bg-sky-600 px-3 text-[12px] font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+            >
+              {pushing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <UploadCloud className="h-3.5 w-3.5" />
+              )}
+              <span>Опубликовать ветку</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                postJson(
+                  "/create-pull-request",
+                  { comments: "" },
+                  setPrStarting,
+                )
+              }
+              disabled={!pushed || prInFlight}
+              title={
+                !pushed
+                  ? "Сначала опубликуйте ветку"
+                  : "Создать pull request через gigacode"
+              }
+              aria-label="Сделать pull request"
+              className="flex h-8 items-center gap-1.5 rounded-md bg-indigo-600 px-3 text-[12px] font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+            >
+              {prStarting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <GitPullRequest className="h-3.5 w-3.5" />
+              )}
+              <span>Сделать pull request</span>
+            </button>
+          </>
+        )}
       </div>
       {actionError && (
         <div className="mt-2 rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">

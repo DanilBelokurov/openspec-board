@@ -963,12 +963,41 @@ export async function spawnCreatePullRequestGigacode(
     });
     pid = result.pid || null;
     result.promise
-      .then(({ exitCode, signal }) =>
-        updateTask(changeName, {
+      .then(async ({ exitCode, signal }) => {
+        // The PR template instructs gigacode to «Report the
+        // resulting PR URL in your final response», so the URL
+        // lands somewhere in the captured stdout/stderr (the log
+        // file at logFile). Parse it once the process has exited
+        // and the log is fully flushed. Only record the URL on
+        // successful exit — a failed gigacode run may have
+        // surfaced an unrelated URL (e.g. an error page link) we
+        // don't want to persist as the canonical PR URL.
+        let pullRequestUrl: string | undefined;
+        if (exitCode === 0) {
+          try {
+            const log = await fs.readFile(logFile, "utf-8");
+            const match = log.match(
+              /https?:\/\/\S+\/(?:pull|merge_requests)\/\d+/,
+            );
+            if (match) {
+              pullRequestUrl = match[0];
+            }
+          } catch (e) {
+            // Log read failure is non-fatal — exitCode is still
+            // recorded below, the analyst can still read the log
+            // manually to find the URL.
+            console.error(
+              `gigacode (pull request) log read failed for ${changeName}:`,
+              e,
+            );
+          }
+        }
+        await updateTask(changeName, {
           pullRequestExitCode: exitCode,
           pullRequestExitSignal: signal,
-        }),
-      )
+          ...(pullRequestUrl ? { pullRequestUrl } : {}),
+        });
+      })
       .catch((e) =>
         console.error(
           `gigacode (pull request) exit handler error:`,

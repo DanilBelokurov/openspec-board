@@ -43,3 +43,44 @@ export function spawnGitPush(
     return { pid: null, logFile, error: message };
   }
 }
+
+/**
+ * Follow-up push after the branch has already been published once
+ * via `spawnGitPush`. Tracking is set up, so we just run a plain
+ * `git push origin <branch>` — fast-forwards origin if the local
+ * branch is ahead, prints "Everything up-to-date" if it isn't.
+ * The existing PR on GitHub/GitLab picks up the new commits
+ * automatically via branch tracking.
+ *
+ * Used by the «Обновить ветку» button on the done stage when
+ * the analyst re-confirms after a reopen and the local branch
+ * has new commits that the existing PR should reflect.
+ *
+ * Logs go to a separate file (`.update.log` instead of `.push.log`)
+ * so the first push and subsequent updates stay independently
+ * readable. The watcher's push-completion branch treats any live
+ * pushPid uniformly — it flips pushExitCode = 0 and updates
+ * pushedAt — so no watcher change is needed for this entry point.
+ */
+export function spawnGitPushUpdate(
+  worktree: string,
+  branch: string,
+  tag: string,
+): PushResult {
+  void ensureRepoLogDir();
+  const logFile = `.sdd-board/logs/repos/${tag}.update.log`;
+  try {
+    const result = spawnDetachedWithLog({
+      command: "git",
+      argv: ["-C", worktree, "push", "origin", branch],
+      logFile,
+      header: `git push origin ${branch} (update) for ${tag}`,
+      cwd: worktree,
+    });
+    return { pid: result.pid || null, logFile };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`git push update spawn threw:`, message);
+    return { pid: null, logFile, error: message };
+  }
+}
