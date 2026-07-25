@@ -49,6 +49,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     submitting: false,
     error: null,
   });
+  const [removingName, setRemovingName] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +60,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setNewRepoUrl("");
     setNewRepoBranch("");
     setRepoAdd({ submitting: false, error: null });
+    setRemovingName(null);
+    setRemoveError(null);
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => {
@@ -181,25 +185,30 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   }
 
   async function removeRepo(name: string) {
-    // The backend DELETE handler ships in a follow-up commit; for
-    // now we just drop it from local state and let the next save
-    // reflect that. The submodule on disk will be removed when the
-    // matching DELETE endpoint lands.
-    const next = { ...repos };
-    delete next[name];
-    setRepos(next);
-    setInitialRepos(next);
-    // Best-effort: also tell the server. If it fails, fall back to
-    // a local-only delete so the dialog isn't stuck.
+    setRemovingName(name);
+    setRemoveError(null);
     try {
-      await fetch(
+      const res = await fetch(
         `/api/repos/${encodeURIComponent(name)}`,
         { method: "DELETE" },
       );
-    } catch {
-      /* ignore — local state already updated */
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRemoveError(data.error ?? `HTTP ${res.status}`);
+        setRemovingName(null);
+        return;
+      }
+      const next = { ...repos };
+      delete next[name];
+      setRepos(next);
+      setInitialRepos(next);
+      setRemovingName(null);
+      setRemoveError(null);
+      router.refresh();
+    } catch (e) {
+      setRemoveError(e instanceof Error ? e.message : String(e));
+      setRemovingName(null);
     }
-    router.refresh();
   }
 
   function handleFolderPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -423,11 +432,17 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     <button
                       type="button"
                       onClick={() => removeRepo(name)}
+                      disabled={removingName === name}
                       title="Удалить репозиторий"
                       aria-label={`Удалить репозиторий ${name}`}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-red-50 hover:text-red-700"
+                      aria-busy={removingName === name}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-slate-500"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      {removingName === name ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
                     </button>
                   </li>
                 ))}
@@ -488,6 +503,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             {repoAdd.error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
                 {repoAdd.error}
+              </div>
+            )}
+
+            {removeError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+                Не удалось удалить репозиторий: {removeError}
               </div>
             )}
 

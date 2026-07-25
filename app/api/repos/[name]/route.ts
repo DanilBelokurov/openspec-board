@@ -1,33 +1,7 @@
-import { execFile } from "child_process";
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
 import { readConfig, writeConfig } from "@/lib/config";
-import { isGitRepo } from "@/lib/git";
-
-function run(
-  cmd: string,
-  args: string[],
-  opts?: { cwd?: string },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      cmd,
-      args,
-      { cwd: opts?.cwd, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(
-            new Error(
-              `${cmd} ${args.join(" ")} failed: ${err.message}\n${stderr}`,
-            ),
-          );
-          return;
-        }
-        resolve({ stdout: String(stdout), stderr: String(stderr) });
-      },
-    );
-  });
-}
+import { removeSubmodule } from "@/lib/git-submodule";
+import { removeRepoData } from "@/lib/code-review-graph";
 
 export async function DELETE(
   _req: NextRequest,
@@ -49,48 +23,37 @@ export async function DELETE(
     );
   }
 
-  // Best-effort: de-register the submodule on disk. The submodule
-  // lives under `<cwd>/repos/<name>` now (the sdd-board project's
-  // own working directory, not the openspecDir), so we run
-  // `git submodule deinit` / `git submodule rm` from there.
-  const cwd = process.cwd();
-  if (await isGitRepo(cwd)) {
-    try {
-      await run(
-        "git",
-        [
-          "-C",
-          cwd,
-          "submodule",
-          "deinit",
-          "-f",
-          path.posix.join("repos", name),
-        ],
-        { cwd },
-      );
-    } catch (e) {
-      console.warn(`git submodule deinit for ${name} failed:`, e);
-    }
-    try {
-      await run(
-        "git",
-        [
-          "-C",
-          cwd,
-          "submodule",
-          "rm",
-          "-f",
-          path.posix.join("repos", name),
-        ],
-        { cwd },
-      );
-    } catch (e) {
-      console.warn(`git submodule rm for ${name} failed:`, e);
-    }
-  }
+  // Tear down the on-disk footprint. Both helpers are best-effort
+  // and return a typed result so the caller can surface partial
+  // failures. Order matters: submodule footgun first (it kills
+  // in-flight build/visualize PIDs), then the graph index.
+  const repo = repos[name];
+  const submoduleResult = await removeSubmodule(name, {
+    buildPid: repo.buildPid,
+    visualizePid: repo.visualizePid,
+  });
+  const graphResult = await removeRepoData(name);
 
+  // Drop the entry from config.json last — only after the on-disk
+  // cleanup has had its chance. If writeConfig fails, the entry
+  // stays so the user can retry, but the cleanup above is still
+  // a valid intermediate state.
   const next = { ...repos };
   delete next[name];
   const updated = await writeConfig({ repos: next });
-  return NextResponse.json({ ok: true, repos: updated.repos });
+
+  // Surface a 500 only if BOTH cleanups failed — otherwise the
+  // partial failure is enough to not pretend "ok" but the user
+  // can still see which dir is left over via the result body.
+  const cleanupFailed =
+    !submoduleResult.dirRemoved || !graphResult.dirRemoved;
+  return NextResponse.json(
+    {
+      ok: !cleanupFailed,
+      repos: updated.repos,
+      submodule: submoduleResult,
+      graph: graphResult,
+    },
+    { status: cleanupFailed ? 500 : 200 },
+  );
 }

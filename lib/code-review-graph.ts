@@ -274,3 +274,51 @@ export async function spawnCodeReviewGraphVisualize(
   }
   return { pid, logFile };
 }
+
+/**
+ * Result of removing the on-disk graph index for a repo.
+ * `dirRemoved` distinguishes "was here, gone now" from "wasn't
+ * here to begin with" — both are non-error, but the caller may
+ * want to surface the difference for diagnostics.
+ */
+export interface RemoveRepoDataResult {
+  name: string;
+  dirRemoved: boolean;
+  existed: boolean;
+}
+
+/**
+ * Tear down the code-review-graph index at `<cwd>/graphs/<name>/`.
+ * Idempotent: re-running on a missing directory is a no-op and
+ * the caller's no-op expectation is signalled via `dirRemoved`.
+ *
+ * Note: log files under `.sdd-board/logs/repos/<name>.*` are
+ * intentionally NOT removed here — they're the post-mortem trail
+ * for the build/visualize runs that just got killed in the
+ * companion `removeSubmodule` call. They'll naturally roll off
+ * via the same code paths that clean up task logs.
+ */
+export async function removeRepoData(
+  repoName: string,
+): Promise<RemoveRepoDataResult> {
+  const dir = path.join(process.cwd(), "graphs", repoName);
+  let existed = false;
+  try {
+    await fs.access(dir);
+    existed = true;
+  } catch {
+    existed = false;
+  }
+  let dirRemoved = false;
+  if (existed) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      dirRemoved = true;
+    } catch (e) {
+      console.warn(`rm -rf ${dir} failed:`, e);
+    }
+  } else {
+    dirRemoved = true;
+  }
+  return { name: repoName, dirRemoved, existed };
+}
