@@ -31,9 +31,10 @@ export async function POST(
     );
   }
   // Gate: branch must already be pushed. Without a push the
-  // gigacode --prompt run would still work, but `gh pr create`
-  // would error out with "no commits between main and <branch>"
-  // — better to fail fast at the API layer with a clear message.
+  // gigacode --prompt run would still work, but the MCP
+  // create_pull_request tool would error out with "no commits
+  // between <base> and <branch>" — better to fail fast at the
+  // API layer with a clear message.
   if (!task.pushedAt) {
     return NextResponse.json(
       {

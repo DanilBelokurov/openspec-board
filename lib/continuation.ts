@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { execFile } from "child_process";
+import { readConfig } from "./config";
 import { readState, updateTask } from "./state";
 import {
   ensureLogDir,
@@ -68,8 +69,9 @@ const UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH = path.join(
 );
 // 'Сделать pull request' uses its own template — PRs are not
 // an OpenSpec artefact (no openspec instructions <art> for them),
-// so the prompt is hand-written to drive `gh pr create` against
-// the already-pushed feature branch.
+// so the prompt is hand-written to drive the MCP `git` server's
+// `create_pull_request` tool against the already-pushed feature
+// branch. Base branch is substituted from config.defaultBranch.
 const CREATE_PULL_REQUEST_TEMPLATE_PATH = path.join(
   process.cwd(),
   "templates",
@@ -871,7 +873,8 @@ function isProcessAliveByPid(pid: number): boolean {
   }
 }
 // ============================================================================
-// Pull request — gigacode --prompt that drives `gh pr create`
+// Pull request — gigacode --prompt that drives the MCP git
+// server's `create_pull_request` tool.
 // ============================================================================
 
 export interface CreatePullRequestResult {
@@ -887,8 +890,14 @@ export interface CreatePullRequestResult {
  * (templates/git/create-pull-request-template.md) is hand-written
  * — there's no `openspec instructions pr` artefact, so we don't
  * run that CLI. The template carries the full instructions
- * (read proposal.md / design.md / adr.md / specs/, then run
- * `gh pr create` and report the URL).
+ * (read proposal.md / design.md / adr.md / specs/, then call
+ * `mcp__git__create_pull_request` and report the URL).
+ *
+ * `{baseBranch}` in the template is substituted from
+ * `config.defaultBranch` here — the trunk of the openspec store
+ * repo. We read it once per spawn (no caching) so the analyst's
+ * settings dialog edits take effect on the next PR attempt
+ * without a server restart.
  *
  * `task.pullRequestPid` is the idempotency key: if a previous run
  * is still alive, the second call refuses. `task.pushedAt` is
@@ -925,9 +934,11 @@ export async function spawnCreatePullRequestGigacode(
     .then((r) => r.stdout.trim())
     .catch((e) => "");
 
+  const config = await readConfig();
   const template = await loadCreatePullRequestPromptTemplate();
   const prompt = template
     .replace("{branch}", branch || "(unknown branch)")
+    .replace("{baseBranch}", config.defaultBranch || "master")
     .replace("{tag}", changeName)
     .replace("{repoUrl}", task.pushRemoteUrl || "(unknown remote)")
     .replace("{comments}", comments);
@@ -940,6 +951,7 @@ export async function spawnCreatePullRequestGigacode(
       `# add-dir: ${worktree}`,
       `# approval-mode: auto-edit`,
       `# branch: ${branch}`,
+      `# base-branch: ${config.defaultBranch || "master"}`,
       `# repo: ${task.pushRemoteUrl ?? "(unknown)"}`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
       `# comments-length: ${comments.length} chars`,
