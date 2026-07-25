@@ -145,6 +145,7 @@ async function tick(): Promise<void> {
         await updateTask(tag, {
           pushExitCode: 0,
           pushExitSignal: null,
+          pushedAt: new Date().toISOString(),
         });
       }
       // Pull request: same for the gigacode --prompt run.

@@ -334,7 +334,7 @@ npm start
 1. **Stage 0 (developer mode)**: если `developerScanIntervalMinutes > 0` и прошло достаточно времени с последнего скана → `mergeDeveloperScan(openspecDir, config.defaultBranch)`. Добавляет/обновляет задачи, проставляет `archived` badge.
 2. **Stage 1 (analyst)**: `triggerContinueIfNeeded(openspecDir)` — для каждой task в `proposal` с `.openspec.yaml` без `proposal.md` спавнит `gigacode --prompt`. Аналогично для `delta-spec`/`design`/`adr` (когда `specs/`, `design.md`, `adr.md` отсутствуют).
 3. **Stage 2 (repos)**: для каждого `repos[name]` если `buildPid` жив и `buildExitCode == null` → флипает в 0. То же для `wikiPid` (только если build уже завершился).
-4. **Stage 3 (deploy)**: для каждой task в `done` (`analyst`) → `pushExitCode = 0` и `pullRequestExitCode = 0` если соответствующие PID мёртвые.
+4. **Stage 3 (deploy)**: для каждой task в `done` (`analyst`) → `pushExitCode = 0` + `pushedAt = <ISO timestamp>` (разблокирует кнопку «Сделать pull request» в `DoneDeploymentActions`), и `pullRequestExitCode = 0` если соответствующие PID мёртвые.
 
 То есть watcher не «думает» — он только фиксирует exit codes и запускает следующий шаг pipeline. Логика «что делать» живёт в `triggerContinueIfNeeded` + `mergeDeveloperScan` + state-машине.
 
