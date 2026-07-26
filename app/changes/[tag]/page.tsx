@@ -131,8 +131,18 @@ export default async function ChangePage({
   let selectableServices: string[] = [];
   let availableRepos: Array<{ name: string; localPath: string }> = [];
   let lastSelection: Record<string, string> | undefined;
+  // `allServices` is lifted out of the if block so the
+  // render section can distinguish two cases that both
+  // leave `selectableServices` empty:
+  //   * legacy single-service plan (no tasks/<svc>/ at all)
+  //     → fall back to ConfirmArtifactButton
+  //   * multi-service plan with every service already
+  //     started as a child task → show an "all started"
+  //     notice, NOT the button (the button would be a
+  //     no-op since there's nothing left to confirm).
+  let allServices: string[] = [];
   if (task.stage === "plan" && task.mode === "developer" && proposalRoot) {
-    const allServices = await listServicesInChange(proposalRoot, tag);
+    allServices = await listServicesInChange(proposalRoot, tag);
     const childTags = new Set(task.childTags ?? []);
     // Per the "1a" rule, services that already have a child
     // are removed from the selection — the dev can't open a
@@ -383,6 +393,27 @@ export default async function ChangePage({
               </code>
             </section>
           )}
+
+          {/* All services started — show a notice instead of a
+              no-op confirm button. The dev can still reach
+              each develop task via the child cards on the
+              board. (Board already hides the parent when
+              all services are children, so this notice is
+              mainly a fallback if someone navigates to the
+              parent's URL directly.) */}
+          {task.stage === "plan" &&
+            task.mode === "developer" &&
+            allServices.length > 0 &&
+            selectableServices.length === 0 && (
+              <section className="mb-5">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
+                  <div className="font-semibold">Все сервисы запущены</div>
+                  <div className="mt-0.5 text-[11px] text-emerald-800/80">
+                    По всем сервисам из <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">tasks/</code> уже созданы child-задачи. Откройте доску — каждая develop-карточка ведёт на свою страницу с TDD-пайплайном.
+                  </div>
+                </div>
+              </section>
+            )}
 
           {showConfirmButton &&
             (task.stage === "proposal" ||
