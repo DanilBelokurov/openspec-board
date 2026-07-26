@@ -451,19 +451,34 @@ export default async function ChangePage({
             </section>
           )}
 
-          <section className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-            Структура
-          </section>
-          {folderExists ? (
-            <FileTree root={tree!} tag={tag} />
-          ) : (
-            <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
-              Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{tag}</code> ещё не создана.
-              {task.openspecNewPid && openspecNewAlive && (
-                <> Подождите, пока openspec new change создаст файлы.</>
-              )}
-            </div>
-          )}
+          <details
+            open={task.stage !== "develop"}
+            className="group mb-2"
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 rounded px-1 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50 [&::-webkit-details-marker]:hidden"
+              title={
+                task.stage === "develop"
+                  ? "На develop change-proposal не меняется — структура свёрнута по умолчанию"
+                  : undefined
+              }
+            >
+              <span>Структура</span>
+              <span className="ml-auto flex items-center gap-2 normal-case tracking-normal text-[10px] text-slate-400">
+                {fileCount} {pluralFiles(fileCount)} · {formatBytes(totalSize)}
+                <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+              </span>
+            </summary>
+            {folderExists ? (
+              <FileTree root={tree!} tag={tag} />
+            ) : (
+              <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
+                Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{tag}</code> ещё не создана.
+                {task.openspecNewPid && openspecNewAlive && (
+                  <> Подождите, пока openspec new change создаст файлы.</>
+                )}
+              </div>
+            )}
+          </details>
 
           <div className="mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600">
             <span className="font-semibold text-slate-800">
