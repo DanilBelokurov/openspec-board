@@ -45,7 +45,6 @@ const ARTEFACTS_TO_DELETE: Record<Stage, string[]> = {
   decomposition: [],
   plan: [],
   develop: [],
-  tests: [],
   deploy: [],
   done: [],
 };

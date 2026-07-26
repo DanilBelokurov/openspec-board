@@ -15,7 +15,6 @@ const STAGE_DOT: Record<Stage, string> = {
   decomposition: "bg-stage-decomposition",
   plan: "bg-stage-plan",
   develop: "bg-stage-develop",
-  tests: "bg-stage-tests",
   deploy: "bg-stage-deploy",
   done: "bg-stage-done",
   proposal: "bg-stage-proposal",

@@ -7,10 +7,11 @@ const LOG_DIR = path.join(process.cwd(), ".sdd-board", "logs");
 
 // "new" = first step (now `openspec new change`); "continue" = second step
 // (still `gigacode /opsx-continue`); "update" = the analyst-initiated
-// re-run of the proposal-generation step after editing the request.
-// Step name drives only the log filename, not the command — each
-// caller picks its own binary.
-export type ProposalStep = "new" | "continue" | "update";
+// re-run of the proposal-generation step after editing the request;
+// "implement" = the developer-mode TDD run inside the code-repo
+// worktree. Step name drives only the log filename, not the
+// command — each caller picks its own binary.
+export type ProposalStep = "new" | "continue" | "update" | "implement";
 
 export async function ensureLogDir(): Promise<void> {
   await fs.mkdir(LOG_DIR, { recursive: true });

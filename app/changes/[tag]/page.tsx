@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import path from "path";
 import {
   ArrowLeft,
   Loader2,
@@ -17,6 +18,7 @@ import {
   resolveProposalRootForTask,
   type TreeNode,
 } from "@/lib/openspec";
+import { listServicesInChange } from "@/lib/openspec-scanner";
 import { isProcessAlive } from "@/lib/process";
 import { triggerContinueIfNeeded, isStageReady, isPlanTasksReady } from "@/lib/continuation";
 import { extractJiraId } from "@/lib/jira";
@@ -26,6 +28,8 @@ import { CopyPathButton } from "@/components/CopyPathButton";
 import { OpenInFinderForm } from "@/components/OpenInFinderForm";
 import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
+import { ServiceSelectionCard } from "@/components/ServiceSelectionCard";
+import { ImplementStartCard } from "@/components/ImplementStartCard";
 import { TaskActions } from "@/components/TaskActions";
 import { DoneTaskActions } from "@/components/DoneTaskActions";
 import { DoneDeploymentActions } from "@/components/DoneDeploymentActions";
@@ -105,6 +109,49 @@ export default async function ChangePage({
   if (task.stage === "plan" && proposalRoot) {
     planReady = await isPlanTasksReady(proposalRoot, tag);
   }
+
+  // Multi-service plan: enumerate the `tasks/<service>/`
+  // subdirectories, list child tasks that already exist for
+  // this parent (so we hide services that have dev running),
+  // and project the available code repos from config.
+  let selectableServices: string[] = [];
+  let availableRepos: Array<{ name: string; localPath: string }> = [];
+  let lastSelection: Record<string, string> | undefined;
+  if (task.stage === "plan" && task.mode === "developer" && proposalRoot) {
+    const allServices = await listServicesInChange(proposalRoot, tag);
+    const childTags = new Set(task.childTags ?? []);
+    // Per the "1a" rule, services that already have a child
+    // are removed from the selection — the dev can't open a
+    // second develop task for the same service.
+    selectableServices = allServices.filter((s) => !childTags.has(s));
+    // Last selection (if any) — persisted on the parent so a
+    // refresh remembers what the dev picked.
+    lastSelection = task.serviceRepos;
+    // Project repos from config. For each entry, resolve the
+    // local path: explicit `localPath` override first, then
+    // the submodule convention `<openspecDirParent>/repos/<name>`.
+    const repos = config.repos ?? {};
+    availableRepos = Object.entries(repos).map(([name, repo]) => ({
+      name,
+      localPath:
+        repo.localPath ??
+        path.join(
+          path.dirname(openspecDir),
+          "repos",
+          name,
+        ),
+    }));
+  }
+  // Use the parent's last service-repos selection as the
+  // pre-fill for the card so a refresh on the plan page
+  // doesn't reset the dropdowns to "skip". Suppress the
+  // "declared but never read" warning via the conditional
+  // `selectableServices.length > 0` check above (which gates
+  // the card render).
+  if (selectableServices.length === 0) {
+    lastSelection = undefined;
+  }
+
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
 
@@ -155,6 +202,11 @@ export default async function ChangePage({
     : false;
   const planUpdateAlive = task.planUpdatePid
     ? isProcessAlive(task.planUpdatePid)
+    : false;
+  // Per-service TDD run on child develop tasks. Same shape
+  // as the plan-stage process card.
+  const implementAlive = task.implementPid
+    ? isProcessAlive(task.implementPid)
     : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
@@ -312,40 +364,66 @@ export default async function ChangePage({
               task.stage === "adr" ||
               task.stage === "plan") && (
               <section className="mb-5">
-                <ConfirmArtifactButton
-                  tag={tag}
-                  stage={
-                    task.stage as
-                      | "proposal"
-                      | "delta-spec"
-                      | "design"
-                      | "adr"
-                      | "plan"
-                  }
-                  title={
-                    task.stage === "proposal"
-                      ? "Proposal готов"
-                      : task.stage === "delta-spec"
-                        ? "Дельта-спецификация готова"
-                        : task.stage === "design"
-                          ? "Дизайн готов"
-                          : task.stage === "adr"
-                            ? "ADR готов"
-                            : "План готов"
-                  }
-                  artifactLabel={
-                    task.stage === "proposal"
-                      ? "proposal.md"
-                      : task.stage === "delta-spec"
-                        ? "specs/"
-                        : task.stage === "design"
-                          ? "design.md"
-                          : task.stage === "adr"
-                            ? "adr.md"
-                            : "tasks.md"
-                  }
-                  artifactHint="Подтвердите, чтобы перейти к следующему шагу."
-                />
+                {task.stage === "plan" &&
+                task.mode === "developer" &&
+                selectableServices.length > 0 ? (
+                  <ServiceSelectionCard
+                    tag={tag}
+                    services={selectableServices}
+                    repos={availableRepos}
+                    initialSelection={lastSelection}
+                  />
+                ) : (
+                  <ConfirmArtifactButton
+                    tag={tag}
+                    stage={
+                      task.stage as
+                        | "proposal"
+                        | "delta-spec"
+                        | "design"
+                        | "adr"
+                        | "plan"
+                    }
+                    title={
+                      task.stage === "proposal"
+                        ? "Proposal готов"
+                        : task.stage === "delta-spec"
+                          ? "Дельта-спецификация готова"
+                          : task.stage === "design"
+                            ? "Дизайн готов"
+                            : task.stage === "adr"
+                              ? "ADR готов"
+                              : "План готов"
+                    }
+                    artifactLabel={
+                      task.stage === "proposal"
+                        ? "proposal.md"
+                        : task.stage === "delta-spec"
+                          ? "specs/"
+                          : task.stage === "design"
+                            ? "design.md"
+                            : task.stage === "adr"
+                              ? "adr.md"
+                              : "tasks.md"
+                    }
+                    artifactHint="Подтвердите, чтобы перейти к следующему шагу."
+                  />
+                )}
+              </section>
+            )}
+
+          {/* Child develop task: "Запустить реализацию" button.
+              Rendered only for tasks that are children of a
+              multi-service plan (i.e. have parentTag) and have
+              a code-repo worktree created by /confirm. The
+              button POSTs to /api/changes/<tag>/implement
+              which spawns the per-service TDD gigacode run
+              inside the code worktree. */}
+          {task.stage === "develop" &&
+            task.mode === "developer" &&
+            task.parentTag != null && (
+              <section className="mb-5">
+                <ImplementStartCard tag={tag} disabled={implementAlive} />
               </section>
             )}
 
@@ -902,6 +980,56 @@ export default async function ChangePage({
                       <dt className="text-slate-500">Лог</dt>
                       <dd className="font-mono text-[10px] break-all text-slate-500">
                         {task.planUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {/* Per-service TDD process card on child develop
+              tasks. Mirrors the designCreatePid / planCreatePid
+              card shape — status icon, launch timestamp, error
+              line on non-zero exit, PID + log path. The user
+              can re-run by clicking "Запустить" again (the
+              implement endpoint refuses a second spawn only
+              while a previous run is still alive). */}
+          {task.implementPid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={implementAlive}
+                  exitCode={task.implementExitCode}
+                />
+                <span>TDD-цикл</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.implementStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.implementStartedAt)}
+                  </div>
+                )}
+                {!implementAlive &&
+                  task.implementExitCode != null &&
+                  task.implementExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {`Ошибка (exit ${task.implementExitCode}) — см. лог`}
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.implementPid}
+                  </dd>
+                  {task.implementLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.implementLogPath}
                       </dd>
                     </>
                   )}

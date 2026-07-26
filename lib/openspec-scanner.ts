@@ -14,6 +14,8 @@
  */
 
 import { execFile } from "child_process";
+import { promises as fs } from "fs";
+import path from "path";
 
 function runGit(
   cwd: string,
@@ -253,6 +255,44 @@ export async function scanChangeProposalsOnBranch(
   // without it shuffling on every refresh.
   out.sort((a, b) => a.tag.localeCompare(b.tag));
   return out;
+}
+
+/**
+ * Walk `<openspecWorktreePath>/openspec/changes/<tag>/tasks/` and
+ * return the directory names as a list of service names. These
+ * are the kebab-case subdirectories the analyst wrote per
+ * service (level-3 heading of `design.md` = one service =
+ * one subdir). Empty list if the directory is missing or has
+ * no subdirectories — that's the single-service-at-root case
+ * (tasks.md sits at `<change>/tasks.md`, not under any
+ * subdir), and the caller falls back to the old single-develop
+ * flow.
+ *
+ * Sorted alphabetically so the service-selection UI is stable
+ * across renders.
+ */
+export async function listServicesInChange(
+  openspecWorktreePath: string,
+  changeName: string,
+): Promise<string[]> {
+  const tasksDir = path.join(
+    openspecWorktreePath,
+    "openspec",
+    "changes",
+    changeName,
+    "tasks",
+  );
+  let entries;
+  try {
+    entries = await fs.readdir(tasksDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const services = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+    .map((e) => e.name)
+    .sort();
+  return services;
 }
 
 /**

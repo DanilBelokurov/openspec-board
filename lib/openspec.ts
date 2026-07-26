@@ -12,7 +12,6 @@ export type Stage =
   | "decomposition"
   | "plan"
   | "develop"
-  | "tests"
   | "deploy"
   | "done"
   | "proposal"
@@ -221,7 +220,6 @@ export function pipelineStatus(
       });
       break;
     case "develop":
-    case "tests":
     case "deploy":
       // developer-mode stages that share the single gigacode
       // /opsx:plan spawn started by /api/changes/<tag>/start.

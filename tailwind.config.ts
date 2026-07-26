@@ -21,7 +21,6 @@ const config: Config = {
           decomposition: "#3b82f6",
           plan: "#8b5cf6",
           develop: "#f59e0b",
-          tests: "#06b6d4",
           deploy: "#10b981",
           done: "#22c55e",
           proposal: "#facc15",

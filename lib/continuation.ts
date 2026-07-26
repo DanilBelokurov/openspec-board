@@ -105,6 +105,14 @@ const loadUpdateArtifactPromptTemplate = () =>
   loadTemplate(UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
 const loadCreatePullRequestPromptTemplate = () =>
   loadTemplate(CREATE_PULL_REQUEST_TEMPLATE_PATH);
+const TDD_IMPLEMENT_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "spec-driven",
+  "tdd-implement-prompt-template.md",
+);
+const loadTddImplementPromptTemplate = () =>
+  loadTemplate(TDD_IMPLEMENT_PROMPT_TEMPLATE_PATH);
 
 // ============================================================================
 // Generic artifact pipeline
@@ -557,6 +565,205 @@ async function spawnCreateArtifactGigacode(
   return false;
 }
 
+// ============================================================================
+// TDD-implement pipeline (developer-mode child tasks in "develop")
+// ============================================================================
+
+/**
+ * Spawn the per-service TDD `gigacode --prompt` run inside the
+ * code-repo worktree. Distinct from `spawnCreateArtifactGigacode`
+ * above because:
+ *   - cwd is the code-repo worktree (not the openspec worktree)
+ *   - the prompt is the TDD-implement template, not the
+ *     create/update artifact template
+ *   - the state fields written are `implement*` (not `*Create*`)
+ *   - the {json} placeholder is filled with the parsed
+ *     `openspec instructions tasks` JSON, providing the schema
+ *     context (rules / template / instruction) to the LLM
+ *
+ * The TDD prompt is `templates/spec-driven/tdd-implement-prompt-template.md`
+ * — same loader pattern as the artifact templates. We pass the
+ * TDD iron law in the template body so it's enforced verbatim
+ * (LLMs are reliably resistant to "spirit, not letter" of TDD
+ * without an explicit, repeated, hard-coded reminder).
+ *
+ * Returns true on successful spawn, false on error. The
+ * spawned gigacode's exit code is captured asynchronously via
+ * the standard log-tailing mechanism in lib/process-logger.ts
+ * and written to the task's `implementExitCode` /
+ * `implementExitSignal` fields via `buildImplementExitPatch`.
+ */
+export async function runImplementTdd(
+  task: import("./state").TaskEntry,
+  changeName: string,
+): Promise<{ ok: boolean; pid?: number; logFile?: string; error?: string }> {
+  if (!task.codeWorktreePath) {
+    return { ok: false, error: "У задачи не записан codeWorktreePath" };
+  }
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "У задачи не записан openspecWorktreePath" };
+  }
+  if (!task.serviceName) {
+    return { ok: false, error: "У задачи не записан serviceName" };
+  }
+  if (!task.parentTag) {
+    return { ok: false, error: "У задачи не записан parentTag" };
+  }
+
+  // 1. Read the existing tasks.md for this service from the
+  //    parent's openspec worktree. This is the spec the LLM
+  //    is going to implement, and it's also the document we
+  //    paste into the {artifact} placeholder for follow-up
+  //    runs.
+  const tasksPath = path.join(
+    task.openspecWorktreePath,
+    "openspec",
+    "changes",
+    task.parentTag,
+    "tasks",
+    task.serviceName,
+    "tasks.md",
+  );
+  let artifactText: string;
+  try {
+    artifactText = await fs.readFile(tasksPath, "utf-8");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Не удалось прочитать tasks.md для "${task.serviceName}" по пути ${tasksPath}: ${(e as Error).message}`,
+    };
+  }
+
+  // 2. Get the `openspec instructions tasks` JSON to feed
+  //    into the TDD prompt. This is the same JSON the
+  //    plan-stage generation used, providing the schema
+  //    context (rules, template, instruction, dependencies).
+  let instructionsJson: string;
+  try {
+    const { stdout } = await run(
+      "openspec",
+      [
+        "instructions",
+        "tasks",
+        "--change",
+        task.parentTag,
+        "--json",
+        "--schema",
+        SCHEMA,
+      ],
+      { cwd: task.openspecWorktreePath },
+    );
+    instructionsJson = stdout;
+  } catch (e) {
+    return {
+      ok: false,
+      error: `openspec instructions tasks: ${(e as Error).message}`,
+    };
+  }
+
+  // 3. Substitute placeholders in the TDD-implement template.
+  //    We splice the tasks file content + the openspec
+  //    instructions JSON into the prompt body so the LLM has
+  //    everything it needs without re-reading files. (TDD
+  //    tools are LLM-side, this is the only place we bridge.)
+  const template = await loadTddImplementPromptTemplate();
+  const prompt = template
+    .replace("{tasksPath}", tasksPath)
+    .replace("{codeWorktreePath}", task.codeWorktreePath)
+    .replace("{openspecWorktreePath}", task.openspecWorktreePath)
+    .replace("{json}", instructionsJson);
+
+  // 4. Write the prompt + invocation params to the log file
+  //    before spawn so a post-mortem on a failed TDD run can
+  //    see exactly what the LLM was given.
+  const logFile = processLogPath(changeName, "implement", "develop");
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (TDD implement) for ${changeName}`,
+      `# tasks: ${tasksPath}`,
+      `# code worktree: ${task.codeWorktreePath}`,
+      `# openspec worktree: ${task.openspecWorktreePath}`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${task.codeWorktreePath}`,
+      `# prompt-length: ${prompt.length} chars`,
+      `# openspec-instructions-length: ${instructionsJson.length} chars`,
+      "# tasks.md-length:",
+      artifactText
+        .split("\n")
+        .map((l) => `#   ${l}`)
+        .join("\n"),
+      "",
+      "# ----- prompt ----->",
+      prompt,
+      "# <----- prompt -----",
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  // 5. Spawn detached. cwd is the code-repo worktree so
+  //    gigacode operates on the right checkout. The exit
+  //    handler writes the result back to the child task's
+  //    `implement*` fields, NOT the parent's.
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: undefined,
+      addDir: task.codeWorktreePath,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    const exitHandler = (code: number | null, signal: string | null) =>
+      updateTask(
+        task.mode,
+        changeName,
+        buildImplementExitPatch(code, signal),
+      );
+    result.promise
+      .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
+      .catch((e) =>
+        console.error(
+          `gigacode-implement (${changeName}) exit handler error:`,
+          e,
+        ),
+      );
+  } catch (e) {
+    return {
+      ok: false,
+      error: `gigacode spawn: ${(e as Error).message}`,
+    };
+  }
+
+  if (pid == null) {
+    return { ok: false, error: "Не удалось получить PID gigacode" };
+  }
+  await updateTask(task.mode, changeName, buildImplementSpawnPatch(pid, logFile));
+  return { ok: true, pid, logFile };
+}
+
+function buildImplementExitPatch(
+  exitCode: number | null,
+  signal: string | null,
+): Partial<import("./state").TaskEntry> {
+  return {
+    implementExitCode: exitCode,
+    implementExitSignal: signal,
+  };
+}
+
+function buildImplementSpawnPatch(
+  pid: number,
+  logFile: string,
+): Partial<import("./state").TaskEntry> {
+  return {
+    implementPid: pid,
+    implementStartedAt: new Date().toISOString(),
+    implementLogPath: logFile,
+  };
+}
+
 function buildCreateExitPatch(
   stage: string,
   exitCode: number | null,
@@ -651,6 +858,26 @@ export async function commitChange(
   stage: string,
 ): Promise<boolean> {
   const worktree = task.openspecWorktreePath!;
+  // Skip the commit (and the timestamp write) when there's
+  // nothing staged — happens on the second /confirm of the
+  // same plan (child tasks live in state, not on disk; the
+  // openspec worktree is already clean). Without this, the
+  // second call would `git commit` and fail with "nothing to
+  // commit, working tree clean", which then trips a 500
+  // through the planCommitError surface.
+  try {
+    const { stdout } = await run("git", [
+      "-C",
+      worktree,
+      "status",
+      "--porcelain",
+    ]);
+    if (stdout.trim() === "") return true;
+  } catch {
+    // `git status` itself failed (broken repo, etc.). Fall
+    // through to `git add` + `git commit` and let those
+    // surface the real error.
+  }
   const message = buildCommitMessage(task, changeName, stage);
   try {
     await run("git", ["-C", worktree, "add", "."]);

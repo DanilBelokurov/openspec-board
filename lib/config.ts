@@ -39,6 +39,17 @@ export const DEFAULT_BRANCH = "master";
 export interface RepoConfig {
   url: string;
   branch: string;
+  /**
+   * Local filesystem path to a working copy of the repo. The
+   * dev-mode TDD pipeline creates its worktree inside this
+   * directory (under `<localPathParent>/<localPathBasename>.worktrees/<JIRA-ID>/`)
+   * and runs `gigacode --prompt` there. Falls back to the
+   * submodule convention `<openspecDirParent>/repos/<name>/`
+   * (where `name` is the key under `repos` in config) when
+   * unset. Set this explicitly when the code repo lives outside
+   * the openspec-store parent directory.
+   */
+  localPath?: string;
   buildPid?: number | null;
   buildStartedAt?: string;
   buildExitCode?: number | null;

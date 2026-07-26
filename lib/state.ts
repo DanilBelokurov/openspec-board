@@ -207,6 +207,38 @@ export interface TaskEntry {
   // "архив" badge and stay on the board for the dev to close
   // manually.
   archived?: boolean;
+  // Per-service child task graph (developer mode).
+  // - parent tasks get `childTags`: the list of service
+  //   names for which a child has been created. The board
+  //   hides the parent once `childTags` covers every service
+  //   listed under `<change>/tasks/`.
+  // - parent tasks also get `serviceRepos`: the dev's last
+  //   service → repoName selection, persisted by /confirm so
+  //   a refresh of the plan page doesn't reset the dropdowns
+  //   back to "skip".
+  // - child tasks get `parentTag` (the parent's change-tag)
+  //   and `serviceName` (the kebab-case directory name under
+  //   `tasks/`). Children live in their own state entry
+  //   (`developer:<service>`); the composite key plus the
+  //   parentTag field is what links them back.
+  childTags?: string[];
+  serviceRepos?: Record<string, string>;
+  parentTag?: string;
+  serviceName?: string;
+  // develop (developer-mode) TDD step: per-service gigacode
+  // run inside the code-repo worktree, driven by
+  // `templates/spec-driven/tdd-implement-prompt-template.md`.
+  // `implementPid` is the gigacode --prompt PID; a live PID
+  // blocks a second spawn via the auto-trigger loop. The
+  // children inherit `openspecWorktreePath` from the parent
+  // (where `tasks.md` lives) and set their own `codeRepoPath`
+  // + `codeBranch` (worktree on the chosen service repo).
+  implementPid?: number | null;
+  implementStartedAt?: string;
+  implementExitCode?: number | null;
+  implementExitSignal?: string | null;
+  implementLogPath?: string;
+  implementError?: string;
 }
 
 export interface AppState {

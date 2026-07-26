@@ -16,6 +16,7 @@ import {
 } from "@/lib/openspec";
 import { isStageReady } from "@/lib/continuation";
 import { isProcessAlive } from "@/lib/process";
+import { listServicesInChange } from "@/lib/openspec-scanner";
 
 export default async function Home() {
   const config = await readConfig();
@@ -47,104 +48,135 @@ export default async function Home() {
   // resolveProposalRootForTask probes the on-disk convention.
   // This is a per-render disk check, but tasks are limited and the check is
   // a single fs.access so it's cheap enough for a scaffold.
-  const items: BoardItem[] = await Promise.all(
-    Object.values(state.tasks)
-.filter((t) => t.mode === config.mode)
-      .map(async (t) => {
-        const proposalRoot = await resolveProposalRootForTask(
-          t,
-          config.openspecDir!,
-        );
-        const changePath = path.join(
-          proposalRoot,
-          "openspec",
-          "changes",
-          t.summary.changeName,
-        );
-        const proposalReady = await checkProposalExists(changePath);
-        // delta-spec is "ready" when the specs/ dir contains at
-        // least one .md file. We compute this unconditionally and
-        // forward the result in BoardItem so the badge / confirm
-        // gating can read it.
-        const deltaSpecReady = await isStageReady(proposalRoot, t.summary.changeName, {
-          stage: "delta-spec",
-          instructionsArtifact: "specs",
-          artifactSubpath: "specs",
-        });
-        // design.md readiness — used to gate the design-stage
-        // confirm button + the violet 'Ожидает' badge.
-        const designReady = await isStageReady(proposalRoot, t.summary.changeName, {
-          stage: "design",
-          instructionsArtifact: "design",
-          artifactSubpath: "design.md",
-        });
-        // adr readiness — adr.md exists at change folder root.
-        const adrReady = await isStageReady(proposalRoot, t.summary.changeName, {
-          stage: "adr",
-          instructionsArtifact: "adr",
-          artifactSubpath: "adr.md",
-        });
-        // In analyst mode, "error" means either CLI step exited non-zero.
-        // In developer mode, gigacodeExitCode tracks /opsx:plan (the only
-        // background step), so including it is still correct there.
-        const stepError =
-          (t.openspecNewExitCode != null && t.openspecNewExitCode !== 0) ||
-          (t.gigacodeContinueExitCode != null &&
-            t.gigacodeContinueExitCode !== 0) ||
-          (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0);
-        const deltaSpecCreateError =
-          t.deltaSpecCreateExitCode != null && t.deltaSpecCreateExitCode !== 0;
-        const designCreateError =
-          t.designCreateExitCode != null && t.designCreateExitCode !== 0;
-        const adrCreateError =
-          t.adrCreateExitCode != null && t.adrCreateExitCode !== 0;
-        const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
-        return {
-          ...t.summary,
-          jiraUrl: t.jiraUrl,
-          jiraId: jiraId ?? undefined,
-          codeRepoPath: t.codeRepoPath,
-          openspecNewStatus: processStatusFor(t.openspecNewPid),
-          gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
-          deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),
-          designCreateStatus: processStatusFor(t.designCreatePid),
-          adrCreateStatus: processStatusFor(t.adrCreatePid),
-          gigacodeStatus: processStatusFor(t.gigacodePid),
-          proposalReady,
-          deltaSpecReady,
-          designReady,
-          adrReady,
-          gigacodeError: stepError || undefined,
-          deltaSpecCreateError: deltaSpecCreateError || undefined,
-          designCreateError: designCreateError || undefined,
-          adrCreateError: adrCreateError || undefined,
-          // Developer-mode signals: archived badge + the SHA of
-          // the commit on the tracked branch that owns the change.
-          // Both are populated by mergeDeveloperScan in
-          // lib/state.ts; the SessionCard renders the badge and
-          // the detail page links to the SHA.
-          archived: t.archived || undefined,
-          codeBaseSha: t.codeBaseSha,
-          // Single-status badge for the task's current stage.
-          // 'running' / 'error' / 'waiting' / null. Computed here
-          // (server-side) so SessionCard doesn't need access to
-          // isProcessAlive or the stage-specific PIDs.
-          pipelineStatus: pipelineStatus(
+  //
+  // We return tuples { item, task } (not just BoardItem) so the
+  // post-build filter can consult task.childTags / task.stage
+  // without re-walking state. The filter hides the parent plan
+  // task once every service under `<change>/tasks/` has a
+  // child ("1a" rule), so the board only shows the children
+  // in the develop column.
+  const rawItems: Array<{ item: BoardItem; task: typeof state.tasks[string] }> =
+    await Promise.all(
+      Object.values(state.tasks)
+        .filter((t) => t.mode === config.mode)
+        .map(async (t) => {
+          const proposalRoot = await resolveProposalRootForTask(
             t,
-            (pid) => isProcessAlive(pid),
-            t.stage === "proposal"
-              ? proposalReady
-              : t.stage === "delta-spec"
-                ? deltaSpecReady
-                : t.stage === "design"
-                  ? designReady
-                  : t.stage === "adr"
-                    ? adrReady
-                    : false,
-          ),
-        };
-      }),
-  );
+            config.openspecDir!,
+          );
+          const changePath = path.join(
+            proposalRoot,
+            "openspec",
+            "changes",
+            t.summary.changeName,
+          );
+          const proposalReady = await checkProposalExists(changePath);
+          const deltaSpecReady = await isStageReady(
+            proposalRoot,
+            t.summary.changeName,
+            {
+              stage: "delta-spec",
+              instructionsArtifact: "specs",
+              artifactSubpath: "specs",
+            },
+          );
+          const designReady = await isStageReady(
+            proposalRoot,
+            t.summary.changeName,
+            {
+              stage: "design",
+              instructionsArtifact: "design",
+              artifactSubpath: "design.md",
+            },
+          );
+          const adrReady = await isStageReady(
+            proposalRoot,
+            t.summary.changeName,
+            {
+              stage: "adr",
+              instructionsArtifact: "adr",
+              artifactSubpath: "adr.md",
+            },
+          );
+          const stepError =
+            (t.openspecNewExitCode != null && t.openspecNewExitCode !== 0) ||
+            (t.gigacodeContinueExitCode != null &&
+              t.gigacodeContinueExitCode !== 0) ||
+            (t.gigacodeExitCode != null && t.gigacodeExitCode !== 0);
+          const deltaSpecCreateError =
+            t.deltaSpecCreateExitCode != null &&
+            t.deltaSpecCreateExitCode !== 0;
+          const designCreateError =
+            t.designCreateExitCode != null && t.designCreateExitCode !== 0;
+          const adrCreateError =
+            t.adrCreateExitCode != null && t.adrCreateExitCode !== 0;
+          const jiraId = t.jiraUrl ? extractJiraId(t.jiraUrl) : null;
+          const item: BoardItem = {
+            ...t.summary,
+            jiraUrl: t.jiraUrl,
+            jiraId: jiraId ?? undefined,
+            codeRepoPath: t.codeRepoPath,
+            openspecNewStatus: processStatusFor(t.openspecNewPid),
+            gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
+            deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),
+            designCreateStatus: processStatusFor(t.designCreatePid),
+            adrCreateStatus: processStatusFor(t.adrCreatePid),
+            gigacodeStatus: processStatusFor(t.gigacodePid),
+            proposalReady,
+            deltaSpecReady,
+            designReady,
+            adrReady,
+            gigacodeError: stepError || undefined,
+            deltaSpecCreateError: deltaSpecCreateError || undefined,
+            designCreateError: designCreateError || undefined,
+            adrCreateError: adrCreateError || undefined,
+            archived: t.archived || undefined,
+            codeBaseSha: t.codeBaseSha,
+            pipelineStatus: pipelineStatus(
+              t,
+              (pid) => isProcessAlive(pid),
+              t.stage === "proposal"
+                ? proposalReady
+                : t.stage === "delta-spec"
+                  ? deltaSpecReady
+                  : t.stage === "design"
+                    ? designReady
+                    : t.stage === "adr"
+                      ? adrReady
+                      : false,
+            ),
+          };
+          return { item, task: t };
+        }),
+    );
+
+  // Per the "1a" rule, hide a plan-stage parent from the
+  // board once every service under `<change>/tasks/` has
+  // a child. The children continue to show in the develop
+  // column. We re-scan the change folder for plan-stage
+  // tasks with at least one childTag (cheap: a single
+  // readdir on tasks/, no recursive walk).
+  const items: BoardItem[] = [];
+  for (const { item, task } of rawItems) {
+    if (
+      task.stage === "plan" &&
+      task.mode === "developer" &&
+      task.childTags &&
+      task.childTags.length > 0 &&
+      task.openspecWorktreePath
+    ) {
+      const services = await listServicesInChange(
+        task.openspecWorktreePath,
+        task.summary.changeName,
+      );
+      if (services.length > 0 && task.childTags.length >= services.length) {
+        // Every service has a child — parent is no longer
+        // actionable, hide from the board.
+        continue;
+      }
+    }
+    items.push(item);
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
