@@ -9,7 +9,7 @@ import {
   ExternalLink,
   ChevronRight,
 } from "lucide-react";
-import { readConfig } from "@/lib/config";
+import { readConfig, resolveRepoLocalPath } from "@/lib/config";
 import { readState, findTaskByTagStrict } from "@/lib/state";
 import {
   listChangeTree,
@@ -128,19 +128,14 @@ export default async function ChangePage({
     // Last selection (if any) — persisted on the parent so a
     // refresh remembers what the dev picked.
     lastSelection = task.serviceRepos;
-    // Project repos from config. For each entry, resolve the
-    // local path: explicit `localPath` override first, then
-    // the submodule convention `<openspecDirParent>/repos/<name>`.
+    // Project repos from config. The local path is resolved
+    // by lib/config.ts → resolveRepoLocalPath (explicit
+    // localPath first, then the sdd-board/repos/<name>
+    // default).
     const repos = config.repos ?? {};
     availableRepos = Object.entries(repos).map(([name, repo]) => ({
       name,
-      localPath:
-        repo.localPath ??
-        path.join(
-          path.dirname(openspecDir),
-          "repos",
-          name,
-        ),
+      localPath: resolveRepoLocalPath(name, repo),
     }));
   }
   // Use the parent's last service-repos selection as the

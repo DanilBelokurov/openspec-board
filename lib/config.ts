@@ -174,3 +174,33 @@ export async function updateRepoEntry(
   );
   return updated;
 }
+
+/**
+ * Resolve the local filesystem path for a code repo by name.
+ *
+ * Lookup order:
+ *  1. Explicit `localPath` on the repo's config entry (set
+ *     in `.sdd-board/config.json` under `repos.<name>.localPath`).
+ *  2. Default convention: `<process.cwd()>/repos/<repoName>` —
+ *     i.e. the `repos/` subdirectory of the sdd-board project
+ *     (where `next dev` runs). This is the typical layout when
+ *     the code repos are checked out alongside the board.
+ *
+ * Note: a previous revision used
+ * `<path.dirname(openspecDir)>/repos/<repoName>` (the
+ * "submodule" convention, treating repos as submodules of the
+ * openspec-store). That breaks layouts where sdd-store and
+ * sdd-board are sibling projects and the repos live in the
+ * sdd-board project itself — the dev would see
+ * `Worktree: <store-parent>/repos/<name> не является
+ * git-репозиторием` because the convention resolved a path
+ * outside the sdd-board. The `process.cwd()`-based default
+ * matches the layout we ship in this repo.
+ */
+export function resolveRepoLocalPath(
+  repoName: string,
+  repoConfig: { localPath?: string } | undefined,
+): string {
+  if (repoConfig?.localPath) return repoConfig.localPath;
+  return path.join(process.cwd(), "repos", repoName);
+}

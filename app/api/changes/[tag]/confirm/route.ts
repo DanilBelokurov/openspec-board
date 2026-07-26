@@ -16,6 +16,7 @@ import { readConfig } from "@/lib/config";
 import { listServicesInChange } from "@/lib/openspec-scanner";
 import { createWorktree, pickFreeFeatureWorktree } from "@/lib/git";
 import { extractJiraId } from "@/lib/jira";
+import { resolveRepoLocalPath } from "@/lib/config";
 
 // Each non-plan confirm call is gated on the previous stage
 // being ready (artifact on disk). The "next stage" key is what
@@ -41,16 +42,6 @@ async function exists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function resolveRepoLocalPath(
-  openspecDir: string,
-  repoName: string,
-  repoConfig: { localPath?: string } | undefined,
-): string {
-  if (repoConfig?.localPath) return repoConfig.localPath;
-  // Submodule convention: <openspecDirParent>/repos/<repoName>.
-  return path.join(path.dirname(openspecDir), "repos", repoName);
 }
 
 export async function POST(
@@ -239,11 +230,7 @@ async function handlePlanConfirm(
   const pending: PendingChild[] = [];
   for (const service of serviceNames) {
     const repoName = services[service];
-    const codeRepoPath = resolveRepoLocalPath(
-      config.openspecDir,
-      repoName,
-      repos[repoName],
-    );
+    const codeRepoPath = resolveRepoLocalPath(repoName, repos[repoName]);
     let codeWorktreePath: string;
     try {
       const picked = await pickFreeFeatureWorktree(codeRepoPath, jiraId);
