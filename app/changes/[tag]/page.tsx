@@ -400,27 +400,37 @@ export default async function ChangePage({
               board. (Board already hides the parent when
               all services are children, so this notice is
               mainly a fallback if someone navigates to the
-              parent's URL directly.) */}
-          {task.stage === "plan" &&
-            task.mode === "developer" &&
-            allServices.length > 0 &&
-            selectableServices.length === 0 && (
-              <section className="mb-5">
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
-                  <div className="font-semibold">Все сервисы запущены</div>
-                  <div className="mt-0.5 text-[11px] text-emerald-800/80">
-                    По всем сервисам из <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">tasks/</code> уже созданы child-задачи. Откройте доску — каждая develop-карточка ведёт на свою страницу с TDD-пайплайном.
-                  </div>
-                </div>
-              </section>
-            )}
+              parent's URL directly.) The "Все сервисы
+              запущены" flag is reused below to suppress the
+              whole ConfirmArtifactButton/ServiceSelectionCard
+              block — otherwise both the notice AND the "План
+              готов" square render next to each other. */}
+          {(() => {
+            const allServicesStarted =
+              task.stage === "plan" &&
+              task.mode === "developer" &&
+              allServices.length > 0 &&
+              selectableServices.length === 0;
+            return (
+              <>
+                {allServicesStarted && (
+                  <section className="mb-5">
+                    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
+                      <div className="font-semibold">Все сервисы запущены</div>
+                      <div className="mt-0.5 text-[11px] text-emerald-800/80">
+                        По всем сервисам из <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">tasks/</code> уже созданы child-задачи. Откройте доску — каждая develop-карточка ведёт на свою страницу с TDD-пайплайном.
+                      </div>
+                    </div>
+                  </section>
+                )}
 
-          {showConfirmButton &&
-            (task.stage === "proposal" ||
-              task.stage === "delta-spec" ||
-              task.stage === "design" ||
-              task.stage === "adr" ||
-              task.stage === "plan") && (
+                {showConfirmButton &&
+                  !allServicesStarted &&
+                  (task.stage === "proposal" ||
+                    task.stage === "delta-spec" ||
+                    task.stage === "design" ||
+                    task.stage === "adr" ||
+                    task.stage === "plan") && (
               <section className="mb-5">
                 {task.stage === "plan" &&
                 task.mode === "developer" &&
@@ -469,6 +479,9 @@ export default async function ChangePage({
                 )}
               </section>
             )}
+              </>
+            );
+          })()}
 
           {/* Child develop task: "Запустить реализацию" button.
               Rendered only for tasks that are children of a
