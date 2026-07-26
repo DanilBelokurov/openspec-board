@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { NextRequest, NextResponse } from "next/server";
-import { readState, updateTask } from "@/lib/state";
+import { readState, updateTask, findTaskByTag } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
 import { spawnGitPushUpdate } from "@/lib/git-push";
@@ -51,7 +51,10 @@ export async function POST(
   { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Update-branch is analyst-mode only (fast-forward the
+  // already-published feature branch).
+  const found = await findTaskByTag(params.tag, "analyst");
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },
@@ -136,7 +139,7 @@ export async function POST(
   );
 
   if (spawned.pid == null) {
-    await updateTask(params.tag, {
+    await updateTask("analyst", params.tag, {
       pushError: spawned.error ?? "Не удалось запустить git push",
       pushLogPath: spawned.logFile,
     });
@@ -150,7 +153,7 @@ export async function POST(
   // the watcher writes a fresh pushedAt timestamp once the process
   // exits (so the «Опубликовано: …» indicator reflects the last
   // successful sync, not the original publish).
-  await updateTask(params.tag, {
+  await updateTask("analyst", params.tag, {
     pushPid: spawned.pid,
     pushStartedAt: new Date().toISOString(),
     pushLogPath: spawned.logFile,

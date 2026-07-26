@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readState } from "@/lib/state";
+import { readState, findTaskByTag } from "@/lib/state";
 import { spawnCreatePullRequestGigacode } from "@/lib/continuation";
 
 export async function POST(
@@ -7,7 +7,9 @@ export async function POST(
   { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Create-pull-request is analyst-mode only.
+  const found = await findTaskByTag(params.tag, "analyst");
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },

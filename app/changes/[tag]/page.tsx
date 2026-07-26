@@ -9,7 +9,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { readConfig } from "@/lib/config";
-import { readState } from "@/lib/state";
+import { readState, findTaskByTagStrict } from "@/lib/state";
 import {
   listChangeTree,
   formatBytes,
@@ -18,7 +18,7 @@ import {
   type TreeNode,
 } from "@/lib/openspec";
 import { isProcessAlive } from "@/lib/process";
-import { triggerContinueIfNeeded, isStageReady } from "@/lib/continuation";
+import { triggerContinueIfNeeded, isStageReady, isPlanTasksReady } from "@/lib/continuation";
 import { extractJiraId } from "@/lib/jira";
 import { formatDateTime } from "@/lib/format";
 import { FileTree } from "@/components/FileTree";
@@ -44,7 +44,17 @@ export default async function ChangePage({
   await triggerContinueIfNeeded(openspecDir);
 
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Mode-strict lookup: the page renders the task in the
+  // current board's mode (config.mode) and never falls back to
+  // the other mode. Per the cross-mode isolation rule, the
+  // analyst and developer entries for the same tag are fully
+  // independent — showing one in the other's board would
+  // surface the wrong jiraUrl / codeBranch / worktree path /
+  // ConfirmArtifactButton state. If the entry for config.mode
+  // doesn't exist yet (e.g. the developer scan hasn't run
+  // since the PR was merged), the page 404s and the user is
+  // expected to refresh the board to trigger the scan.
+  const task = await findTaskByTagStrict(config.mode, params.tag);
   if (!task) notFound();
 
   const tag = task.summary.changeName;
@@ -84,6 +94,16 @@ export default async function ChangePage({
       instructionsArtifact: "adr",
       artifactSubpath: "adr.md",
     });
+  }
+  // plan (developer-mode) is "ready" when tasks.md exists at the
+  // change folder root OR under a per-service subdirectory
+  // (the openspec-instructions `tasks` resolvedOutputPath puts
+  // tasks.md under tasks/<service>/tasks.md, mirroring the
+  // service structure from design.md). isPlanTasksReady handles
+  // both layouts via a depth-limited recursive search.
+  let planReady = false;
+  if (task.stage === "plan" && proposalRoot) {
+    planReady = await isPlanTasksReady(proposalRoot, tag);
   }
   const dateStr = formatDateTime(task.lastScannedAt);
   const relPath = `openspec/changes/${tag}`;
@@ -125,6 +145,17 @@ export default async function ChangePage({
   const adrUpdateAlive = task.adrUpdatePid
     ? isProcessAlive(task.adrUpdatePid)
     : false;
+  // plan step PIDs (developer mode). Both create (first
+  // generation right after /start) and update (pencil button
+  // on ConfirmArtifactButton, user-provided comments) feed
+  // into pipelineRunning below so a re-run blocks the
+  // "Подтверждаю" button until tasks.md is back on disk.
+  const planCreateAlive = task.planCreatePid
+    ? isProcessAlive(task.planCreatePid)
+    : false;
+  const planUpdateAlive = task.planUpdatePid
+    ? isProcessAlive(task.planUpdatePid)
+    : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
     : null;
@@ -147,7 +178,10 @@ export default async function ChangePage({
           : task.stage === "adr"
             ? task.adrCreateExitCode != null &&
               task.adrCreateExitCode !== 0
-            : false;
+            : task.stage === "plan"
+              ? task.planCreateExitCode != null &&
+                task.planCreateExitCode !== 0
+              : false;
   // "Ready" only counts when no create-step process is still alive
   // — otherwise the artifact file might exist on disk but be only
   // partially written by the running gigacode process, and the
@@ -178,7 +212,11 @@ export default async function ChangePage({
     (task.stage === "adr" &&
       ((task.adrCreatePid != null && isProcessAlive(task.adrCreatePid)) ||
         (task.adrUpdatePid != null &&
-          isProcessAlive(task.adrUpdatePid))));
+          isProcessAlive(task.adrUpdatePid)))) ||
+    (task.stage === "plan" &&
+      ((task.planCreatePid != null && isProcessAlive(task.planCreatePid)) ||
+        (task.planUpdatePid != null &&
+          isProcessAlive(task.planUpdatePid))));
   const currentStageReady =
     !pipelineRunning &&
     (task.stage === "proposal"
@@ -189,7 +227,9 @@ export default async function ChangePage({
           ? designReady
           : task.stage === "adr"
             ? adrReady
-            : false);
+            : task.stage === "plan"
+              ? planReady
+              : false);
   const showConfirmButton = currentStageReady && !currentStageError;
 
   return (
@@ -269,12 +309,18 @@ export default async function ChangePage({
             (task.stage === "proposal" ||
               task.stage === "delta-spec" ||
               task.stage === "design" ||
-              task.stage === "adr") && (
+              task.stage === "adr" ||
+              task.stage === "plan") && (
               <section className="mb-5">
                 <ConfirmArtifactButton
                   tag={tag}
                   stage={
-                    task.stage as "proposal" | "delta-spec" | "design" | "adr"
+                    task.stage as
+                      | "proposal"
+                      | "delta-spec"
+                      | "design"
+                      | "adr"
+                      | "plan"
                   }
                   title={
                     task.stage === "proposal"
@@ -283,7 +329,9 @@ export default async function ChangePage({
                         ? "Дельта-спецификация готова"
                         : task.stage === "design"
                           ? "Дизайн готов"
-                          : "ADR готов"
+                          : task.stage === "adr"
+                            ? "ADR готов"
+                            : "План готов"
                   }
                   artifactLabel={
                     task.stage === "proposal"
@@ -292,12 +340,20 @@ export default async function ChangePage({
                         ? "specs/"
                         : task.stage === "design"
                           ? "design.md"
-                          : "adr.md"
+                          : task.stage === "adr"
+                            ? "adr.md"
+                            : "tasks.md"
                   }
                   artifactHint="Подтвердите, чтобы перейти к следующему шагу."
                 />
               </section>
             )}
+
+          {task.stage === "backlog" && task.mode === "developer" && (
+            <section className="mb-5">
+              <StartForm tag={tag} />
+            </section>
+          )}
 
           {task.stage === "done" && task.mode === "analyst" && (
             <section className="mb-5">
@@ -752,6 +808,108 @@ export default async function ChangePage({
             </details>
           )}
 
+          {/* plan (developer-mode) create card. Mirrors the
+              designCreatePid / adrCreatePid shape. */}
+          {task.planCreatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={planCreateAlive}
+                  exitCode={task.planCreateExitCode}
+                />
+                <span>Создание плана</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.planCreateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.planCreateStartedAt)}
+                  </div>
+                )}
+                {!planCreateAlive &&
+                  task.planCreateExitCode != null &&
+                  task.planCreateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {task.planCreateError ??
+                        `Ошибка (exit ${task.planCreateExitCode}) — см. лог`}
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.planCreatePid}
+                  </dd>
+                  {task.planCreateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.planCreateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {/* plan (developer-mode) update card. Spawned by the
+              pencil button on ConfirmArtifactButton when the user
+              re-runs tasks.md generation with a free-form
+              request folded in. Same shape as the
+              designUpdatePid / adrUpdatePid cards. */}
+          {task.planUpdatePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={planUpdateAlive}
+                  exitCode={task.planUpdateExitCode}
+                />
+                <span>Обновление плана</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.planUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.planUpdateStartedAt)}
+                  </div>
+                )}
+                {!planUpdateAlive &&
+                  task.planUpdateExitCode != null &&
+                  task.planUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {`Ошибка (exit ${task.planUpdateExitCode}) — см. лог`}
+                    </div>
+                  )}
+                {task.planUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.planUpdateComments}
+                    </span>
+                  </div>
+                )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.planUpdatePid}
+                  </dd>
+                  {task.planUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.planUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
           {/* Done-stage deploy cards (analyst mode only). They sit
               next to the other process cards because they're
               sub-steps of the same final pipeline. */}
@@ -867,21 +1025,6 @@ export default async function ChangePage({
                 </div>
               </details>
             )}
-
-          {task.stage === "backlog" && (
-            <section className="mt-5">
-              <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
-                Начать работу
-              </h2>
-              <div className="rounded-md border border-border bg-white px-4 py-3">
-                <StartForm
-                  tag={tag}
-                  initialJiraUrl={task.jiraUrl}
-                  initialCodeRepoPath={task.codeRepoPath}
-                />
-              </div>
-            </section>
-          )}
 
           <div className="mt-3 flex items-start justify-between gap-2">
             <div className="flex gap-2">

@@ -1,6 +1,5 @@
 import {
   Inbox,
-  GitBranch,
   ClipboardList,
   Code2,
   TestTube2,
@@ -34,7 +33,6 @@ export const MODES: Record<BoardModeId, BoardMode> = {
     label: "Разработчик",
     stages: [
       "backlog",
-      "decomposition",
       "plan",
       "develop",
       "tests",
@@ -43,7 +41,6 @@ export const MODES: Record<BoardModeId, BoardMode> = {
     ],
     meta: {
       backlog: { label: "Бэклог", icon: Inbox },
-      decomposition: { label: "Декомпозиция", icon: GitBranch },
       plan: { label: "План", icon: ClipboardList },
       develop: { label: "Разработка", icon: Code2 },
       tests: { label: "Тесты", icon: TestTube2 },

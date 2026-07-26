@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readState } from "@/lib/state";
+import { readState, findTaskByTag } from "@/lib/state";
 import { isProcessAlive } from "@/lib/process";
 
 /**
@@ -13,7 +13,11 @@ export async function GET(
   { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Deploy-status returns push + PR sub-step state — those
+  // fields only exist on analyst-mode tasks. Look up the
+  // analyst entry directly.
+  const found = await findTaskByTag(params.tag, "analyst");
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },

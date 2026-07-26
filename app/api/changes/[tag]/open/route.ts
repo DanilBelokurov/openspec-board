@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import path from "path";
 import { readConfig } from "@/lib/config";
-import { readState } from "@/lib/state";
+import { readState, findTaskByTag } from "@/lib/state";
 import { resolveProposalRootForTask } from "@/lib/openspec";
 
 function openInOS(target: string): Promise<void> {
@@ -41,7 +41,11 @@ export async function POST(
   }
 
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Open is mode-agnostic — both analyst and developer tasks live
+  // inside the same change folder. Prefer the mode matching the
+  // current board so the user gets the task they're looking at.
+  const found = await findTaskByTag(params.tag, config.mode);
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },

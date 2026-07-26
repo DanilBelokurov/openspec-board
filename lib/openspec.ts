@@ -836,7 +836,15 @@ export interface TreeNode {
 }
 
 const SKIP_DOTFILES = true;
-const SKIP_FILES = new Set(["tasks.md"]);
+// tasks.md used to be skipped because the openspec stores this
+// project reads from never carried it (project's openspec
+// workflow is proposal + specs + design + ADR; tasks.md is a
+// standard openspec field that was simply absent). The
+// developer-mode plan pipeline now GENERATES tasks.md into
+// <change>/tasks.md, so skipping it would hide the very file
+// the user just watched gigacode write. Leave the set empty
+// until/unless we add another file we want to hide.
+const SKIP_FILES = new Set<string>();
 
 async function buildTreeNode(
   absPath: string,

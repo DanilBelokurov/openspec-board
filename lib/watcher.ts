@@ -142,7 +142,7 @@ async function tick(): Promise<void> {
         task.pushExitCode == null &&
         !isProcessAlive(task.pushPid)
       ) {
-        await updateTask(tag, {
+        await updateTask("analyst", tag, {
           pushExitCode: 0,
           pushExitSignal: null,
           pushedAt: new Date().toISOString(),
@@ -154,7 +154,7 @@ async function tick(): Promise<void> {
         task.pullRequestExitCode == null &&
         !isProcessAlive(task.pullRequestPid)
       ) {
-        await updateTask(tag, {
+        await updateTask("analyst", tag, {
           pullRequestExitCode: 0,
           pullRequestExitSignal: null,
         });

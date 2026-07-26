@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readState, updateTask } from "@/lib/state";
+import { readState, updateTask, findTaskByTag } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { runUpdateArtifact } from "@/lib/continuation";
 import { deleteArtefactsAfterStage } from "@/lib/git-cleanup-artifacts";
@@ -62,7 +62,9 @@ export async function POST(
   { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Reopen is analyst-mode only (revert a done analyst task).
+  const found = await findTaskByTag(params.tag, "analyst");
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },
@@ -141,7 +143,7 @@ export async function POST(
   //    see the new stage and the per-stage Create/Update PIDs are
   //    all cleared (we don't want a stale proposal PID to leak
   //    into the delta-spec run after a revert).
-  await updateTask(params.tag, {
+  await updateTask("analyst", params.tag, {
     stage: body.targetStage,
     committedAt: undefined,
     commitExitCode: undefined,

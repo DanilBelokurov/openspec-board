@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { NextRequest, NextResponse } from "next/server";
-import { readState, writeState } from "@/lib/state";
+import { readState, writeState, findTaskByTag, taskKey } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
 import { cleanupTask } from "@/lib/git-cleanup";
@@ -33,8 +33,19 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: { tag: string } },
 ) {
+  const config = await readConfig();
+  if (!config.openspecDir) {
+    return NextResponse.json(
+      { error: "Сначала укажите директорию OpenSpec store в настройках" },
+      { status: 400 },
+    );
+  }
   const state = await readState();
-  const task = state.tasks[params.tag];
+  // Delete is mode-agnostic — it tears down the worktree for
+  // whichever board the user is on. Prefer the current board's
+  // task; fall back to the other mode if needed.
+  const found = await findTaskByTag(params.tag, config.mode);
+  const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },
@@ -44,14 +55,6 @@ export async function POST(
   if (!task.openspecWorktreePath) {
     return NextResponse.json(
       { error: "У задачи не записан openspecWorktreePath — нечего удалять" },
-      { status: 400 },
-    );
-  }
-
-  const config = await readConfig();
-  if (!config.openspecDir) {
-    return NextResponse.json(
-      { error: "Сначала укажите директорию OpenSpec store в настройках" },
       { status: 400 },
     );
   }
@@ -92,9 +95,13 @@ export async function POST(
   );
 
   // Drop the entry from state. Use writeState so the board reflects
-  // the change on the next refresh.
+  // the change on the next refresh. Drop the entry we found; if a
+  // sibling task exists in the other mode (same tag, opposite
+  // board), leave it in place — they're independent records.
   const nextTasks = { ...state.tasks };
-  delete nextTasks[params.tag];
+  if (found) {
+    delete nextTasks[found.key];
+  }
   await writeState({ tasks: nextTasks });
 
   return NextResponse.json({

@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { DEFAULT_MODE, isBoardModeId, type BoardModeId } from "./modes";
+import { atomicWriteFile } from "./atomic-write";
 
 // Pure (no-fs) helpers live in lib/repo-name.ts so client components
 // can import them without dragging in fs/promises. Re-exported here
@@ -131,11 +132,10 @@ export async function writeConfig(
   // Make sure repos is always present in the on-disk file (even if
   // empty) so callers reading JSON directly see a consistent shape.
   if (!next.repos || typeof next.repos !== "object") next.repos = {};
-  await fs.mkdir(CONFIG_DIR, { recursive: true });
-  await fs.writeFile(
+  // Atomic write — same rationale as writeState in lib/state.ts.
+  await atomicWriteFile(
     CONFIG_FILE,
     JSON.stringify(next, null, 2) + "\n",
-    "utf-8",
   );
   return next;
 }
@@ -156,11 +156,10 @@ export async function updateRepoEntry(
   if (!existing) return null;
   const updated: RepoConfig = { ...existing, ...patch };
   const nextRepos = { ...(current.repos ?? {}), [name]: updated };
-  await fs.mkdir(CONFIG_DIR, { recursive: true });
-  await fs.writeFile(
+  // Atomic write — same rationale as writeState in lib/state.ts.
+  await atomicWriteFile(
     CONFIG_FILE,
     JSON.stringify({ ...current, repos: nextRepos }, null, 2) + "\n",
-    "utf-8",
   );
   return updated;
 }

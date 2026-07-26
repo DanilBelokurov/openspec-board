@@ -12,7 +12,7 @@ import {
 
 interface ConfirmArtifactButtonProps {
   tag: string;
-  stage: "proposal" | "delta-spec" | "design" | "adr";
+  stage: "proposal" | "delta-spec" | "design" | "adr" | "plan";
   title: string;
   artifactLabel: string;
   artifactHint: string;

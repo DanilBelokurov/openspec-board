@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import "@/lib/watcher"; // side-effect: ensures background polling is running
 import { readConfig } from "@/lib/config";
-import { readState, updateTask, writeState } from "@/lib/state";
+import { readState, updateTask, writeState, taskKey } from "@/lib/state";
 import { processStatusFor } from "@/lib/process";
 import { extractJiraId } from "@/lib/jira";
 import { isValidOpenspecTag } from "@/lib/tag";
@@ -139,7 +139,12 @@ export async function POST(req: NextRequest) {
   }
 
   const state = await readState();
-  if (state.tasks[tag]) {
+  // POST /api/changes creates an analyst-mode task. A proposal for
+  // this tag might already exist on the developer side (the dev
+  // scan picked it up from defaultBranch) — the analyst board is
+  // independent, so we only block on collisions within the same
+  // mode. Composite key prevents cross-board false positives.
+  if (state.tasks[taskKey("analyst", tag)]) {
     return NextResponse.json(
       {
         error: `Change с тегом "${tag}" уже существует. Тег должен быть уникальным.`,
@@ -204,7 +209,7 @@ export async function POST(req: NextRequest) {
   };
 
   const next = {
-    tasks: { ...state.tasks, [tag]: newTask },
+    tasks: { ...state.tasks, [taskKey("analyst", tag)]: newTask },
   };
   await writeState(next);
 
@@ -225,7 +230,7 @@ export async function POST(req: NextRequest) {
     openspecWorktree,
   );
   if (openspecNewPid != null) {
-    next.tasks[tag] = {
+    next.tasks[taskKey("analyst", tag)] = {
       ...newTask,
       openspecNewPid,
       openspecNewLogPath: logFile,
@@ -236,7 +241,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       created: true,
-      task: next.tasks[tag],
+      task: next.tasks[taskKey("analyst", tag)],
       openspecCommand: `openspec new change ${tag} --description "${description.replace(/"/g, '\\"')}"`,
       openspecNewStatus: processStatusFor(openspecNewPid),
       worktreePath: openspecWorktree,
@@ -278,7 +283,7 @@ async function spawnProposalOpenspecNew(
     // appearing on disk — that's the readiness signal this step produces.
     result.promise
       .then(async ({ exitCode, signal }) => {
-        await updateTask(tag, {
+        await updateTask("analyst", tag, {
           openspecNewExitCode: exitCode,
           openspecNewExitSignal: signal,
         });

@@ -1,18 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import fs from "fs/promises";
 import path from "path";
+import { NextRequest, NextResponse } from "next/server";
 import { readConfig } from "@/lib/config";
-import { readState, updateTask } from "@/lib/state";
-import {
-  createWorktree,
-  removeWorktree,
-} from "@/lib/git";
+import { updateTask, findTaskByTagStrict } from "@/lib/state";
+import { createWorktree, pickFreeFeatureWorktree } from "@/lib/git";
 import { extractJiraId } from "@/lib/jira";
-import { repoBasename } from "@/lib/path-utils";
-import {
-  ensureLogDir,
-  processLogPath,
-  spawnGigacodeWithLog,
-} from "@/lib/process-logger";
 
 export async function POST(
   req: NextRequest,
@@ -26,11 +18,20 @@ export async function POST(
     );
   }
 
-  const state = await readState();
-  const task = state.tasks[params.tag];
+  // Mode-strict lookup: the /start endpoint is developer-mode
+  // only. We read the current board mode from config and look
+  // up the task in that mode — never in the other one. This
+  // keeps the cross-mode data isolation that the developer-
+  // mode worktree flow depends on: an analyst companion task
+  // can never be picked up as the target of a developer-mode
+  // action, even if a misconfigured client tried to call /start
+  // from the analyst board.
+  const task = await findTaskByTagStrict(config.mode, params.tag);
   if (!task) {
     return NextResponse.json(
-      { error: `Задача "${params.tag}" не найдена` },
+      {
+        error: `Задача "${params.tag}" не найдена в режиме "${config.mode}". Обновите доску.`,
+      },
       { status: 404 },
     );
   }
@@ -42,155 +43,110 @@ export async function POST(
     );
   }
 
-  let body: { jiraUrl?: string; codeRepoPath?: string } = {};
+  // 1. Jira URL comes from the request body — the user types it
+  //    into the StartForm field. The button is disabled until
+  //    the field is non-empty, so by the time we get here the
+  //    body is guaranteed to have jiraUrl. We do NOT parse
+  //    proposal.md for Jira anymore: the form is the only
+  //    source, by explicit product decision. If the field is
+  //    empty (e.g. someone hand-rolled a POST), we 400.
+  let body: { jiraUrl?: string } = {};
   try {
     body = await req.json();
   } catch {
     /* empty body */
   }
-
   const jiraUrl = (body.jiraUrl ?? "").trim();
-  const codeRepoPath = (body.codeRepoPath ?? "").trim();
-
   if (!jiraUrl) {
     return NextResponse.json(
-      { error: "Укажите ссылку на Jira-тикет" },
+      { error: "Введите ссылку на Jira-тикет" },
       { status: 400 },
     );
   }
-  if (!codeRepoPath) {
-    return NextResponse.json(
-      { error: "Укажите путь к репозиторию с кодом" },
-      { status: 400 },
-    );
-  }
-
   const jiraId = extractJiraId(jiraUrl);
   if (!jiraId) {
     return NextResponse.json(
-      { error: `Не удалось извлечь Jira ticket id из "${jiraUrl}"` },
+      { error: `Не удалось извлечь Jira id из "${jiraUrl}"` },
       { status: 400 },
     );
   }
 
-  const openspecBasename = repoBasename(config.openspecDir);
-  const openspecParent = path.dirname(config.openspecDir);
-  const openspecWorktree = path.join(
-    openspecParent,
-    `${openspecBasename}.worktrees`,
-    jiraId,
-  );
-
-  const codeBasename = repoBasename(codeRepoPath);
-  const codeParent = path.dirname(codeRepoPath);
-  const codeWorktree = path.join(
-    codeParent,
-    `${codeBasename}.worktrees`,
-    jiraId,
-  );
-
-  // Create openspec worktree
-  try {
-    await createWorktree(config.openspecDir, openspecWorktree, jiraId);
-  } catch (e) {
-    return NextResponse.json(
-      { error: `Openspec worktree: ${String(e)}` },
-      { status: 500 },
-    );
-  }
-
-  // Create code worktree (rollback openspec if this fails)
-  try {
-    await createWorktree(codeRepoPath, codeWorktree, jiraId);
-  } catch (e) {
-    try {
-      await removeWorktree(config.openspecDir, openspecWorktree);
-    } catch (cleanupErr) {
-      console.error("Cleanup of openspec worktree failed:", cleanupErr);
-    }
-    return NextResponse.json(
-      {
-        error: `Code worktree: ${String(e)}. Openspec worktree откачен.`,
-      },
-      { status: 500 },
-    );
-  }
-
-  // Update state
-  // The worktree mirrors the openspecDir repo (a sibling of it). The
-  // standard OpenSpec layout puts change folders under `<repo>/openspec/`,
-  // so inside the worktree the path is
-  // `<worktree>/openspec/changes/<tag>/`.
-  const changePathInWorktree = path.join(
-    openspecWorktree,
+  // 2. Verify the change-proposal is on disk. We still need
+  //    <openspecDir>/openspec/changes/<tag>/proposal.md (and
+  //    later design.md / specs/) to exist for the plan pipeline
+  //    and for downstream "Подтверждаю" to be meaningful. The
+  //    presence check is read-only — we don't read its content
+  //    for Jira, only confirm it's there.
+  const proposalPath = path.join(
+    config.openspecDir,
     "openspec",
     "changes",
     params.tag,
+    "proposal.md",
   );
-
-  const updated = await updateTask(params.tag, {
-    stage: "decomposition",
-    jiraUrl,
-    codeRepoPath,
-    openspecWorktreePath: openspecWorktree,
-    codeWorktreePath: codeWorktree,
-    startedAt: new Date().toISOString(),
-    gigacodePid: null,
-  });
-
-  // Spawn gigacode detached
-  const logFile = processLogPath(params.tag, "new", task.stage);
-  await ensureLogDir();
-  const gigacodePid = spawnPlanGigacode(
-    changePathInWorktree,
-    logFile,
-    config.openspecDir,
-  );
-  if (updated && gigacodePid != null) {
-    await updateTask(params.tag, { gigacodePid, gigacodeLogPath: logFile });
+  try {
+    await fs.access(proposalPath);
+  } catch {
+    return NextResponse.json(
+      {
+        error: `Не найден proposal.md для "${params.tag}" по пути ${proposalPath}`,
+      },
+      { status: 409 },
+    );
   }
+
+  // 3. Pick a free feature/<jiraId> worktree+branch pair.
+  //    On collision, the helper suffixes the worktree path
+  //    with -1, -2, ... (and the branch follows the path so
+  //    the two names always match).
+  const { branch, worktreePath } = await pickFreeFeatureWorktree(
+    config.openspecDir,
+    jiraId,
+  );
+
+  // 4. Create the worktree. If this throws, we leave the task
+  //    in backlog and surface the error — no half-applied
+  //    state.
+  let worktree;
+  try {
+    worktree = await createWorktree(
+      config.openspecDir,
+      worktreePath,
+      branch,
+    );
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Worktree: ${(e as Error).message}` },
+      { status: 500 },
+    );
+  }
+
+  // 5. Update the developer task. jiraUrl is what the user
+  //    typed (the same string the page badge will now show);
+  //    jiraId is derived on demand via extractJiraId and not
+  //    stored, in line with the principle that developer-mode
+  //    data lives on the change-proposal, not in the task
+  //    record.
+  await updateTask("developer", params.tag, {
+    stage: "plan",
+    openspecWorktreePath: worktree.path,
+    codeBranch: worktree.branch,
+    jiraUrl,
+    startedAt: new Date().toISOString(),
+  });
 
   return NextResponse.json({
     started: true,
+    stage: "plan",
     jiraId,
     jiraUrl,
-    codeRepoPath,
-    openspecWorktree,
-    codeWorktree,
-    changePath: changePathInWorktree,
-    gigacodePid,
-    stage: "decomposition",
+    branch: worktree.branch,
+    worktreePath: worktree.path,
+    changePath: path.join(
+      worktree.path,
+      "openspec",
+      "changes",
+      params.tag,
+    ),
   });
-}
-
-function spawnPlanGigacode(
-  changePath: string,
-  logFile: string,
-  openspecDir: string,
-): number | null {
-  try {
-    const result = spawnGigacodeWithLog({
-      argv: ["--prompt", `/opsx:plan ${changePath}`],
-      logFile,
-      header: `gigacode /opsx:plan for ${changePath}`,
-      addDir: openspecDir,
-      approvalMode: "auto-edit",
-    });
-    result.promise
-      .then(async ({ exitCode, signal }) => {
-        // The /opsx:plan step doesn't get a per-task state record (it's
-        // already in /opsx:plan pid slot only). We log the exit for diagnostics
-        // but don't surface it in state — a separate refactor can add it.
-        console.log(
-          `gigacode /opsx:plan for ${changePath} exited (code=${exitCode}, signal=${signal})`,
-        );
-      })
-      .catch((e) =>
-        console.error(`gigacode /opsx:plan exit handler error:`, e),
-      );
-    return result.pid || null;
-  } catch (e) {
-    console.error(`gigacode /opsx:plan spawn threw for ${changePath}:`, e);
-    return null;
-  }
 }

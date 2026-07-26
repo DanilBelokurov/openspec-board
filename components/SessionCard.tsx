@@ -37,9 +37,18 @@ export function SessionCard({ item, mode }: SessionCardProps) {
         <h3 className="text-[13px] font-medium leading-snug text-slate-900">
           {item.title}
         </h3>
-        <code className="break-all text-[10px] text-slate-500">
-          {item.changeName}
-        </code>
+        {/* The kebab-case tag is shown as a small code label only
+            when it differs from the displayed title. Developer-mode
+            tasks use the tag as their title (the canonical
+            identifier for the dev workflow — worktree paths,
+            branch names, git refs), so showing the tag a second
+            time below would be redundant. Analyst tasks keep the
+            user-provided prose title and the tag lives below it. */}
+        {item.title !== item.changeName && (
+          <code className="break-all text-[10px] text-slate-500">
+            {item.changeName}
+          </code>
+        )}
         <div className="flex flex-wrap gap-1">
           {/* Unified pipeline-status badge. Computed server-side via
               lib/openspec.ts → pipelineStatus() so it works for

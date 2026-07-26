@@ -2,41 +2,24 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Play, ExternalLink, Loader2 } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
 
 interface StartFormProps {
   tag: string;
-  initialJiraUrl?: string;
-  initialCodeRepoPath?: string;
 }
 
-interface StartSuccess {
-  jiraId: string;
-  jiraUrl: string;
-  codeRepoPath: string;
-  openspecWorktree: string;
-  codeWorktree: string;
-  gigacodePid: number | null;
-  stage: string;
-}
-
-export function StartForm({
-  tag,
-  initialJiraUrl = "",
-  initialCodeRepoPath = "",
-}: StartFormProps) {
+export function StartForm({ tag }: StartFormProps) {
   const router = useRouter();
-  const [jiraUrl, setJiraUrl] = useState(initialJiraUrl);
-  const [codeRepoPath, setCodeRepoPath] = useState(initialCodeRepoPath);
+  const [jiraUrl, setJiraUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<StartSuccess | null>(null);
 
-  const canSubmit =
-    jiraUrl.trim().length > 0 && codeRepoPath.trim().length > 0 && !submitting;
+  // The "Начать работу" button is enabled only when the user has
+  // typed a non-empty Jira URL. We trim before checking so a
+  // string of whitespace doesn't unlock the button.
+  const canSubmit = jiraUrl.trim().length > 0 && !submitting;
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleStart() {
     setSubmitting(true);
     setError(null);
     try {
@@ -45,7 +28,7 @@ export function StartForm({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jiraUrl, codeRepoPath }),
+          body: JSON.stringify({ jiraUrl: jiraUrl.trim() }),
         },
       );
       const data = await res.json();
@@ -53,7 +36,14 @@ export function StartForm({
         setError(data.error ?? `HTTP ${res.status}`);
         return;
       }
-      setResult(data);
+      // /start transitions the task to "plan", creates the
+      // feature/<jiraId> worktree and sets jiraUrl/codeBranch
+      // on the task. The artifact-generation pipeline (openspec
+      // instructions tasks + gigacode) is auto-triggered by
+      // triggerContinueIfNeeded on the next server-component
+      // render — refresh so the page picks up the new stage
+      // badge, the worktree path, the Jira badge, and the
+      // spawned gigacode card.
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -62,103 +52,58 @@ export function StartForm({
     }
   }
 
-  if (result) {
-    return (
-      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
-        <div className="flex items-center gap-2 font-semibold">
-          <Play className="h-3.5 w-3.5 fill-emerald-700" />
-          <span>Запущено. Статус: {result.stage}</span>
-        </div>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
-          <dt className="text-emerald-700/70">Jira</dt>
-          <dd>
-            <a
-              href={result.jiraUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 underline"
-            >
-              {result.jiraId}
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          </dd>
-          <dt className="text-emerald-700/70">Openspec worktree</dt>
-          <dd className="font-mono text-[10px] break-all">
-            {result.openspecWorktree}
-          </dd>
-          <dt className="text-emerald-700/70">Code worktree</dt>
-          <dd className="font-mono text-[10px] break-all">
-            {result.codeWorktree}
-          </dd>
-          <dt className="text-emerald-700/70">gigacode PID</dt>
-          <dd className="font-mono text-[10px]">
-            {result.gigacodePid ?? "не запущен (gigacode не в PATH?)"}
-          </dd>
-        </dl>
-      </div>
-    );
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] font-medium text-slate-800">
-          Ссылка на Jira-тикет
-        </span>
-        <input
-          type="text"
-          value={jiraUrl}
-          onChange={(e) => setJiraUrl(e.target.value)}
-          placeholder="https://company.atlassian.net/browse/ENG-123"
-          className="h-8 rounded-md border border-border bg-white px-2 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
-        />
-      </label>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[12px] font-medium text-slate-800">
-          Путь к репозиторию с кодом
-        </span>
-        <input
-          type="text"
-          value={codeRepoPath}
-          onChange={(e) => setCodeRepoPath(e.target.value)}
-          placeholder="/Users/you/projects/myapp"
-          className="h-8 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
-        />
-        <span className="text-[11px] text-slate-500">
-          Абсолютный путь к git-репозиторию с кодом. Должен существовать и быть
-          git-репо (содержать <code className="font-mono">.git</code>).
-        </span>
-      </label>
+    <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
+      <div className="flex items-center gap-3">
+        <Play className="h-4 w-4 shrink-0 fill-emerald-700 text-emerald-700" />
+        <div className="flex-1">
+          <div className="font-semibold">Начать работу</div>
+          <div className="mt-0.5 text-[11px] text-emerald-800/80">
+            Введите ссылку на Jira-тикет, чтобы создать worktree на
+            ветке <code className="rounded bg-emerald-100 px-1 py-0.5 font-mono text-[10px]">feature/&lt;JIRA-ID&gt;</code> и запустить генерацию tasks.md.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={!canSubmit}
+          className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {submitting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Play className="h-3.5 w-3.5 fill-white" />
+          )}
+          <span>Начать работу</span>
+        </button>
+      </div>
 
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
           {error}
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-      >
-        {submitting ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Play className="h-3.5 w-3.5 fill-white" />
-        )}
-        <span>Начать</span>
-      </button>
-
-      <p className="text-[10px] text-slate-500">
-        Создаст два git worktree (openspec + код) на ветке с Jira-id, переведёт
-        задачу в «Декомпозиция» и запустит{" "}
-        <code className="font-mono">
-          gigacode --approval-mode=auto-edit --add-dir &lt;path&gt; -p
-          "/opsx:plan ..."
-        </code>
-        .
-      </p>
-    </form>
+      <div className="mt-3 space-y-3 border-t border-emerald-200/70 pt-3">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[12px] font-medium text-slate-800">
+            Ссылка на Jira-тикет
+          </span>
+          <input
+            type="text"
+            value={jiraUrl}
+            onChange={(e) => setJiraUrl(e.target.value)}
+            placeholder="https://company.atlassian.net/browse/ENG-123"
+            disabled={submitting}
+            className="h-8 rounded-md border border-border bg-white px-2 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300 disabled:bg-slate-50"
+          />
+          <span className="text-[11px] text-slate-500">
+            Полный URL Jira-тикета. Из него возьмётся идентификатор
+            вида <code className="font-mono">ENG-123</code> для имени ветки
+            и пути worktree.
+          </span>
+        </label>
+      </div>
+    </div>
   );
 }

@@ -110,6 +110,133 @@ const loadCreatePullRequestPromptTemplate = () =>
 // Generic artifact pipeline
 // ============================================================================
 
+/**
+ * Plan-stage readiness: `openspec instructions tasks` resolves
+ * `tasks.md` to a per-service subdirectory under the change
+ * folder, e.g. `tasks/article-service/tasks.md`, mirroring the
+ * "level-3 heading = service" structure the analyst writes
+ * into `design.md`. The plain `isStageReady` check at
+ * `<change>/tasks.md` would never see that file, so the
+ * "Подтверждаю" button would never appear even after gigacode
+ * has finished writing.
+ *
+ * This helper accepts the convention: tasks.md can be either
+ * at the change folder root (single-service projects) or
+ * under any subdirectory. The search is depth-limited to 4
+ * so a pathological change folder with thousands of files
+ * can't lock up the page render.
+ */
+export async function isPlanTasksReady(
+  worktree: string,
+  changeName: string,
+): Promise<boolean> {
+  const changePath = path.join(
+    worktree,
+    "openspec",
+    "changes",
+    changeName,
+  );
+  // Direct match at the change folder root.
+  if (await exists(path.join(changePath, "tasks.md"))) return true;
+  // Recursive search through subdirectories.
+  return await findTasksMdRecursive(changePath, 4);
+}
+
+/**
+ * Recursively search `dir` for a `tasks.md` file. Bounded to
+ * `maxDepth` levels to keep the page render cheap on
+ * pathological change folders. Skips dotfiles/dotdirs (the
+ * rest of the tree-walker in this codebase also skips them
+ * via SKIP_DOTFILES).
+ */
+async function findTasksMdRecursive(
+  dir: string,
+  maxDepth: number,
+): Promise<boolean> {
+  if (maxDepth <= 0) return false;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name === "tasks.md") return true;
+    if (entry.isDirectory()) {
+      if (await findTasksMdRecursive(full, maxDepth - 1)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Read the existing plan-stage artifact for the update
+ * prompt. The openspec-instructions `tasks` resolvedOutputPath
+ * puts `tasks.md` under a per-service subdirectory, so the
+ * plain `readArtifactForPrompt` (which targets
+ * `<change>/<artifactSubpath>`) wouldn't see the file.
+ *
+ * Returns the concatenated text of any `tasks.md` files
+ * found under the change folder, or `""` if none exist (the
+ * gigacode update prompt treats that as "no prior content",
+ * which is the right behaviour for the first run after a
+ * failed previous attempt).
+ */
+export async function readPlanArtifact(
+  worktree: string,
+  changeName: string,
+): Promise<string> {
+  const changePath = path.join(
+    worktree,
+    "openspec",
+    "changes",
+    changeName,
+  );
+  const files: string[] = [];
+  await collectTasksMdFiles(changePath, files, 4);
+  if (files.length === 0) return "";
+  const parts: string[] = [];
+  for (const f of files) {
+    try {
+      const content = await fs.readFile(f, "utf-8");
+      // Use the relative path from the change folder as the
+      // delimiter so the LLM can tell which service each
+      // tasks.md came from.
+      parts.push(
+        `--- ${path.relative(changePath, f)} ---\n${content}`,
+      );
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  return parts.join("\n\n");
+}
+
+async function collectTasksMdFiles(
+  dir: string,
+  out: string[],
+  maxDepth: number,
+): Promise<void> {
+  if (maxDepth <= 0) return;
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name === "tasks.md") {
+      out.push(full);
+    } else if (entry.isDirectory()) {
+      await collectTasksMdFiles(full, out, maxDepth - 1);
+    }
+  }
+}
+
 export type ArtifactStep = "create" | "update";
 
 /**
@@ -126,7 +253,7 @@ export type ArtifactStep = "create" | "update";
  */
 export interface ArtifactConfig {
   stage: string;
-  instructionsArtifact: "proposal" | "specs" | "design" | "adr";
+  instructionsArtifact: "proposal" | "specs" | "design" | "adr" | "tasks";
   /**
    * Path relative to `<worktree>/openspec/changes/<tag>/`. Use a
    * trailing slash convention (or a directory marker) so the
@@ -156,6 +283,19 @@ const STAGE_CONFIG: Record<string, ArtifactConfig> = {
     stage: "adr",
     instructionsArtifact: "adr",
     artifactSubpath: "adr.md",
+  },
+  // Developer-mode "План" stage: same openspec-instructions +
+  // gigacode --prompt shape as design / adr, but the artifact is
+  // tasks.md. The change folder already exists on the tracked
+  // branch (that's how the task was auto-discovered into the
+  // backlog), so there is no `openspec new change` step here — the
+  // /start endpoint just sets the worktree path to the openspec
+  // repo root and lets the auto-trigger pick this up on the next
+  // render.
+  plan: {
+    stage: "plan",
+    instructionsArtifact: "tasks",
+    artifactSubpath: "tasks.md",
   },
 };
 
@@ -231,21 +371,26 @@ export async function triggerContinueIfNeeded(
   const triggered: string[] = [];
   await ensureLogDir();
 
-  for (const [changeName, task] of Object.entries(state.tasks)) {
+  for (const [_, task] of Object.entries(state.tasks)) {
     if (!task.openspecWorktreePath) continue;
     const config = STAGE_CONFIG[task.stage];
     if (!config) continue;
+    // state.tasks keys are composite `${mode}:${tag}` — never use
+    // them as a path segment or as the second arg of updateTask.
+    // The change folder lives at `<worktree>/openspec/changes/<tag>/`,
+    // so the bare tag is what we need everywhere below.
+    const tag = task.summary.changeName;
     const changePath = path.join(
       task.openspecWorktreePath,
       "openspec",
       "changes",
-      changeName,
+      tag,
     );
     if (!(await exists(changePath))) continue;
 
     const ready = await isStageReady(
       task.openspecWorktreePath,
-      changeName,
+      tag,
       config,
     );
     if (ready) {
@@ -263,11 +408,11 @@ export async function triggerContinueIfNeeded(
 
     const spawned = await spawnCreateArtifactGigacode(
       task,
-      changeName,
+      tag,
       changePath,
       config,
     );
-    if (spawned) triggered.push(changeName);
+    if (spawned) triggered.push(tag);
   }
   return triggered;
 }
@@ -289,6 +434,8 @@ function getCreatePid(task: import("./state").TaskEntry): number | null {
       return task.designCreatePid ?? null;
     case "adr":
       return task.adrCreatePid ?? null;
+    case "plan":
+      return task.planCreatePid ?? null;
     default:
       return null;
   }
@@ -327,9 +474,20 @@ async function spawnCreateArtifactGigacode(
     // Mark as error so the UI surfaces it; don't retry forever (the
     // earlier step exit code stays unchanged — this is a separate
     // failure mode we want to make visible).
-    const errField =
-      config.stage === "proposal" ? "commitError" : "deltaSpecCommitError";
-    await updateTask(changeName, {
+    const errField = ((): keyof import("./state").TaskEntry => {
+      switch (config.stage) {
+        case "proposal":
+          return "commitError";
+        case "plan":
+          return "planCreateError";
+        default:
+          // Pre-existing behavior: design/adr/delta-spec all share
+          // deltaSpecCommitError. A future refactor can split these
+          // out per stage.
+          return "deltaSpecCommitError";
+      }
+    })();
+    await updateTask(task.mode, changeName, {
       [errField]: `openspec instructions: ${(e as Error).message}`,
     } as Partial<import("./state").TaskEntry>);
     return false;
@@ -369,6 +527,7 @@ async function spawnCreateArtifactGigacode(
     pid = result.pid || null;
     const exitHandler = (code: number | null, signal: string | null) =>
       updateTask(
+        task.mode,
         changeName,
         buildCreateExitPatch(config.stage, code, signal),
       );
@@ -386,6 +545,7 @@ async function spawnCreateArtifactGigacode(
 
   if (pid != null) {
     await updateTask(
+      task.mode,
       changeName,
       buildCreateSpawnPatch(config.stage, pid, logFile),
     );
@@ -423,6 +583,11 @@ function buildCreateExitPatch(
         adrCreateExitCode: exitCode,
         adrCreateExitSignal: signal,
       };
+    case "plan":
+      return {
+        planCreateExitCode: exitCode,
+        planCreateExitSignal: signal,
+      };
     default:
       return {};
   }
@@ -458,6 +623,12 @@ function buildCreateSpawnPatch(
         adrCreateStartedAt: new Date().toISOString(),
         adrCreateLogPath: logFile,
       };
+    case "plan":
+      return {
+        planCreatePid: pid,
+        planCreateStartedAt: new Date().toISOString(),
+        planCreateLogPath: logFile,
+      };
     default:
       return {};
   }
@@ -485,6 +656,7 @@ export async function commitChange(
     await run("git", ["-C", worktree, "add", "."]);
     await run("git", ["-C", worktree, "commit", "-m", message]);
     await updateTask(
+      task.mode,
       changeName,
       buildCommitPatch(stage, { ok: true }),
     );
@@ -496,6 +668,7 @@ export async function commitChange(
     // idempotency flag null so a later trigger can retry once the user
     // fixes whatever blocked the commit.
     await updateTask(
+      task.mode,
       changeName,
       buildCommitPatch(stage, { ok: false, error: err.message }),
     );
@@ -534,6 +707,12 @@ function buildCommitPatch(
           adrCommitExitCode: 0,
           adrCommitError: undefined,
         };
+      case "plan":
+        return {
+          planCommittedAt: ts,
+          planCommitExitCode: 0,
+          planCommitError: undefined,
+        };
       default:
         return {};
     }
@@ -555,6 +734,11 @@ function buildCommitPatch(
       return {
         adrCommitExitCode: 1,
         adrCommitError: result.error,
+      };
+    case "plan":
+      return {
+        planCommitExitCode: 1,
+        planCommitError: result.error,
       };
     default:
       return {};
@@ -578,7 +762,9 @@ function buildCommitMessage(
           ? "design"
           : stage === "adr"
             ? "ADR"
-            : stage;
+            : stage === "plan"
+              ? "plan"
+              : stage;
   const lines = [
     `[openspec] Add ${stageLabel}: ${title}`,
     "",
@@ -639,9 +825,19 @@ export async function runUpdateArtifact(
 
   // Read existing artifact text. For directory-style artifacts
   // (e.g. specs/) we concatenate every .md file under the dir.
+  // The plan stage is a special case: the openspec-instructions
+  // `tasks` subcommand puts tasks.md under a per-service
+  // subdirectory (tasks/<service>/tasks.md, mirroring the
+  // design.md service structure), so the simple per-path read
+  // wouldn't see it. readPlanArtifact walks the change folder
+  // and concatenates every tasks.md it finds, each prefixed
+  // with its relative path so the LLM can tell them apart.
   let artifactText: string;
   try {
-    artifactText = await readArtifactForPrompt(artifactAbsPath);
+    artifactText =
+      config.stage === "plan"
+        ? await readPlanArtifact(worktree, changeName)
+        : await readArtifactForPrompt(artifactAbsPath);
   } catch (e) {
     return {
       ok: false,
@@ -710,6 +906,7 @@ export async function runUpdateArtifact(
     pid = result.pid || null;
     const exitHandler = (code: number | null, signal: string | null) =>
       updateTask(
+        "analyst",
         changeName,
         buildUpdateExitPatch(config.stage, code, signal),
       );
@@ -729,6 +926,7 @@ export async function runUpdateArtifact(
     return { ok: false, error: "Не удалось получить PID gigacode" };
   }
   await updateTask(
+    "analyst",
     changeName,
     buildUpdateSpawnPatch(config.stage, pid, logFile, comments),
   );
@@ -787,6 +985,8 @@ function getUpdatePid(task: import("./state").TaskEntry): number | null {
       return task.designUpdatePid ?? null;
     case "adr":
       return task.adrUpdatePid ?? null;
+    case "plan":
+      return task.planUpdatePid ?? null;
     default:
       return null;
   }
@@ -817,6 +1017,11 @@ function buildUpdateExitPatch(
       return {
         adrUpdateExitCode: exitCode,
         adrUpdateExitSignal: signal,
+      };
+    case "plan":
+      return {
+        planUpdateExitCode: exitCode,
+        planUpdateExitSignal: signal,
       };
     default:
       return {};
@@ -858,6 +1063,13 @@ function buildUpdateSpawnPatch(
         adrUpdateStartedAt: ts,
         adrUpdateLogPath: logFile,
         adrUpdateComments: comments,
+      };
+    case "plan":
+      return {
+        planUpdatePid: pid,
+        planUpdateStartedAt: ts,
+        planUpdateLogPath: logFile,
+        planUpdateComments: comments,
       };
     default:
       return {};
@@ -1004,7 +1216,7 @@ export async function spawnCreatePullRequestGigacode(
             );
           }
         }
-        await updateTask(changeName, {
+        await updateTask("analyst", changeName, {
           pullRequestExitCode: exitCode,
           pullRequestExitSignal: signal,
           ...(pullRequestUrl ? { pullRequestUrl } : {}),
@@ -1026,7 +1238,7 @@ export async function spawnCreatePullRequestGigacode(
   if (pid == null) {
     return { ok: false, error: "Не удалось получить PID gigacode" };
   }
-  await updateTask(changeName, {
+  await updateTask("analyst", changeName, {
     pullRequestPid: pid,
     pullRequestStartedAt: new Date().toISOString(),
     pullRequestLogPath: logFile,

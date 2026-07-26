@@ -102,3 +102,45 @@ export async function createWorktree(
   await run("git", args);
   return { path: worktreePath, branch, created: !exists };
 }
+
+/**
+ * Pick a free `feature/<jiraId>` worktree+branch pair. Tries
+ * the bare `<jiraId>` first, then `<jiraId>-1`, `<jiraId>-2`,
+ * ... until it finds a worktree path that doesn't exist on disk.
+ *
+ * The branch name follows the worktree name so that a
+ * developer scanning `git worktree list` sees the same `<jiraId>`
+ * token in both the path and the branch. The on-disk directory
+ * is the only collision we care about — a stale `feature/<jiraId>`
+ * branch with no worktree is fine, `git worktree add` will just
+ * check it out into the new directory.
+ *
+ * Throws if no free name is found within a reasonable number of
+ * attempts (1000 is a safety cap, not an expected ceiling).
+ */
+export async function pickFreeFeatureWorktree(
+  repoDir: string,
+  jiraId: string,
+): Promise<{ branch: string; worktreePath: string }> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(jiraId)) {
+    throw new Error(
+      `Недопустимый jiraId для имени ветки: "${jiraId}"`,
+    );
+  }
+  const basename = repoDir.split("/").filter(Boolean).pop() ?? "repo";
+  const parent = repoDir.replace(/\/+$/, "").split("/").slice(0, -1).join("/");
+  const worktreesRoot = `${parent}/${basename}.worktrees`;
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    const suffix = attempt === 0 ? "" : `-${attempt}`;
+    const worktreePath = `${worktreesRoot}/${jiraId}${suffix}`;
+    if (!(await pathExists(worktreePath))) {
+      return {
+        branch: `feature/${jiraId}${suffix}`,
+        worktreePath,
+      };
+    }
+  }
+  throw new Error(
+    `Не удалось подобрать свободное имя для worktree после 1000 попыток`,
+  );
+}
