@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ExternalLink,
@@ -20,6 +21,7 @@ interface SessionCardProps {
 }
 
 export function SessionCard({ item, mode }: SessionCardProps) {
+  const router = useRouter();
   const missing: string[] = [];
   if (!item.hasProposal) missing.push("proposal.md");
   if (!item.hasDesign) missing.push("design.md");
@@ -54,16 +56,29 @@ export function SessionCard({ item, mode }: SessionCardProps) {
             relationship at a glance. Without this, a card
             titled "article-service" looks like its own change
             when it's actually a sub-task of
-            "add-articles-metrics". */}
+            "add-articles-metrics". IMPORTANT: must be a
+            <button>, NOT a <Link>. The outer card is itself
+            a <Link> (Next.js renders it as <a>); nesting a
+            second <a> inside violates HTML's "active
+            formatting elements" rule — the browser closes
+            the outer <a> early, which trips a Next.js
+            hydration mismatch. This is the same trap the
+            Jira badge fell into a few commits back. */}
         {item.parentTag && (
-          <Link
-            href={`/changes/${encodeURIComponent(item.parentTag)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="block w-fit text-[10px] text-slate-500 hover:text-slate-700 hover:underline"
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              router.push(
+                `/changes/${encodeURIComponent(item.parentTag!)}`,
+              );
+            }}
+            className="block w-fit text-left text-[10px] text-slate-500 hover:text-slate-700 hover:underline"
             title={`Sub-task от change-proposal «${item.parentTag}» — кликните, чтобы перейти к плану`}
           >
             ↑ от {item.parentTag}
-          </Link>
+          </button>
         )}
         <div className="flex flex-wrap gap-1">
           {/* Unified pipeline-status badge. Computed server-side via
