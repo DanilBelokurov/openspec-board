@@ -1,3 +1,6 @@
+.gitmodules
+
+
 # dependencies
 node_modules
 .pnp
@@ -35,3 +38,9 @@ next-env.d.ts
 
 docs/**
 example/** 
+
+mcp-servers/**
+# Added by code-review-graph
+.code-review-graph/
+
+**/repos/**
