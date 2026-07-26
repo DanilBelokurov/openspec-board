@@ -63,8 +63,21 @@ export default async function ChangePage({
   if (!task) notFound();
 
   const tag = task.summary.changeName;
+  // `changeName` is the actual openspec change-folder name.
+  // For the parent task this equals `tag` (e.g.
+  // "add-articles-metrics"). For a child develop task this
+  // is the parent's change name (`task.parentTag`,
+  // e.g. "add-articles-metrics"), NOT the service name
+  // (`tag` = "article-service") — the child has no
+  // dedicated `openspec/changes/<service>/` folder, it
+  // borrows the parent's change-proposal (which is where
+  // `tasks/<service>/tasks.md` lives). The previous code
+  // built `changePath` from `tag`, which is why the
+  // Структура section was empty on child pages and the
+  // header showed `openspec/changes/<service>`.
+  const changeName = task.parentTag ?? task.summary.changeName;
   const proposalRoot = await resolveProposalRootForTask(task, openspecDir);
-  const changePath = `${proposalRoot}/openspec/changes/${tag}`;
+  const changePath = `${proposalRoot}/openspec/changes/${changeName}`;
   const tree = await listChangeTree(changePath);
   const folderExists = tree !== null;
   const fileCount = tree ? countFiles(tree) : 0;
@@ -149,7 +162,7 @@ export default async function ChangePage({
   }
 
   const dateStr = formatDateTime(task.lastScannedAt);
-  const relPath = `openspec/changes/${tag}`;
+  const relPath = `openspec/changes/${changeName}`;
 
   // Step 1 (analyst mode): `openspec new change <tag> --description <text>`.
   const openspecNewAlive = task.openspecNewPid
@@ -472,7 +485,7 @@ export default async function ChangePage({
               <FileTree root={tree!} tag={tag} />
             ) : (
               <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
-                Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{tag}</code> ещё не создана.
+                Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{changeName}</code> ещё не создана.
                 {task.openspecNewPid && openspecNewAlive && (
                   <> Подождите, пока openspec new change создаст файлы.</>
                 )}
