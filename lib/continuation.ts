@@ -105,14 +105,22 @@ const loadUpdateArtifactPromptTemplate = () =>
   loadTemplate(UPDATE_ARTIFACT_PROMPT_TEMPLATE_PATH);
 const loadCreatePullRequestPromptTemplate = () =>
   loadTemplate(CREATE_PULL_REQUEST_TEMPLATE_PATH);
-const TDD_IMPLEMENT_PROMPT_TEMPLATE_PATH = path.join(
+const TDD_GREEN_PROMPT_TEMPLATE_PATH = path.join(
   process.cwd(),
   "templates",
   "spec-driven",
-  "tdd-implement-prompt-template.md",
+  "tdd-green-prompt-template.md",
 );
-const loadTddImplementPromptTemplate = () =>
-  loadTemplate(TDD_IMPLEMENT_PROMPT_TEMPLATE_PATH);
+const loadTddGreenPromptTemplate = () =>
+  loadTemplate(TDD_GREEN_PROMPT_TEMPLATE_PATH);
+const TDD_RED_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "spec-driven",
+  "tdd-red-prompt-template.md",
+);
+const loadTddRedPromptTemplate = () =>
+  loadTemplate(TDD_RED_PROMPT_TEMPLATE_PATH);
 
 // ============================================================================
 // Generic artifact pipeline
@@ -576,12 +584,13 @@ async function spawnCreateArtifactGigacode(
  *   - cwd is the code-repo worktree (not the openspec worktree)
  *   - the prompt is the TDD-implement template, not the
  *     create/update artifact template
- *   - the state fields written are `implement*` (not `*Create*`)
+ *   - the state fields written are `greenPhase*` (RED writes
+ *     `redPhase*`)
  *   - the {json} placeholder is filled with the parsed
  *     `openspec instructions tasks` JSON, providing the schema
  *     context (rules / template / instruction) to the LLM
  *
- * The TDD prompt is `templates/spec-driven/tdd-implement-prompt-template.md`
+ * The GREEN prompt is `templates/spec-driven/tdd-green-prompt-template.md`
  * — same loader pattern as the artifact templates. We pass the
  * TDD iron law in the template body so it's enforced verbatim
  * (LLMs are reliably resistant to "spirit, not letter" of TDD
@@ -590,13 +599,19 @@ async function spawnCreateArtifactGigacode(
  * Returns true on successful spawn, false on error. The
  * spawned gigacode's exit code is captured asynchronously via
  * the standard log-tailing mechanism in lib/process-logger.ts
- * and written to the task's `implementExitCode` /
- * `implementExitSignal` fields via `buildImplementExitPatch`.
+ * and written to the task's `greenPhaseExitCode` /
+ * `greenPhaseExitSignal` fields via `buildGreenPhaseExitPatch`.
  */
-export async function runImplementTdd(
+export async function runGreenTdd(
   task: import("./state").TaskEntry,
   changeName: string,
 ): Promise<{ ok: boolean; pid?: number; logFile?: string; error?: string }> {
+  // The GREEN phase runs the same fixture as the previous
+  // single-phase TDD: read tasks.md, fetch openspec
+  // instructions, render the green template, spawn gigacode
+  // in the code-repo worktree. The redPhaseBaseSha is not
+  // needed here — GREEN just makes the failing tests pass on
+  // the existing branch state.
   if (!task.codeWorktreePath) {
     return { ok: false, error: "У задачи не записан codeWorktreePath" };
   }
@@ -610,11 +625,6 @@ export async function runImplementTdd(
     return { ok: false, error: "У задачи не записан parentTag" };
   }
 
-  // 1. Read the existing tasks.md for this service from the
-  //    parent's openspec worktree. This is the spec the LLM
-  //    is going to implement, and it's also the document we
-  //    paste into the {artifact} placeholder for follow-up
-  //    runs.
   const tasksPath = path.join(
     task.openspecWorktreePath,
     "openspec",
@@ -634,10 +644,6 @@ export async function runImplementTdd(
     };
   }
 
-  // 2. Get the `openspec instructions tasks` JSON to feed
-  //    into the TDD prompt. This is the same JSON the
-  //    plan-stage generation used, providing the schema
-  //    context (rules, template, instruction, dependencies).
   let instructionsJson: string;
   try {
     const { stdout } = await run(
@@ -661,26 +667,18 @@ export async function runImplementTdd(
     };
   }
 
-  // 3. Substitute placeholders in the TDD-implement template.
-  //    We splice the tasks file content + the openspec
-  //    instructions JSON into the prompt body so the LLM has
-  //    everything it needs without re-reading files. (TDD
-  //    tools are LLM-side, this is the only place we bridge.)
-  const template = await loadTddImplementPromptTemplate();
+  const template = await loadTddGreenPromptTemplate();
   const prompt = template
     .replace("{tasksPath}", tasksPath)
     .replace("{codeWorktreePath}", task.codeWorktreePath)
     .replace("{openspecWorktreePath}", task.openspecWorktreePath)
     .replace("{json}", instructionsJson);
 
-  // 4. Write the prompt + invocation params to the log file
-  //    before spawn so a post-mortem on a failed TDD run can
-  //    see exactly what the LLM was given.
   const logFile = processLogPath(changeName, "implement", "develop");
   await fs.writeFile(
     logFile,
     [
-      `# gigacode --prompt (TDD implement) for ${changeName}`,
+      `# gigacode --prompt (TDD GREEN) for ${changeName}`,
       `# tasks: ${tasksPath}`,
       `# code worktree: ${task.codeWorktreePath}`,
       `# openspec worktree: ${task.openspecWorktreePath}`,
@@ -701,10 +699,6 @@ export async function runImplementTdd(
     { flag: "w" },
   );
 
-  // 5. Spawn detached. cwd is the code-repo worktree so
-  //    gigacode operates on the right checkout. The exit
-  //    handler writes the result back to the child task's
-  //    `implement*` fields, NOT the parent's.
   let pid: number | null = null;
   try {
     const result = spawnGigacodeWithLog({
@@ -719,13 +713,13 @@ export async function runImplementTdd(
       updateTask(
         task.mode,
         changeName,
-        buildImplementExitPatch(code, signal),
+        buildGreenPhaseExitPatch(code, signal),
       );
     result.promise
       .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
         console.error(
-          `gigacode-implement (${changeName}) exit handler error:`,
+          `gigacode-green (${changeName}) exit handler error:`,
           e,
         ),
       );
@@ -739,28 +733,218 @@ export async function runImplementTdd(
   if (pid == null) {
     return { ok: false, error: "Не удалось получить PID gigacode" };
   }
-  await updateTask(task.mode, changeName, buildImplementSpawnPatch(pid, logFile));
+  await updateTask(
+    task.mode,
+    changeName,
+    buildGreenPhaseSpawnPatch(pid, logFile),
+  );
   return { ok: true, pid, logFile };
 }
 
-function buildImplementExitPatch(
+function buildGreenPhaseExitPatch(
   exitCode: number | null,
   signal: string | null,
 ): Partial<import("./state").TaskEntry> {
   return {
-    implementExitCode: exitCode,
-    implementExitSignal: signal,
+    greenPhaseExitCode: exitCode,
+    greenPhaseExitSignal: signal,
   };
 }
 
-function buildImplementSpawnPatch(
+function buildGreenPhaseSpawnPatch(
   pid: number,
   logFile: string,
 ): Partial<import("./state").TaskEntry> {
   return {
-    implementPid: pid,
-    implementStartedAt: new Date().toISOString(),
-    implementLogPath: logFile,
+    greenPhasePid: pid,
+    greenPhaseStartedAt: new Date().toISOString(),
+    greenPhaseLogPath: logFile,
+  };
+}
+
+/**
+ * RED-phase spawn: writes failing tests for each task in
+ * `tasks/<service>/tasks.md` and commits each. Does NOT
+ * write any production code — that's the GREEN phase's
+ * job. Captures the worktree HEAD SHA before the first test
+ * commit so the test-diff endpoint can show
+ * `git diff redPhaseBaseSha..HEAD` as the review artefact
+ * the human clicks "Подтвердить" against.
+ */
+export async function runRedTdd(
+  task: import("./state").TaskEntry,
+  changeName: string,
+): Promise<{ ok: boolean; pid?: number; logFile?: string; error?: string }> {
+  if (!task.codeWorktreePath) {
+    return { ok: false, error: "У задачи не записан codeWorktreePath" };
+  }
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "У задачи не записан openspecWorktreePath" };
+  }
+  if (!task.serviceName) {
+    return { ok: false, error: "У задачи не записан serviceName" };
+  }
+  if (!task.parentTag) {
+    return { ok: false, error: "У задачи не записан parentTag" };
+  }
+
+  const tasksPath = path.join(
+    task.openspecWorktreePath,
+    "openspec",
+    "changes",
+    task.parentTag,
+    "tasks",
+    task.serviceName,
+    "tasks.md",
+  );
+  let artifactText: string;
+  try {
+    artifactText = await fs.readFile(tasksPath, "utf-8");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Не удалось прочитать tasks.md для "${task.serviceName}" по пути ${tasksPath}: ${(e as Error).message}`,
+    };
+  }
+
+  let instructionsJson: string;
+  try {
+    const { stdout } = await run(
+      "openspec",
+      [
+        "instructions",
+        "tasks",
+        "--change",
+        task.parentTag,
+        "--json",
+        "--schema",
+        SCHEMA,
+      ],
+      { cwd: task.openspecWorktreePath },
+    );
+    instructionsJson = stdout;
+  } catch (e) {
+    return {
+      ok: false,
+      error: `openspec instructions tasks: ${(e as Error).message}`,
+    };
+  }
+
+  // Capture the worktree HEAD before RED spawns. After RED
+  // finishes, `git diff <baseSha>..HEAD` is the exact set of
+  // test commits the dev sees in the review card. We
+  // deliberately don't pin to a specific commit — RED may
+  // make N test commits in one gigacode session, and the
+  // review card shows the cumulative diff.
+  let baseSha: string | null = null;
+  try {
+    const { stdout } = await run(
+      "git",
+      ["-C", task.codeWorktreePath, "rev-parse", "HEAD"],
+    );
+    baseSha = stdout.trim() || null;
+  } catch {
+    // Empty worktree (no commits yet) — baseSha stays null
+    // and the diff endpoint will diff against the empty tree.
+  }
+
+  const template = await loadTddRedPromptTemplate();
+  const prompt = template
+    .replace("{tasksPath}", tasksPath)
+    .replace("{codeWorktreePath}", task.codeWorktreePath)
+    .replace("{openspecWorktreePath}", task.openspecWorktreePath)
+    .replace("{json}", instructionsJson);
+
+  // RED log file gets its own stage segment so it doesn't
+  // collide with the GREEN log on a re-run after approval.
+  const logFile = processLogPath(changeName, "red", "develop");
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (TDD RED) for ${changeName}`,
+      `# tasks: ${tasksPath}`,
+      `# code worktree: ${task.codeWorktreePath}`,
+      `# openspec worktree: ${task.openspecWorktreePath}`,
+      `# base-sha: ${baseSha ?? "(empty)"}`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${task.codeWorktreePath}`,
+      `# prompt-length: ${prompt.length} chars`,
+      `# openspec-instructions-length: ${instructionsJson.length} chars`,
+      "# tasks.md-length:",
+      artifactText
+        .split("\n")
+        .map((l) => `#   ${l}`)
+        .join("\n"),
+      "",
+      "# ----- prompt ----->",
+      prompt,
+      "# <----- prompt -----",
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: undefined,
+      addDir: task.codeWorktreePath,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    const exitHandler = (code: number | null, signal: string | null) =>
+      updateTask(
+        task.mode,
+        changeName,
+        buildRedPhaseExitPatch(code, signal),
+      );
+    result.promise
+      .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
+      .catch((e) =>
+        console.error(
+          `gigacode-red (${changeName}) exit handler error:`,
+          e,
+        ),
+      );
+  } catch (e) {
+    return {
+      ok: false,
+      error: `gigacode spawn: ${(e as Error).message}`,
+    };
+  }
+
+  if (pid == null) {
+    return { ok: false, error: "Не удалось получить PID gigacode" };
+  }
+  await updateTask(
+    task.mode,
+    changeName,
+    buildRedPhaseSpawnPatch(pid, logFile, baseSha),
+  );
+  return { ok: true, pid, logFile };
+}
+
+function buildRedPhaseExitPatch(
+  exitCode: number | null,
+  signal: string | null,
+): Partial<import("./state").TaskEntry> {
+  return {
+    redPhaseExitCode: exitCode,
+    redPhaseExitSignal: signal,
+  };
+}
+
+function buildRedPhaseSpawnPatch(
+  pid: number,
+  logFile: string,
+  baseSha: string | null,
+): Partial<import("./state").TaskEntry> {
+  return {
+    redPhasePid: pid,
+    redPhaseStartedAt: new Date().toISOString(),
+    redPhaseLogPath: logFile,
+    redPhaseBaseSha: baseSha ?? undefined,
   };
 }
 

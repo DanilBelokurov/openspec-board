@@ -30,6 +30,7 @@ import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { ServiceSelectionCard } from "@/components/ServiceSelectionCard";
 import { ImplementStartCard } from "@/components/ImplementStartCard";
+import { TestDiffCard } from "@/components/TestDiffCard";
 import { TaskActions } from "@/components/TaskActions";
 import { DoneTaskActions } from "@/components/DoneTaskActions";
 import { DoneDeploymentActions } from "@/components/DoneDeploymentActions";
@@ -204,9 +205,14 @@ export default async function ChangePage({
     ? isProcessAlive(task.planUpdatePid)
     : false;
   // Per-service TDD run on child develop tasks. Same shape
-  // as the plan-stage process card.
-  const implementAlive = task.implementPid
-    ? isProcessAlive(task.implementPid)
+  // as the plan-stage process card. Split into RED (writing
+  // tests) and GREEN (writing production code to make the
+  // tests pass); a human "Подтвердить" gate sits between them.
+  const redPhaseAlive = task.redPhasePid
+    ? isProcessAlive(task.redPhasePid)
+    : false;
+  const greenPhaseAlive = task.greenPhasePid
+    ? isProcessAlive(task.greenPhasePid)
     : false;
   const jiraId = task.jiraUrl
     ? extractJiraId(task.jiraUrl)
@@ -423,7 +429,7 @@ export default async function ChangePage({
             task.mode === "developer" &&
             task.parentTag != null && (
               <section className="mb-5">
-                <ImplementStartCard tag={tag} disabled={implementAlive} />
+                <ImplementStartCard tag={tag} disabled={redPhaseAlive || greenPhaseAlive} />
               </section>
             )}
 
@@ -988,48 +994,104 @@ export default async function ChangePage({
             </details>
           )}
 
-          {/* Per-service TDD process card on child develop
-              tasks. Mirrors the designCreatePid / planCreatePid
-              card shape — status icon, launch timestamp, error
-              line on non-zero exit, PID + log path. The user
-              can re-run by clicking "Запустить" again (the
-              implement endpoint refuses a second spawn only
-              while a previous run is still alive). */}
-          {task.implementPid && (
+          {/* RED phase: process card while RED is running, or
+              after it has finished (waiting for the dev to
+              review the test diff and click "Подтвердить").
+              Hidden once the dev approves — the
+              TestDiffCard/Подтвердить card below takes over
+              the visual slot. */}
+          {(task.redPhasePid ||
+            task.redPhaseExitCode != null) && (
             <details
               className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex items-center gap-2 font-semibold text-slate-800">
                 <ProcessStatusIcon
-                  alive={implementAlive}
-                  exitCode={task.implementExitCode}
+                  alive={redPhaseAlive}
+                  exitCode={task.redPhaseExitCode}
                 />
-                <span>TDD-цикл</span>
+                <span>RED-фаза · тесты</span>
                 <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
               </summary>
               <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                {task.implementStartedAt && (
+                {task.redPhaseStartedAt && (
                   <div className="text-[11px] text-slate-500">
-                    Запущено: {formatDateTime(task.implementStartedAt)}
+                    Запущено: {formatDateTime(task.redPhaseStartedAt)}
                   </div>
                 )}
-                {!implementAlive &&
-                  task.implementExitCode != null &&
-                  task.implementExitCode !== 0 && (
+                {!redPhaseAlive &&
+                  task.redPhaseExitCode != null &&
+                  task.redPhaseExitCode !== 0 && (
                     <div className="text-[11px] text-red-700">
-                      {`Ошибка (exit ${task.implementExitCode}) — см. лог`}
+                      {`Ошибка (exit ${task.redPhaseExitCode}) — см. лог`}
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
                   <dt className="text-slate-500">PID</dt>
                   <dd className="font-mono text-[10px]">
-                    {task.implementPid}
+                    {task.redPhasePid}
                   </dd>
-                  {task.implementLogPath && (
+                  {task.redPhaseLogPath && (
                     <>
                       <dt className="text-slate-500">Лог</dt>
                       <dd className="font-mono text-[10px] break-all text-slate-500">
-                        {task.implementLogPath}
+                        {task.redPhaseLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
+          {/* Between RED and GREEN: the dev reviews the test
+              diff and clicks "Подтвердить". Rendered only
+              when RED has finished with exit 0 and not yet
+              approved. */}
+          {task.redPhaseExitCode === 0 &&
+            task.redPhaseApprovedAt == null && (
+              <TestDiffCard tag={tag} />
+            )}
+
+          {/* GREEN phase: same shape as the RED card. Rendered
+              while GREEN is running, or after it has finished
+              (then the user can do the next step, e.g.
+              deploy). */}
+          {task.greenPhasePid && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={greenPhaseAlive}
+                  exitCode={task.greenPhaseExitCode}
+                />
+                <span>GREEN-фаза · реализация</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.greenPhaseStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.greenPhaseStartedAt)}
+                  </div>
+                )}
+                {!greenPhaseAlive &&
+                  task.greenPhaseExitCode != null &&
+                  task.greenPhaseExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {`Ошибка (exit ${task.greenPhaseExitCode}) — см. лог`}
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.greenPhasePid}
+                  </dd>
+                  {task.greenPhaseLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.greenPhaseLogPath}
                       </dd>
                     </>
                   )}

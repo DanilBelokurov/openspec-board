@@ -225,20 +225,39 @@ export interface TaskEntry {
   serviceRepos?: Record<string, string>;
   parentTag?: string;
   serviceName?: string;
-  // develop (developer-mode) TDD step: per-service gigacode
-  // run inside the code-repo worktree, driven by
-  // `templates/spec-driven/tdd-implement-prompt-template.md`.
-  // `implementPid` is the gigacode --prompt PID; a live PID
-  // blocks a second spawn via the auto-trigger loop. The
-  // children inherit `openspecWorktreePath` from the parent
-  // (where `tasks.md` lives) and set their own `codeRepoPath`
-  // + `codeBranch` (worktree on the chosen service repo).
-  implementPid?: number | null;
-  implementStartedAt?: string;
-  implementExitCode?: number | null;
-  implementExitSignal?: string | null;
-  implementLogPath?: string;
-  implementError?: string;
+  // develop (developer-mode) TDD pipeline, split into two
+  // human-gated phases per service. The dev can review the
+  // tests RED wrote, approve them, and only then does GREEN
+  // spawn to make those tests pass. The children inherit
+  // `openspecWorktreePath` from the parent (where `tasks.md`
+  // lives) and set their own `codeRepoPath` + `codeBranch`
+  // (worktree on the chosen service repo).
+  //
+  // RED phase — `tdd-red-prompt-template.md`. Writes one
+  // failing test per task in `tasks/<service>/tasks.md`,
+  // commits each, returns. Does NOT write any production code.
+  // `redPhaseBaseSha` is the worktree HEAD captured before
+  // RED started so the test-diff endpoint can show
+  // `git diff redPhaseBaseSha..HEAD` as the review artefact.
+  redPhasePid?: number | null;
+  redPhaseStartedAt?: string;
+  redPhaseExitCode?: number | null;
+  redPhaseExitSignal?: string | null;
+  redPhaseLogPath?: string;
+  redPhaseBaseSha?: string;
+  redPhaseApprovedAt?: string;
+  // GREEN phase — `tdd-green-prompt-template.md`. Reads the
+  // failing tests RED left on the feature branch, writes the
+  // production code that makes them pass, commits each.
+  // Spawned by the human-gated "Подтвердить" button on the
+  // develop page (POST /api/changes/<tag>/implement/approve).
+  // Renamed from the previous `implement*` fields when the
+  // single-phase TDD pipeline was split into RED+GREEN.
+  greenPhasePid?: number | null;
+  greenPhaseStartedAt?: string;
+  greenPhaseExitCode?: number | null;
+  greenPhaseExitSignal?: string | null;
+  greenPhaseLogPath?: string;
 }
 
 export interface AppState {
