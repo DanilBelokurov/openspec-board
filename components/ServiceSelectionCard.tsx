@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Play, Loader2 } from "lucide-react";
+import { Pencil, Play, Loader2, X, Send } from "lucide-react";
 
 export interface ServiceSelectionCardRepo {
   /** Repo key from config.repos. */
@@ -62,11 +62,64 @@ export function ServiceSelectionCard({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Pencil / inline-editor state for the "re-run plan with
+  // a free-form request" flow. Mirrors the design/adr
+  // pattern in ConfirmArtifactButton: clicking the pencil
+  // opens a textarea; submitting POSTs to
+  // /api/changes/<tag>/update-plan.
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [updateSubmitting, setUpdateSubmitting] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   const canSubmit = useMemo(
     () => services.some((s) => selection[s] && selection[s] !== "skip"),
     [services, selection],
   );
+
+  function openEditor() {
+    setEditing(true);
+    setEditValue("");
+    setUpdateError(null);
+  }
+  function cancelEdit() {
+    setEditing(false);
+    setEditValue("");
+  }
+
+  async function submitEdit() {
+    const comments = editValue.trim();
+    if (!comments) return;
+    setUpdateSubmitting(true);
+    setUpdateError(null);
+    try {
+      const res = await fetch(
+        `/api/changes/${encodeURIComponent(tag)}/update-plan`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ comments }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setUpdateError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      // 202 Accepted — the gigacode re-run is detached. The
+      // page re-fetches so the new planCreatePid process
+      // card appears. The user's existing selection
+      // (parent.serviceRepos) is preserved across the re-run,
+      // so the dropdowns stay pre-filled.
+      setEditing(false);
+      setEditValue("");
+      router.refresh();
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUpdateSubmitting(false);
+    }
+  }
 
   async function handleSubmit() {
     const payload: Record<string, string> = {};
@@ -126,6 +179,15 @@ export function ServiceSelectionCard({
         </div>
         <button
           type="button"
+          onClick={openEditor}
+          title="Запросить изменения"
+          aria-label="Запросить изменения"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
           onClick={handleSubmit}
           disabled={!canSubmit || submitting}
           className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
@@ -145,7 +207,60 @@ export function ServiceSelectionCard({
         </div>
       )}
 
-      <div className="mt-3 space-y-2 border-t border-emerald-200/70 pt-3">
+      {editing && (
+        <div className="mt-3 space-y-2 border-t border-emerald-200/70 pt-3">
+          <label
+            htmlFor={`plan-edit-${tag}`}
+            className="block text-[11px] font-medium text-emerald-900/80"
+          >
+            Что изменить в плане?
+          </label>
+          <textarea
+            id={`plan-edit-${tag}`}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            placeholder={
+              "Например: «добавь секцию про тесты для edge cases», «разбей task 3 на подзадачи», «учти multi-region failover»"
+            }
+            rows={3}
+            autoFocus
+            disabled={updateSubmitting}
+            className="w-full rounded-md border border-emerald-300 bg-white px-2 py-1.5 text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-300 disabled:bg-slate-50"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={updateSubmitting}
+              className="flex h-7 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>Отмена</span>
+            </button>
+            <button
+              type="button"
+              onClick={submitEdit}
+              disabled={updateSubmitting || editValue.trim().length === 0}
+              className="flex h-7 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-[12px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {updateSubmitting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              <span>Отправить</span>
+            </button>
+          </div>
+          {updateError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+              {updateError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!editing && (
+        <div className="mt-3 space-y-2 border-t border-emerald-200/70 pt-3">
         {services.map((service) => (
           <label
             key={service}
@@ -176,6 +291,7 @@ export function ServiceSelectionCard({
           </label>
         ))}
       </div>
+      )}
     </div>
   );
 }
