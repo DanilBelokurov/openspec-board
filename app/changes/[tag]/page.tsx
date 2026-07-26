@@ -338,6 +338,19 @@ export default async function ChangePage({
                   </a>
                 </>
               )}
+              {task.parentTag && (
+                <>
+                  <span>·</span>
+                  <Link
+                    href={`/changes/${encodeURIComponent(task.parentTag)}`}
+                    className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100"
+                    title={`Sub-task от change-proposal «${task.parentTag}» — этот child делит openspec-worktree с parent'ом`}
+                  >
+                    <ArrowLeft className="h-2.5 w-2.5" />
+                    К плану: {task.parentTag}
+                  </Link>
+                </>
+              )}
               <span>·</span>
               <span>Обновлено {dateStr}</span>
             </div>

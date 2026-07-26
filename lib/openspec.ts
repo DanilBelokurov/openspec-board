@@ -95,6 +95,12 @@ export interface BoardItem extends ChangeSummary {
   jiraUrl?: string;
   jiraId?: string;
   codeRepoPath?: string;
+  // For child develop tasks: the parent's change-tag. Lets the
+  // board show "↑ от <parentTag>" on the card and the detail
+  // page show a "← К плану" link, so the dev sees the parent
+  // relationship at a glance (child borrows the parent's
+  // change-proposal, not its own).
+  parentTag?: string;
   // Step 1 (analyst mode): `openspec new change` — creates the change folder.
   openspecNewStatus?: "running" | "stopped" | "none";
   // Step 2 (analyst mode): gigacode /opsx-continue — writes proposal.md.

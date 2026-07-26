@@ -291,16 +291,22 @@ async function handlePlanConfirm(
         path: "",
         title: childTag,
         stage: "develop",
-        hasProposal: false,
-        hasDesign: false,
-        hasSpecs: false,
-        capabilityTags: [],
-        newCapabilities: [],
-        modifiedCapabilities: [],
-        specCounts: { added: 0, modified: 0, removed: 0, scenarios: 0 },
+        // The child borrows the parent's change-proposal (no
+        // own openspec/changes/<service>/ folder exists), so
+        // its artifact-availability flags match the parent's.
+        // Without this, the board card shows a misleading
+        // "Нет артефактов: proposal.md, design.md, specs/"
+        // warning on every child task.
+        hasProposal: task.summary.hasProposal,
+        hasDesign: task.summary.hasDesign,
+        hasSpecs: task.summary.hasSpecs,
+        capabilityTags: task.summary.capabilityTags,
+        newCapabilities: task.summary.newCapabilities,
+        modifiedCapabilities: task.summary.modifiedCapabilities,
+        specCounts: task.summary.specCounts,
         updatedAt: now,
-        fileCount: 0,
-        totalSize: 0,
+        fileCount: task.summary.fileCount,
+        totalSize: task.summary.totalSize,
       },
       description: task.description,
       parentTag,

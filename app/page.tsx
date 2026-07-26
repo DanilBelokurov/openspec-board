@@ -116,6 +116,7 @@ export default async function Home() {
             jiraUrl: t.jiraUrl,
             jiraId: jiraId ?? undefined,
             codeRepoPath: t.codeRepoPath,
+            parentTag: t.parentTag,
             openspecNewStatus: processStatusFor(t.openspecNewPid),
             gigacodeContinueStatus: processStatusFor(t.gigacodeContinuePid),
             deltaSpecCreateStatus: processStatusFor(t.deltaSpecCreatePid),

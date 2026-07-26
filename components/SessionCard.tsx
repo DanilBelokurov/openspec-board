@@ -49,6 +49,22 @@ export function SessionCard({ item, mode }: SessionCardProps) {
             {item.changeName}
           </code>
         )}
+        {/* For child develop tasks, show a small "↑ от
+            <parentTag>" subheading so the dev sees the parent
+            relationship at a glance. Without this, a card
+            titled "article-service" looks like its own change
+            when it's actually a sub-task of
+            "add-articles-metrics". */}
+        {item.parentTag && (
+          <Link
+            href={`/changes/${encodeURIComponent(item.parentTag)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="block w-fit text-[10px] text-slate-500 hover:text-slate-700 hover:underline"
+            title={`Sub-task от change-proposal «${item.parentTag}» — кликните, чтобы перейти к плану`}
+          >
+            ↑ от {item.parentTag}
+          </Link>
+        )}
         <div className="flex flex-wrap gap-1">
           {/* Unified pipeline-status badge. Computed server-side via
               lib/openspec.ts → pipelineStatus() so it works for
@@ -128,7 +144,7 @@ export function SessionCard({ item, mode }: SessionCardProps) {
             </span>
           )}
         </div>
-        {missing.length > 0 && mode === "developer" && (
+        {missing.length > 0 && mode === "developer" && !item.parentTag && (
           <div className="rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-[10px] text-amber-800">
             ⚠ Нет артефактов: {missing.join(", ")}
           </div>
