@@ -122,6 +122,14 @@ const TDD_RED_PROMPT_TEMPLATE_PATH = path.join(
 );
 const loadTddRedPromptTemplate = () =>
   loadTemplate(TDD_RED_PROMPT_TEMPLATE_PATH);
+const TDD_RED_UPDATE_PROMPT_TEMPLATE_PATH = path.join(
+  process.cwd(),
+  "templates",
+  "spec-driven",
+  "tdd-red-update-prompt-template.md",
+);
+const loadTddRedUpdatePromptTemplate = () =>
+  loadTemplate(TDD_RED_UPDATE_PROMPT_TEMPLATE_PATH);
 
 // ============================================================================
 // Generic artifact pipeline
@@ -921,6 +929,187 @@ export async function runRedTdd(
     buildRedPhaseSpawnPatch(pid, logFile, baseSha),
   );
   return { ok: true, pid, logFile };
+}
+
+/**
+ * RED UPDATE — replay of the RED phase with a user-supplied
+ * comment. Spawned by the "переделай тесты с учётом…" pencil
+ * flow on the diff card (POST /api/changes/<tag>/implement/update-red).
+ * Mirrors runRedTdd except:
+ *   - uses `tdd-red-update-prompt-template.md` (the agent
+ *     reads the existing tests in the working tree itself —
+ *     we don't pass the file contents into the prompt),
+ *   - the prompt is fed `{comments}` in place of having
+ *     `redPhaseBaseSha` referenced (no SHA context needed:
+ *     the working tree is the source of truth),
+ *   - state fields written are `redPhaseUpdate*` (not
+ *     `redPhase*`), keeping the original RED run's signal
+ *     intact for the "RED-фаза" process card.
+ *   - `redPhaseUpdateComments` is set to the user's comment
+ *     so the process card can echo what the agent was asked.
+ *
+ * No production code, no commit — same Iron Law as the
+ * create-side runRedTdd.
+ */
+export async function runRedUpdateTdd(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  comments: string,
+): Promise<{ ok: boolean; pid?: number; logFile?: string; error?: string }> {
+  if (!task.codeWorktreePath) {
+    return { ok: false, error: "У задачи не записан codeWorktreePath" };
+  }
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "У задачи не записан openspecWorktreePath" };
+  }
+  if (!task.serviceName) {
+    return { ok: false, error: "У задачи не записан serviceName" };
+  }
+  if (!task.parentTag) {
+    return { ok: false, error: "У задачи не записан parentTag" };
+  }
+
+  const tasksPath = path.join(
+    task.openspecWorktreePath,
+    "openspec",
+    "changes",
+    task.parentTag,
+    "tasks",
+    task.serviceName,
+    "tasks.md",
+  );
+  let artifactText: string;
+  try {
+    artifactText = await fs.readFile(tasksPath, "utf-8");
+  } catch (e) {
+    return {
+      ok: false,
+      error: `Не удалось прочитать tasks.md для "${task.serviceName}" по пути ${tasksPath}: ${(e as Error).message}`,
+    };
+  }
+
+  let instructionsJson: string;
+  try {
+    const { stdout } = await run(
+      "openspec",
+      [
+        "instructions",
+        "tasks",
+        "--change",
+        task.parentTag,
+        "--json",
+        "--schema",
+        SCHEMA,
+      ],
+      { cwd: task.openspecWorktreePath },
+    );
+    instructionsJson = stdout;
+  } catch (e) {
+    return {
+      ok: false,
+      error: `openspec instructions tasks: ${(e as Error).message}`,
+    };
+  }
+
+  const template = await loadTddRedUpdatePromptTemplate();
+  const prompt = template
+    .replace("{tasksPath}", tasksPath)
+    .replace("{codeWorktreePath}", task.codeWorktreePath)
+    .replace("{openspecWorktreePath}", task.openspecWorktreePath)
+    .replace("{comments}", comments)
+    .replace("{json}", instructionsJson);
+
+  // Same naming as the create-side red run, but the suffix
+  // makes it obvious in `.sdd-board/logs/` which process
+  // was the update.
+  const logFile = processLogPath(changeName, "red", "develop-update");
+  await fs.writeFile(
+    logFile,
+    [
+      `# gigacode --prompt (TDD RED UPDATE) for ${changeName}`,
+      `# tasks: ${tasksPath}`,
+      `# code worktree: ${task.codeWorktreePath}`,
+      `# openspec worktree: ${task.openspecWorktreePath}`,
+      `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${task.codeWorktreePath}`,
+      `# prompt-length: ${prompt.length} chars`,
+      `# openspec-instructions-length: ${instructionsJson.length} chars`,
+      "# tasks.md-length:",
+      artifactText
+        .split("\n")
+        .map((l) => `#   ${l}`)
+        .join("\n"),
+      "# user comments:",
+      ...comments
+        .split("\n")
+        .map((l) => `#   ${l}`),
+      "",
+    ].join("\n"),
+    { flag: "w" },
+  );
+
+  let pid: number | null = null;
+  try {
+    const result = spawnGigacodeWithLog({
+      argv: ["--prompt", prompt],
+      logFile,
+      header: undefined,
+      addDir: task.codeWorktreePath,
+      approvalMode: "auto-edit",
+    });
+    pid = result.pid || null;
+    const exitHandler = (code: number | null, signal: string | null) =>
+      updateTask(
+        task.mode,
+        changeName,
+        buildRedPhaseUpdateExitPatch(code, signal),
+      );
+    result.promise
+      .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
+      .catch((e) =>
+        console.error(
+          `gigacode-red-update (${changeName}) exit handler error:`,
+          e,
+        ),
+      );
+  } catch (e) {
+    return {
+      ok: false,
+      error: `gigacode spawn: ${(e as Error).message}`,
+    };
+  }
+
+  if (pid == null) {
+    return { ok: false, error: "Не удалось получить PID gigacode" };
+  }
+  await updateTask(
+    task.mode,
+    changeName,
+    buildRedPhaseUpdateSpawnPatch(pid, logFile, comments),
+  );
+  return { ok: true, pid, logFile };
+}
+
+function buildRedPhaseUpdateExitPatch(
+  exitCode: number | null,
+  signal: string | null,
+): Partial<import("./state").TaskEntry> {
+  return {
+    redPhaseUpdateExitCode: exitCode,
+    redPhaseUpdateExitSignal: signal,
+  };
+}
+
+function buildRedPhaseUpdateSpawnPatch(
+  pid: number,
+  logFile: string,
+  comments: string,
+): Partial<import("./state").TaskEntry> {
+  return {
+    redPhaseUpdatePid: pid,
+    redPhaseUpdateStartedAt: new Date().toISOString(),
+    redPhaseUpdateLogPath: logFile,
+    redPhaseUpdateComments: comments,
+  };
 }
 
 function buildRedPhaseExitPatch(

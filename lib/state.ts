@@ -256,6 +256,19 @@ export interface TaskEntry {
   // so a re-approve can retry the commit.
   redPhaseCommitError?: string;
   redPhaseCommitExitCode?: number | null;
+  // RED UPDATE — replay of the RED phase with a user-supplied
+  // comment (the "переделай тесты с учётом…" pencil flow on the
+  // diff card). The agent reads the existing tests in the
+  // working tree itself — we don't pass the test files into the
+  // prompt — and rewrites them to address the comment. The
+  // user's comment is stored here so the process card below
+  // the diff can show what the agent was asked to do.
+  redPhaseUpdatePid?: number | null;
+  redPhaseUpdateStartedAt?: string;
+  redPhaseUpdateExitCode?: number | null;
+  redPhaseUpdateExitSignal?: string | null;
+  redPhaseUpdateLogPath?: string;
+  redPhaseUpdateComments?: string;
   // GREEN phase — `tdd-green-prompt-template.md`. Reads the
   // failing tests RED left on the feature branch, writes the
   // production code that makes them pass, commits each.

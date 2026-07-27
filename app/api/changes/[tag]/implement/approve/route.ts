@@ -107,6 +107,22 @@ export async function POST(
       { status: 409 },
     );
   }
+  // Don't approve while a RED UPDATE is still rewriting the
+  // tests in the working tree — the commit would otherwise
+  // pick up partial edits (a test half-rewritten, an
+  // outdated assertion, etc.). The matching test-diff page
+  // already hides the diff card during the update so the
+  // user can't approve from the UI either; this is the
+  // server-side belt-and-suspenders.
+  if (task.redPhaseUpdatePid && isProcessAlive(task.redPhaseUpdatePid)) {
+    return NextResponse.json(
+      {
+        error:
+          "Идёт обновление RED-тестов — дождитесь окончания, потом «Подтвердить»",
+      },
+      { status: 409 },
+    );
+  }
 
   // Stamp the approval timestamp FIRST, then commit RED
   // tests, then spawn GREEN. The two operations (stamp +

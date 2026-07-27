@@ -230,6 +230,13 @@ export default async function ChangePage({
   const redPhaseAlive = task.redPhasePid
     ? isProcessAlive(task.redPhasePid)
     : false;
+  // RED UPDATE — replay of RED with a user-supplied comment
+  // (the pencil flow on TestDiffCard). Same shape as
+  // redPhaseAlive; the separate PID keeps the original RED
+  // run's signal intact for the "RED-фаза" process card.
+  const redPhaseUpdateAlive = task.redPhaseUpdatePid
+    ? isProcessAlive(task.redPhaseUpdatePid)
+    : false;
   const greenPhaseAlive = task.greenPhasePid
     ? isProcessAlive(task.greenPhasePid)
     : false;
@@ -1128,16 +1135,77 @@ export default async function ChangePage({
             </details>
           )}
 
+          {/* RED UPDATE — replay of RED with a user-supplied
+              comment (the "переделай тесты с учётом…" pencil
+              flow on TestDiffCard). Rendered when the update
+              has been spawned. Lives next to the RED card so
+              the dev sees the original run's signal and the
+              update's signal side-by-side. */}
+          {(task.redPhaseUpdatePid ||
+            task.redPhaseUpdateExitCode != null) && (
+            <details
+              className="group mt-3 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
+            >
+              <summary className="flex items-center gap-2 font-semibold text-slate-800">
+                <ProcessStatusIcon
+                  alive={redPhaseUpdateAlive}
+                  exitCode={task.redPhaseUpdateExitCode}
+                />
+                <span>Обновление RED-фазы · тесты с учётом комментария</span>
+                <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                {task.redPhaseUpdateStartedAt && (
+                  <div className="text-[11px] text-slate-500">
+                    Запущено: {formatDateTime(task.redPhaseUpdateStartedAt)}
+                  </div>
+                )}
+                {task.redPhaseUpdateComments && (
+                  <div className="text-[11px] text-slate-600">
+                    <span className="text-slate-500">Комментарий:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {task.redPhaseUpdateComments}
+                    </span>
+                  </div>
+                )}
+                {!redPhaseUpdateAlive &&
+                  task.redPhaseUpdateExitCode != null &&
+                  task.redPhaseUpdateExitCode !== 0 && (
+                    <div className="text-[11px] text-red-700">
+                      {`Ошибка (exit ${task.redPhaseUpdateExitCode}) — см. лог`}
+                    </div>
+                  )}
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+                  <dt className="text-slate-500">PID</dt>
+                  <dd className="font-mono text-[10px]">
+                    {task.redPhaseUpdatePid}
+                  </dd>
+                  {task.redPhaseUpdateLogPath && (
+                    <>
+                      <dt className="text-slate-500">Лог</dt>
+                      <dd className="font-mono text-[10px] break-all text-slate-500">
+                        {task.redPhaseUpdateLogPath}
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </details>
+          )}
+
           {/* Between RED and GREEN: the dev reviews the test
               diff and clicks "Подтвердить". Rendered when
               RED has finished with exit 0 and either hasn't
               been approved yet, OR was approved but the
               commit step failed and is now retryable. The
               TestDiffCard reads `commitError` and flips to
-              a "Повторить коммит" UI for the second case. */}
+              a "Повторить коммит" UI for the second case.
+              Hidden while a RED UPDATE is alive so the diff
+              doesn't show in-progress edits. */}
           {task.redPhaseExitCode === 0 &&
             (task.redPhaseApprovedAt == null ||
-              task.redPhaseCommitError != null) && (
+              task.redPhaseCommitError != null) &&
+            !redPhaseUpdateAlive && (
               <TestDiffCard
                 tag={tag}
                 commitError={task.redPhaseCommitError}
