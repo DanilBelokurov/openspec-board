@@ -31,6 +31,7 @@ import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { ServiceSelectionCard } from "@/components/ServiceSelectionCard";
 import { ImplementStartCard } from "@/components/ImplementStartCard";
 import { TestDiffCard } from "@/components/TestDiffCard";
+import { RestartSubtaskButton } from "@/components/RestartSubtaskButton";
 import { TaskActions } from "@/components/TaskActions";
 import { DoneTaskActions } from "@/components/DoneTaskActions";
 import { DoneDeploymentActions } from "@/components/DoneDeploymentActions";
@@ -1102,8 +1103,11 @@ export default async function ChangePage({
                 {!redPhaseAlive &&
                   task.redPhaseExitCode != null &&
                   task.redPhaseExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      {`Ошибка (exit ${task.redPhaseExitCode}) — см. лог`}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        {`Ошибка (exit ${task.redPhaseExitCode}) — см. лог`}
+                      </div>
+                      <RestartSubtaskButton tag={tag} phase="red" />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -1158,8 +1162,11 @@ export default async function ChangePage({
                 {!greenPhaseAlive &&
                   task.greenPhaseExitCode != null &&
                   task.greenPhaseExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      {`Ошибка (exit ${task.greenPhaseExitCode}) — см. лог`}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        {`Ошибка (exit ${task.greenPhaseExitCode}) — см. лог`}
+                      </div>
+                      <RestartSubtaskButton tag={tag} phase="green" />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
