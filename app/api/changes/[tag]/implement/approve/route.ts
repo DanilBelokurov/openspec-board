@@ -89,7 +89,7 @@ export async function POST(
       { status: 409 },
     );
   }
-  if (task.redPhaseApprovedAt != null) {
+  if (task.redPhaseApprovedAt != null && task.redPhaseCommitError == null) {
     return NextResponse.json(
       {
         error:
@@ -108,30 +108,105 @@ export async function POST(
     );
   }
 
-  // Stamp the approval timestamp FIRST, then spawn GREEN.
-  // The two operations are not atomic, but the order matters:
-  // if /implement/approve is called twice in quick
-  // succession (e.g. a flaky network retried the POST), the
-  // second call would hit the redPhaseApprovedAt check above
-  // and 409 out — preventing a double GREEN spawn that
-  // would clobber the worktree.
+  // Stamp the approval timestamp FIRST, then commit RED
+  // tests, then spawn GREEN. The two operations (stamp +
+  // commit, commit + spawn) are not atomic, but the order
+  // matters:
+  //  - stamp first ensures a duplicate /implement/approve
+  //    POST (e.g. a flaky network retry) hits the
+  //    redPhaseApprovedAt check above and 409s out — the
+  //    exception is a *previous* commit failure, where the
+  //    check above now allows re-approve to retry the commit.
+  //  - commit before spawn ensures the GREEN agent finds
+  //    the failing tests already committed on the feature
+  //    branch (its prompt assumes `git log` shows them).
+  //    If the commit fails, we surface
+  //    `redPhaseCommitError` and return 500 — the user
+  //    retries via a second "Подтвердить" click (the
+  //    approvedAt check now allows it because of the
+  //    redPhaseCommitError != null branch).
 
   // We use a small write-then-read-then-write dance via the
   // shared `updateTask` helper to keep the read-modify-write
   // window narrow. The atomicity is best-effort (state.json
-  // writes are atomic via atomic-write.ts, but the two
-  // writes — stamp and spawn — are not). For a single-user
+  // writes are atomic via atomic-write.ts, but the writes
+  // — stamp, commit, spawn — are not). For a single-user
   // dev tool this is acceptable; a true multi-user system
   // would need a lock.
   const { updateTask, readState } = await import("@/lib/state");
   await updateTask("developer", params.tag, {
     redPhaseApprovedAt: new Date().toISOString(),
+    // Clear any previous commit error so the UI shows the
+    // fresh attempt — re-approve retries with the same
+    // committedAt semantics.
+    redPhaseCommitError: undefined,
+    redPhaseCommitExitCode: undefined,
   });
   // Re-read to confirm the stamp landed. (If the write
   // failed the read would still show null; the check above
   // would then reject the second call anyway on the
   // next attempt.)
   void readState;
+
+  // Commit RED tests to the feature branch as a single
+  // commit. Mirrors the per-task commit semantics on the
+  // analyst side, just one commit for the whole RED phase:
+  //   `git -C <codeWorktreePath> status --porcelain` → skip
+  //     if nothing to commit (RED wrote nothing).
+  //   `git add -A` → stage every change in the worktree.
+  //     RED typically writes new (untracked) test files; if
+  //     there's anything else in the worktree, the user
+  //     fixes it manually before re-approving.
+  //   `git commit -m "test: RED-phase tests for <service>"`
+  //     → one commit grouping all RED tests, matching the
+  //     commit-after-approval invariant from the RED prompt
+  //     template.
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  const exec = promisify(execFile);
+  const execOpts = { maxBuffer: 16 * 1024 * 1024 } as const;
+  try {
+    const { stdout: status } = await exec(
+      "git",
+      ["-C", task.codeWorktreePath, "status", "--porcelain"],
+      execOpts,
+    );
+    if (status.trim() !== "") {
+      await exec(
+        "git",
+        ["-C", task.codeWorktreePath, "add", "-A"],
+        execOpts,
+      );
+      await exec(
+        "git",
+        [
+          "-C",
+          task.codeWorktreePath,
+          "commit",
+          "-m",
+          `test: RED-phase tests for ${task.serviceName}`,
+        ],
+        execOpts,
+      );
+    }
+    // Whatever the above produced, the commit succeeded
+    // (or there was nothing to commit). Clear any stale
+    // error and proceed.
+    await updateTask("developer", params.tag, {
+      redPhaseCommitError: undefined,
+      redPhaseCommitExitCode: 0,
+    });
+  } catch (e) {
+    const err = e as Error;
+    await updateTask("developer", params.tag, {
+      redPhaseCommitError: err.message,
+      redPhaseCommitExitCode: 1,
+    });
+    return NextResponse.json(
+      { error: `git commit failed: ${err.message}` },
+      { status: 500 },
+    );
+  }
 
   const result = await runGreenTdd(task, params.tag);
   if (!result.ok) {

@@ -246,6 +246,16 @@ export interface TaskEntry {
   redPhaseLogPath?: string;
   redPhaseBaseSha?: string;
   redPhaseApprovedAt?: string;
+  // RED tests are committed on the feature branch only after
+  // the user clicks "Подтвердить" on the diff card — `commitChange`
+  // doesn't apply (different worktree, different stage). The
+  // /implement/approve endpoint runs `git add -A && git commit`
+  // in the code worktree after stamping redPhaseApprovedAt; if
+  // the commit fails (pre-commit hook, conflict after rebase,
+  // …), the error is surfaced here and the approval stays stamped
+  // so a re-approve can retry the commit.
+  redPhaseCommitError?: string;
+  redPhaseCommitExitCode?: number | null;
   // GREEN phase — `tdd-green-prompt-template.md`. Reads the
   // failing tests RED left on the feature branch, writes the
   // production code that makes them pass, commits each.

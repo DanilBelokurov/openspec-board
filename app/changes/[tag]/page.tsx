@@ -1129,12 +1129,19 @@ export default async function ChangePage({
           )}
 
           {/* Between RED and GREEN: the dev reviews the test
-              diff and clicks "Подтвердить". Rendered only
-              when RED has finished with exit 0 and not yet
-              approved. */}
+              diff and clicks "Подтвердить". Rendered when
+              RED has finished with exit 0 and either hasn't
+              been approved yet, OR was approved but the
+              commit step failed and is now retryable. The
+              TestDiffCard reads `commitError` and flips to
+              a "Повторить коммит" UI for the second case. */}
           {task.redPhaseExitCode === 0 &&
-            task.redPhaseApprovedAt == null && (
-              <TestDiffCard tag={tag} />
+            (task.redPhaseApprovedAt == null ||
+              task.redPhaseCommitError != null) && (
+              <TestDiffCard
+                tag={tag}
+                commitError={task.redPhaseCommitError}
+              />
             )}
 
           {/* GREEN phase: same shape as the RED card. Rendered

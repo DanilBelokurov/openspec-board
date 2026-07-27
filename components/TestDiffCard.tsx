@@ -8,15 +8,25 @@ import { Check, Loader2 } from "lucide-react";
 interface TestDiffCardProps {
   /** Child task tag. Used for the API calls. */
   tag: string;
+  /**
+   * If set, the user previously clicked "Подтвердить" but the
+   * subsequent `git commit` of the RED tests failed. The card
+   * re-renders with the failure banner above the diff and the
+   * button label flips to "Повторить коммит" so the user knows
+   * a re-approve will retry the commit, not re-review the tests.
+   */
+  commitError?: string | null;
 }
 
 /**
  * Renders after RED has finished (redPhaseExitCode === 0)
- * and the dev hasn't approved yet. Fetches the cumulative
- * test diff from `/api/changes/<tag>/test-diff` and shows
- * it inline via react-diff-viewer-continued. The "Подтвердить"
- * button calls /implement/approve which stamps
- * redPhaseApprovedAt and spawns the GREEN phase.
+ * and the dev hasn't approved yet — or after a previous
+ * "Подтвердить" click failed at the commit step and is now
+ * retryable. Fetches the cumulative test diff from
+ * `/api/changes/<tag>/test-diff` and shows it inline via
+ * react-diff-viewer-continued. The "Подтвердить" button
+ * calls /implement/approve which stamps redPhaseApprovedAt,
+ * commits the RED tests, and spawns the GREEN phase.
  *
  * The diff is fetched client-side from the API endpoint
  * (server-side `git diff`) — react-diff-viewer-continued
@@ -25,7 +35,7 @@ interface TestDiffCardProps {
  * wire. The endpoint returns plain text (git diff's
  * default output) which the diff viewer parses.
  */
-export function TestDiffCard({ tag }: TestDiffCardProps) {
+export function TestDiffCard({ tag, commitError }: TestDiffCardProps) {
   const router = useRouter();
   const [diff, setDiff] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -87,14 +97,22 @@ export function TestDiffCard({ tag }: TestDiffCardProps) {
     }
   }
 
+  const retry = commitError != null;
+
   return (
     <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
       <div className="flex items-center gap-3">
         <Check className="h-4 w-4 shrink-0 text-amber-700" />
         <div className="flex-1">
-          <div className="font-semibold">Тесты RED-фазы написаны</div>
+          <div className="font-semibold">
+            {retry
+              ? "Тесты RED-фазы ожидают коммита"
+              : "Тесты RED-фазы написаны"}
+          </div>
           <div className="mt-0.5 text-[11px] text-amber-800/80">
-            Проверьте diff ниже. Нажмите «Подтвердить», чтобы запустить GREEN-фазу (написание бизнес-логики).
+            {retry
+              ? "Предыдущая попытка коммита упала. Проверьте diff ниже — нажмите «Повторить коммит», чтобы перезапустить `git commit` и затем GREEN-фазу."
+              : "Проверьте diff ниже. Нажмите «Подтвердить», чтобы закоммитить тесты и запустить GREEN-фазу (написание бизнес-логики)."}
           </div>
         </div>
         <button
@@ -108,9 +126,16 @@ export function TestDiffCard({ tag }: TestDiffCardProps) {
           ) : (
             <Check className="h-3.5 w-3.5" />
           )}
-          <span>Подтвердить</span>
+          <span>{retry ? "Повторить коммит" : "Подтвердить"}</span>
         </button>
       </div>
+
+      {retry && (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
+          <span className="font-semibold">Коммит тестов упал:</span>{" "}
+          {commitError}
+        </div>
+      )}
 
       {approveError && (
         <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
@@ -129,9 +154,15 @@ export function TestDiffCard({ tag }: TestDiffCardProps) {
             <span>Загружаем diff тестов…</span>
           </div>
         ) : diff.trim() === "" ? (
-          <div className="rounded-md border border-amber-300 bg-amber-100 px-2.5 py-1.5 text-[11px] text-amber-900">
-            RED не оставил изменений на ветке (вероятно, упал до первого коммита). Проверьте лог <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-[10px]">{tag}.develop.red.log</code>.
-          </div>
+          retry ? (
+            <div className="rounded-md border border-amber-300 bg-amber-100 px-2.5 py-1.5 text-[11px] text-amber-900">
+              После неудачного коммита рабочая копия чистая — RED, видимо, откатил свои файлы. Проверьте лог <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-[10px]">{tag}.develop.red.log</code> и перезапустите RED.
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-300 bg-amber-100 px-2.5 py-1.5 text-[11px] text-amber-900">
+              RED не оставил тестов. Проверьте лог <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-[10px]">{tag}.develop.red.log</code> — RED, вероятно, упал до write.
+            </div>
+          )
         ) : (
           <div
             data-testid="test-diff-viewer"
