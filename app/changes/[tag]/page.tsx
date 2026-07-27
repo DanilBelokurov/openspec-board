@@ -30,7 +30,7 @@ import { StartForm } from "@/components/StartForm";
 import { ConfirmArtifactButton } from "@/components/ConfirmButton";
 import { ServiceSelectionCard } from "@/components/ServiceSelectionCard";
 import { ImplementStartCard } from "@/components/ImplementStartCard";
-import { TestDiffCard } from "@/components/TestDiffCard";
+import { ReviewReadyCard } from "@/components/ReviewReadyCard";
 import { RestartSubtaskButton } from "@/components/RestartSubtaskButton";
 import { TaskActions } from "@/components/TaskActions";
 import { DoneTaskActions } from "@/components/DoneTaskActions";
@@ -231,7 +231,7 @@ export default async function ChangePage({
     ? isProcessAlive(task.redPhasePid)
     : false;
   // RED UPDATE — replay of RED with a user-supplied comment
-  // (the pencil flow on TestDiffCard). Same shape as
+  // (the pencil flow on ReviewReadyCard). Same shape as
   // redPhaseAlive; the separate PID keeps the original RED
   // run's signal intact for the "RED-фаза" process card.
   const redPhaseUpdateAlive = task.redPhaseUpdatePid
@@ -1086,7 +1086,7 @@ export default async function ChangePage({
               after it has finished (waiting for the dev to
               review the test diff and click "Подтвердить").
               Hidden once the dev approves — the
-              TestDiffCard/Подтвердить card below takes over
+              ReviewReadyCard/Подтвердить card below takes over
               the visual slot. */}
           {(task.redPhasePid ||
             task.redPhaseExitCode != null) && (
@@ -1137,7 +1137,7 @@ export default async function ChangePage({
 
           {/* RED UPDATE — replay of RED with a user-supplied
               comment (the "переделай тесты с учётом…" pencil
-              flow on TestDiffCard). Rendered when the update
+              flow on ReviewReadyCard). Rendered when the update
               has been spawned. Lives next to the RED card so
               the dev sees the original run's signal and the
               update's signal side-by-side. */}
@@ -1193,22 +1193,34 @@ export default async function ChangePage({
             </details>
           )}
 
-          {/* Between RED and GREEN: the dev reviews the test
-              diff and clicks "Подтвердить". Rendered when
-              RED has finished with exit 0 and either hasn't
-              been approved yet, OR was approved but the
-              commit step failed and is now retryable. The
-              TestDiffCard reads `commitError` and flips to
-              a "Повторить коммит" UI for the second case.
-              Hidden while a RED UPDATE is alive so the diff
-              doesn't show in-progress edits. */}
+          {/* Between RED and GREEN: the dev reviews the tests
+              on GitHub (the diff view itself is out of
+              scope of our board — see the commit SHA +
+              branch link inside the card) and clicks
+              "Подтвердить". Commit + push happen
+              automatically in the RED exit handler
+              (`commitAndPushRedTests`); the card blocks
+              "Подтвердить" until push succeeds (per the
+              agreed 2B contract) and retries push via
+              /implement/push when it fails. Hidden while a
+              RED UPDATE is alive so the user can't approve
+              against half-rewritten tests. */}
           {task.redPhaseExitCode === 0 &&
-            (task.redPhaseApprovedAt == null ||
-              task.redPhaseCommitError != null) &&
+            task.redPhaseApprovedAt == null &&
             !redPhaseUpdateAlive && (
-              <TestDiffCard
+              <ReviewReadyCard
                 tag={tag}
+                commitSha={task.redPhaseCommitSha}
+                commitMessage={
+                  task.redPhaseCommitSha
+                    ? `test: RED-phase tests for ${task.serviceName}`
+                    : null
+                }
                 commitError={task.redPhaseCommitError}
+                pushBranch={task.redPhasePushBranch}
+                pushRemoteUrl={task.redPhasePushRemoteUrl}
+                pushedAt={task.redPhasePushedAt}
+                pushError={task.redPhasePushError}
               />
             )}
 

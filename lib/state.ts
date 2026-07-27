@@ -246,23 +246,40 @@ export interface TaskEntry {
   redPhaseLogPath?: string;
   redPhaseBaseSha?: string;
   redPhaseApprovedAt?: string;
-  // RED tests are committed on the feature branch only after
-  // the user clicks "Подтвердить" on the diff card — `commitChange`
-  // doesn't apply (different worktree, different stage). The
-  // /implement/approve endpoint runs `git add -A && git commit`
-  // in the code worktree after stamping redPhaseApprovedAt; if
-  // the commit fails (pre-commit hook, conflict after rebase,
-  // …), the error is surfaced here and the approval stays stamped
-  // so a re-approve can retry the commit.
+  // RED tests are committed and pushed to the feature branch's
+  // remote automatically by `commitAndPushRedTests` in
+  // `lib/continuation.ts`, triggered from the RED exit handler
+  // (and from the RED UPDATE pencil-flow exit handler). The user
+  // reviews on GitHub; the diff view + commit-on-approve flow
+  // used to live in our UI but was moved out of scope. `Подтвердить`
+  // is now blocked until `redPhaseCommitSha` is set AND
+  // `redPhasePushError` is null — per the agreed 2B contract.
+  //   - `redPhaseCommitSha` is the SHA of the auto-commit (or
+  //     unset if RED wrote nothing → skipped).
+  //   - `redPhaseCommitError` is the stderr from the failed
+  //     `git commit` (pre-commit hook, etc.). The user
+  //     restarts RED on this case — `Подтвердить` is blocked.
+  //   - `redPhasePushBranch` / `redPhasePushedAt` /
+  //     `redPhasePushRemoteUrl` describe the successful push.
+  //   - `redPhasePushError` is the stderr from the failed
+  //     `git push` (auth, network, non-fast-forward). The user
+  //     retries via `/implement/push`. `Подтвердить` is
+  //     blocked until push succeeds.
+  redPhaseCommitSha?: string;
   redPhaseCommitError?: string;
-  redPhaseCommitExitCode?: number | null;
+  redPhasePushedAt?: string;
+  redPhasePushBranch?: string;
+  redPhasePushRemoteUrl?: string;
+  redPhasePushError?: string;
   // RED UPDATE — replay of the RED phase with a user-supplied
   // comment (the "переделай тесты с учётом…" pencil flow on the
-  // diff card). The agent reads the existing tests in the
-  // working tree itself — we don't pass the test files into the
-  // prompt — and rewrites them to address the comment. The
-  // user's comment is stored here so the process card below
-  // the diff can show what the agent was asked to do.
+  // ReviewReadyCard). The agent reads the existing tests in
+  // the working tree itself — we don't pass the test files
+  // into the prompt — and rewrites them to address the comment.
+  // The user's comment is stored here so the process card can
+  // show what the agent was asked to do. After the update
+  // finishes, the same `commitAndPushRedTests` helper runs
+  // from the exit handler and produces a new commit + push.
   redPhaseUpdatePid?: number | null;
   redPhaseUpdateStartedAt?: string;
   redPhaseUpdateExitCode?: number | null;

@@ -6,27 +6,43 @@ import { isProcessAlive } from "@/lib/process";
 
 /**
  * Human-gated transition from RED to GREEN. The dev has
- * already reviewed the test commits RED produced (via the
- * diff card on the develop page) and clicked "Подтвердить".
- * This endpoint stamps the approval timestamp, then spawns
- * the GREEN-phase `gigacode --prompt` run inside the
- * code-repo worktree.
+ * reviewed the tests on the feature branch (they live on
+ * GitHub now — the diff view itself is out of scope of our
+ * board) and clicked "Подтвердить". This endpoint stamps the
+ * approval timestamp and spawns the GREEN-phase
+ * `gigacode --prompt` run inside the code-repo worktree.
+ *
+ * The commit + push of RED's tests is no longer this
+ * endpoint's job — `commitAndPushRedTests` in
+ * `lib/continuation.ts` runs from the RED exit handler (see
+ * `runRedTdd`). The user reviews on GitHub and only then
+ * comes back here to approve.
  *
  * Pre-flight:
- *  - the task must exist on the developer board
+ *  - task exists on developer board, stage = "develop"
  *  - RED must have completed successfully
  *    (`redPhaseExitCode === 0`)
- *  - RED must NOT have been approved before
- *    (`redPhaseApprovedAt == null`)
- *  - no live GREEN process already running
- *  - codeRepoPath / openspecWorktreePath / parentTag /
- *    serviceName must be set
+ *  - RED must NOT have been approved before, OR the previous
+ *    approval's commit failed (the old redPhaseCommitError
+ *    surface is gone now that commit is auto, but we keep
+ *    the re-approve fallback handle for back-compat).
+ *  - the auto-commit must have produced a SHA — i.e. RED
+ *    wrote something. If RED wrote nothing,
+ *    `redPhaseCommitSha` is null and the user needs to
+ *    restart RED (no tests → no GREEN).
+ *  - the auto-commit must NOT have failed — `Подтвердить`
+ *    is blocked until the user restarts RED on a fresh
+ *    attempt.
+ *  - the auto-push must have succeeded — per the agreed 2B
+ *    contract, the dev wants to confirm against the remote
+ *    branch before pushing GREEN commits on top of it. If
+ *    push failed, the user retries via `/implement/push`.
+ *  - no live RED UPDATE process (commit would pick up
+ *    partial edits).
+ *  - no live GREEN process.
  *
  * On success: 202 Accepted with the gigacode PID and log
- * file. The detail page re-fetches via `router.refresh()`
- * and the GREEN process card appears under the test-diff
- * card. The "Подтвердить" button is hidden once
- * `greenPhasePid` is set.
+ * file. The detail page re-fetches via `router.refresh()`.
  */
 export async function POST(
   _req: NextRequest,
@@ -68,11 +84,6 @@ export async function POST(
     );
   }
 
-  // The dev must approve an actually-completed RED. A RED
-  // with no exit code is still running; a RED with non-zero
-  // exit failed and shouldn't be approved; only
-  // redPhaseExitCode === 0 with no prior approval is a
-  // legitimate "approve and proceed" trigger.
   if (task.redPhaseExitCode == null) {
     return NextResponse.json(
       {
@@ -89,7 +100,60 @@ export async function POST(
       { status: 409 },
     );
   }
-  if (task.redPhaseApprovedAt != null && task.redPhaseCommitError == null) {
+
+  // The auto-commit must have produced a SHA — RED wrote
+  // something. If RED wrote nothing, `redPhaseCommitSha` is
+  // null forever; the user has to restart RED. We do
+  // NOT block on a stale commit error here — the auto-commit
+  // runs from the RED exit handler and the user can retry
+  // the whole RED cycle through the existing restart button.
+  if (task.redPhaseCommitError) {
+    return NextResponse.json(
+      {
+        error: `Auto-коммит RED-тестов упал: ${task.redPhaseCommitError} — перезапустите RED`,
+      },
+      { status: 409 },
+    );
+  }
+  if (task.redPhaseCommitSha == null) {
+    return NextResponse.json(
+      {
+        error:
+          "RED не оставил тестов (auto-commit пропущен — нет изменений). Перезапустите RED.",
+      },
+      { status: 409 },
+    );
+  }
+
+  // The push must have succeeded — 2B contract. The user
+  // reviews on GitHub before approving; if push failed we
+  // block approval and let the user retry via
+  // /implement/push.
+  if (task.redPhasePushError) {
+    return NextResponse.json(
+      {
+        error: `Push ветки упал: ${task.redPhasePushError} — нажмите «Push» чтобы повторить, потом «Подтвердить»`,
+      },
+      { status: 409 },
+    );
+  }
+  if (task.redPhasePushedAt == null) {
+    return NextResponse.json(
+      {
+        error:
+          "Ветка ещё не отправлена в remote — дождитесь окончания push или нажмите «Push» для retry",
+      },
+      { status: 409 },
+    );
+  }
+
+  // Stamped-approval idempotency. A duplicate /implement/approve
+  // POST (e.g. a flaky network retry) hits this check and
+  // 409s out. The old "commit error → re-approve" path is
+  // gone now (commit is auto); the `redPhaseCommitError`
+  // block above already surfaces the failure and the user
+  // restarts RED instead.
+  if (task.redPhaseApprovedAt != null) {
     return NextResponse.json(
       {
         error:
@@ -108,12 +172,11 @@ export async function POST(
     );
   }
   // Don't approve while a RED UPDATE is still rewriting the
-  // tests in the working tree — the commit would otherwise
-  // pick up partial edits (a test half-rewritten, an
-  // outdated assertion, etc.). The matching test-diff page
-  // already hides the diff card during the update so the
-  // user can't approve from the UI either; this is the
-  // server-side belt-and-suspenders.
+  // tests in the working tree — the next push/commit would
+  // pick up partial edits. The ReviewReadyCard already hides
+  // its action buttons during the update so the user can't
+  // approve from the UI either; this is the server-side
+  // belt-and-suspenders.
   if (task.redPhaseUpdatePid && isProcessAlive(task.redPhaseUpdatePid)) {
     return NextResponse.json(
       {
@@ -124,105 +187,17 @@ export async function POST(
     );
   }
 
-  // Stamp the approval timestamp FIRST, then commit RED
-  // tests, then spawn GREEN. The two operations (stamp +
-  // commit, commit + spawn) are not atomic, but the order
-  // matters:
-  //  - stamp first ensures a duplicate /implement/approve
-  //    POST (e.g. a flaky network retry) hits the
-  //    redPhaseApprovedAt check above and 409s out — the
-  //    exception is a *previous* commit failure, where the
-  //    check above now allows re-approve to retry the commit.
-  //  - commit before spawn ensures the GREEN agent finds
-  //    the failing tests already committed on the feature
-  //    branch (its prompt assumes `git log` shows them).
-  //    If the commit fails, we surface
-  //    `redPhaseCommitError` and return 500 — the user
-  //    retries via a second "Подтвердить" click (the
-  //    approvedAt check now allows it because of the
-  //    redPhaseCommitError != null branch).
-
-  // We use a small write-then-read-then-write dance via the
-  // shared `updateTask` helper to keep the read-modify-write
-  // window narrow. The atomicity is best-effort (state.json
-  // writes are atomic via atomic-write.ts, but the writes
-  // — stamp, commit, spawn — are not). For a single-user
-  // dev tool this is acceptable; a true multi-user system
-  // would need a lock.
-  const { updateTask, readState } = await import("@/lib/state");
+  // Stamp the approval timestamp, then spawn GREEN. The
+  // two operations are not atomic, but the order matters:
+  // if /implement/approve is called twice in quick
+  // succession (e.g. a flaky network retry), the second
+  // call would hit the redPhaseApprovedAt check above and
+  // 409 out — preventing a double GREEN spawn that would
+  // clobber the worktree.
+  const { updateTask } = await import("@/lib/state");
   await updateTask("developer", params.tag, {
     redPhaseApprovedAt: new Date().toISOString(),
-    // Clear any previous commit error so the UI shows the
-    // fresh attempt — re-approve retries with the same
-    // committedAt semantics.
-    redPhaseCommitError: undefined,
-    redPhaseCommitExitCode: undefined,
   });
-  // Re-read to confirm the stamp landed. (If the write
-  // failed the read would still show null; the check above
-  // would then reject the second call anyway on the
-  // next attempt.)
-  void readState;
-
-  // Commit RED tests to the feature branch as a single
-  // commit. Mirrors the per-task commit semantics on the
-  // analyst side, just one commit for the whole RED phase:
-  //   `git -C <codeWorktreePath> status --porcelain` → skip
-  //     if nothing to commit (RED wrote nothing).
-  //   `git add -A` → stage every change in the worktree.
-  //     RED typically writes new (untracked) test files; if
-  //     there's anything else in the worktree, the user
-  //     fixes it manually before re-approving.
-  //   `git commit -m "test: RED-phase tests for <service>"`
-  //     → one commit grouping all RED tests, matching the
-  //     commit-after-approval invariant from the RED prompt
-  //     template.
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const exec = promisify(execFile);
-  const execOpts = { maxBuffer: 16 * 1024 * 1024 } as const;
-  try {
-    const { stdout: status } = await exec(
-      "git",
-      ["-C", task.codeWorktreePath, "status", "--porcelain"],
-      execOpts,
-    );
-    if (status.trim() !== "") {
-      await exec(
-        "git",
-        ["-C", task.codeWorktreePath, "add", "-A"],
-        execOpts,
-      );
-      await exec(
-        "git",
-        [
-          "-C",
-          task.codeWorktreePath,
-          "commit",
-          "-m",
-          `test: RED-phase tests for ${task.serviceName}`,
-        ],
-        execOpts,
-      );
-    }
-    // Whatever the above produced, the commit succeeded
-    // (or there was nothing to commit). Clear any stale
-    // error and proceed.
-    await updateTask("developer", params.tag, {
-      redPhaseCommitError: undefined,
-      redPhaseCommitExitCode: 0,
-    });
-  } catch (e) {
-    const err = e as Error;
-    await updateTask("developer", params.tag, {
-      redPhaseCommitError: err.message,
-      redPhaseCommitExitCode: 1,
-    });
-    return NextResponse.json(
-      { error: `git commit failed: ${err.message}` },
-      { status: 500 },
-    );
-  }
 
   const result = await runGreenTdd(task, params.tag);
   if (!result.ok) {

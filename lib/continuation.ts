@@ -899,12 +899,23 @@ export async function runRedTdd(
       approvalMode: "auto-edit",
     });
     pid = result.pid || null;
-    const exitHandler = (code: number | null, signal: string | null) =>
-      updateTask(
-        task.mode,
-        changeName,
-        buildRedPhaseExitPatch(code, signal),
-      );
+    const exitHandler = async (code: number | null, signal: string | null) => {
+      await updateTask(task.mode, changeName, buildRedPhaseExitPatch(code, signal));
+      // After the RED agent exits 0, auto-commit its tests
+      // and push the feature branch so the user can review
+      // on GitHub. Fire-and-forget — the page re-fetches via
+      // the watcher and the ReviewReadyCard picks up the new
+      // state. Errors land in `redPhaseCommitError` /
+      // `redPhasePushError` and the UI shows them with the
+      // appropriate retry surfaces.
+      if (code === 0) {
+        await commitAndPushRedTests(
+          task,
+          changeName,
+          `test: RED-phase tests for ${task.serviceName}`,
+        );
+      }
+    };
     result.promise
       .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
@@ -1057,12 +1068,20 @@ export async function runRedUpdateTdd(
       approvalMode: "auto-edit",
     });
     pid = result.pid || null;
-    const exitHandler = (code: number | null, signal: string | null) =>
-      updateTask(
-        task.mode,
-        changeName,
-        buildRedPhaseUpdateExitPatch(code, signal),
-      );
+    const exitHandler = async (code: number | null, signal: string | null) => {
+      await updateTask(task.mode, changeName, buildRedPhaseUpdateExitPatch(code, signal));
+      // Same auto-commit + push as the initial RED run. The
+      // "(updated)" suffix on the message so the branch
+      // history visually distinguishes manual revisions
+      // from the original test scaffolding.
+      if (code === 0) {
+        await commitAndPushRedTests(
+          task,
+          changeName,
+          `test: RED-phase tests for ${task.serviceName} (updated)`,
+        );
+      }
+    };
     result.promise
       .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
@@ -1133,6 +1152,147 @@ function buildRedPhaseSpawnPatch(
     redPhaseLogPath: logFile,
     redPhaseBaseSha: baseSha ?? undefined,
   };
+}
+
+/**
+ * Commit whatever RED (or RED UPDATE) wrote on the feature
+ * branch and push it to the remote. Runs from the RED exit
+ * handler — fire-and-forget, the user doesn't wait for the
+ * push to finish. The page re-fetches via the watcher and
+ * the new state shows up in the ReviewReadyCard.
+ *
+ * Three steps:
+ *
+ *   1. `git status --porcelain` — if there's nothing to
+ *      commit (RED wrote nothing, or the agent deliberately
+ *      deleted its own output before exiting), we skip
+ *      both commit and push. `redPhaseCommitSha` stays
+ *      null, which blocks `Подтвердить` on the
+ *      ReviewReadyCard; the user restarts RED.
+ *
+ *   2. `git add -A && git commit -m <message>` — one commit
+ *      grouping all of RED's test files. The message is
+ *      supplied by the caller (initial=create, follow-up
+ *      versions say "(updated)" so the branch history shows
+ *      the pencil-flow revisions separately).
+ *
+ *   3. `git push -u origin <branch>` — pushes the branch
+ *      (with -u on the first push to set up tracking).
+ *      `origin` is the user's configured remote; the URL
+ *      comes from `git config --get remote.origin.url` and
+ *      is converted to https via `convertRemoteUrlToHttps`
+ *      so the ReviewReadyCard can show a clickable link.
+ *
+ * On commit failure: `redPhaseCommitError` is set, push is
+ * not attempted. On push failure: `redPhaseCommitSha` is set
+ * and `redPhasePushError` is set — the user retries via
+ * `/implement/push`. Both are propagated to the UI so the
+ * user can see the exact stderr.
+ */
+export async function commitAndPushRedTests(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  commitMessage: string,
+): Promise<void> {
+  const path = task.codeWorktreePath;
+  const branch = task.codeBranch;
+  if (!path || !branch) {
+    // Without a worktree or branch we can't finish the
+    // auto-commit/push. Better to leave state untouched than
+    // to write a misleading commit error.
+    console.error(
+      `commitAndPushRedTests: task ${changeName} missing codeWorktreePath/codeBranch`,
+    );
+    return;
+  }
+
+  // 1. Check for changes. `git status --porcelain` is
+  //    read-only and safe to run.
+  let hasChanges = false;
+  try {
+    const { stdout: status } = await run(
+      "git",
+      ["-C", path, "status", "--porcelain"],
+    );
+    hasChanges = status.trim() !== "";
+  } catch (e) {
+    console.error(
+      `commitAndPushRedTests: git status failed for ${changeName}: ${(e as Error).message}`,
+    );
+    return;
+  }
+  if (!hasChanges) {
+    // RED wrote nothing — leave `redPhaseCommitSha` unset.
+    // ReviewReadyCard will show "RED не оставил тестов" and
+    // block `Подтвердить`; the user restarts RED.
+    return;
+  }
+
+  // 2. Commit. On failure, persist the error and bail — the
+  //    push step is skipped because there's nothing to push.
+  let commitSha: string;
+  try {
+    await run("git", ["-C", path, "add", "-A"]);
+    await run("git", ["-C", path, "commit", "-m", commitMessage]);
+    const { stdout: sha } = await run("git", ["-C", path, "rev-parse", "HEAD"]);
+    commitSha = sha.trim();
+  } catch (e) {
+    await updateTask(task.mode, changeName, {
+      redPhaseCommitError: (e as Error).message,
+    });
+    return;
+  }
+
+  // 3. Push. Persist the commit SHA either way so the
+  //    ReviewReadyCard can show "committed but push failed"
+  //    with the retry button.
+  try {
+    await run("git", ["-C", path, "push", "-u", "origin", branch]);
+    const { stdout: remoteUrlRaw } = await run(
+      "git",
+      ["-C", path, "config", "--get", "remote.origin.url"],
+    );
+    await updateTask(task.mode, changeName, {
+      redPhaseCommitSha: commitSha,
+      redPhasePushedAt: new Date().toISOString(),
+      redPhasePushBranch: branch,
+      redPhasePushRemoteUrl: convertRemoteUrlToHttps(remoteUrlRaw.trim()),
+    });
+  } catch (e) {
+    await updateTask(task.mode, changeName, {
+      redPhaseCommitSha: commitSha,
+      redPhasePushError: (e as Error).message,
+    });
+  }
+}
+
+/**
+ * Convert a git remote URL into the equivalent https URL so
+ * the ReviewReadyCard can render a clickable link to the
+ * branch on GitHub / GitLab / Bitbucket. Two input shapes:
+ *
+ *   git@github.com:user/repo.git              → https://github.com/user/repo
+ *   https://github.com/user/repo.git          → https://github.com/user/repo
+ *   ssh://git@github.com/user/repo.git       → https://github.com/user/repo
+ *
+ * Other shapes (Azure DevOps, self-hosted, etc.) fall
+ * through unchanged minus a trailing `.git`. We're not
+ * trying to be a general URL normaliser — just enough to
+ * give the user a clickable link.
+ */
+export function convertRemoteUrlToHttps(url: string): string {
+  // ssh://git@host/path.git
+  const sshProto = url.match(/^ssh:\/\/(?:git@)?([^/]+)\/(.+?)(?:\.git)?$/);
+  if (sshProto) {
+    return `https://${sshProto[1]}/${sshProto[2]}`;
+  }
+  // git@host:path.git
+  const sshAlt = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshAlt) {
+    return `https://${sshAlt[1]}/${sshAlt[2]}`;
+  }
+  // https://host/path.git (or unknown; just strip .git)
+  return url.replace(/\.git$/, "");
 }
 
 function buildCreateExitPatch(
