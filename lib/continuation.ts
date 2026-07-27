@@ -6,6 +6,7 @@ import { readState, updateTask } from "./state";
 import {
   ensureLogDir,
   processLogPath,
+  processPromptPath,
   spawnGigacodeWithLog,
 } from "./process-logger";
 
@@ -513,6 +514,8 @@ async function spawnCreateArtifactGigacode(
   const prompt = template.replace("{json}", instructionsJson);
 
   const logFile = processLogPath(changeName, "continue", config.stage);
+  const promptFile = processPromptPath(changeName, "continue", config.stage);
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -520,12 +523,9 @@ async function spawnCreateArtifactGigacode(
       `# add-dir: ${worktree}`,
       `# approval-mode: auto-edit`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# prompt-file: ${promptFile}`,
       `# prompt-length: ${prompt.length} chars`,
       `# openspec instructions output-length: ${instructionsJson.length} chars`,
-      "",
-      "# ----- prompt ----->",
-      prompt,
-      "# <----- prompt -----",
       "",
     ].join("\n"),
     { flag: "w" },
@@ -675,6 +675,8 @@ export async function runGreenTdd(
     .replace("{json}", instructionsJson);
 
   const logFile = processLogPath(changeName, "implement", "develop");
+  const promptFile = processPromptPath(changeName, "implement", "develop");
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -683,6 +685,7 @@ export async function runGreenTdd(
       `# code worktree: ${task.codeWorktreePath}`,
       `# openspec worktree: ${task.openspecWorktreePath}`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${task.codeWorktreePath}`,
+      `# prompt-file: ${promptFile}`,
       `# prompt-length: ${prompt.length} chars`,
       `# openspec-instructions-length: ${instructionsJson.length} chars`,
       "# tasks.md-length:",
@@ -690,10 +693,6 @@ export async function runGreenTdd(
         .split("\n")
         .map((l) => `#   ${l}`)
         .join("\n"),
-      "",
-      "# ----- prompt ----->",
-      prompt,
-      "# <----- prompt -----",
       "",
     ].join("\n"),
     { flag: "w" },
@@ -858,6 +857,8 @@ export async function runRedTdd(
   // RED log file gets its own stage segment so it doesn't
   // collide with the GREEN log on a re-run after approval.
   const logFile = processLogPath(changeName, "red", "develop");
+  const promptFile = processPromptPath(changeName, "red", "develop");
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -867,6 +868,7 @@ export async function runRedTdd(
       `# openspec worktree: ${task.openspecWorktreePath}`,
       `# base-sha: ${baseSha ?? "(empty)"}`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${task.codeWorktreePath}`,
+      `# prompt-file: ${promptFile}`,
       `# prompt-length: ${prompt.length} chars`,
       `# openspec-instructions-length: ${instructionsJson.length} chars`,
       "# tasks.md-length:",
@@ -874,10 +876,6 @@ export async function runRedTdd(
         .split("\n")
         .map((l) => `#   ${l}`)
         .join("\n"),
-      "",
-      "# ----- prompt ----->",
-      prompt,
-      "# <----- prompt -----",
       "",
     ].join("\n"),
     { flag: "w" },
@@ -1286,6 +1284,8 @@ export async function runUpdateArtifact(
     .replace("{comments}", comments);
 
   const logFile = processLogPath(changeName, "update", config.stage);
+  const promptFile = processPromptPath(changeName, "update", config.stage);
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -1293,13 +1293,10 @@ export async function runUpdateArtifact(
       `# add-dir: ${worktree}`,
       `# approval-mode: auto-edit`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# prompt-file: ${promptFile}`,
       `# artifact-length: ${artifactText.length} chars`,
       `# comments-length: ${comments.length} chars`,
       `# openspec instructions output-length: ${instructionsJson.length} chars`,
-      "",
-      "# ----- prompt ----->",
-      prompt,
-      "# <----- prompt -----",
       "",
     ].join("\n"),
     { flag: "w" },
@@ -1567,6 +1564,8 @@ export async function spawnCreatePullRequestGigacode(
     .replace("{comments}", comments);
 
   const logFile = processLogPath(changeName, "update", task.stage);
+  const promptFile = processPromptPath(changeName, "update", task.stage);
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -1577,11 +1576,8 @@ export async function spawnCreatePullRequestGigacode(
       `# base-branch: ${config.defaultBranch || "master"}`,
       `# repo: ${task.pushRemoteUrl ?? "(unknown)"}`,
       `# argv: gigacode --prompt <prompt> --approval-mode=auto-edit --add-dir ${worktree}`,
+      `# prompt-file: ${promptFile}`,
       `# comments-length: ${comments.length} chars`,
-      "",
-      "# ----- prompt ----->",
-      prompt,
-      "# <----- prompt -----",
       "",
     ].join("\n"),
     { flag: "w" },

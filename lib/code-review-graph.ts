@@ -34,7 +34,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { spawnDetachedWithLog, spawnGigacodeWithLog, ensureLogDir } from "./process-logger";
+import { spawnDetachedWithLog, spawnGigacodeWithLog, ensureLogDir, promptPathForLogFile } from "./process-logger";
 
 interface SpawnBuildResult {
   pid: number | null;
@@ -141,6 +141,8 @@ export async function spawnCodeReviewGraphBuild(
   // a post-mortem can see what the LLM was asked. The gigacode
   // stdout/stderr is appended to the same file (spawnDetached
   // opens the file in append mode).
+  const promptFile = promptPathForLogFile(logFile);
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -148,8 +150,7 @@ export async function spawnCodeReviewGraphBuild(
       `# repo:  ${repoPath(repoName)}`,
       `# add-dir: ${process.cwd()}`,
       `# approval-mode: auto-edit`,
-      "# prompt:",
-      prompt,
+      `# prompt-file: ${promptFile}`,
       "",
     ].join("\n"),
     { flag: "w" },
@@ -198,6 +199,8 @@ export async function spawnCodeReviewGraphWiki(
     console.error(`code-review-graph wiki: cannot load prompt:`, message);
     return { pid: null, logFile, error: message };
   }
+  const promptFile = promptPathForLogFile(logFile);
+  await fs.writeFile(promptFile, prompt, { flag: "w" });
   await fs.writeFile(
     logFile,
     [
@@ -205,8 +208,7 @@ export async function spawnCodeReviewGraphWiki(
       `# repo:  ${repoPath(repoName)}`,
       `# add-dir: ${process.cwd()}`,
       `# approval-mode: auto-edit`,
-      "# prompt:",
-      prompt,
+      `# prompt-file: ${promptFile}`,
       "",
     ].join("\n"),
     { flag: "w" },
