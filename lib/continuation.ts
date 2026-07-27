@@ -288,7 +288,7 @@ export interface ArtifactConfig {
   artifactSubpath: string;
 }
 
-const STAGE_CONFIG: Record<string, ArtifactConfig> = {
+export const STAGE_CONFIG: Record<string, ArtifactConfig> = {
   proposal: {
     stage: "proposal",
     instructionsArtifact: "proposal",

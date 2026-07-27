@@ -6,6 +6,14 @@ import type { TreeNode } from "@/lib/openspec";
 interface FileTreeProps {
   root: TreeNode;
   tag: string;
+  /**
+   * Relative paths (under the change folder) that should be
+   * marked stale with a `(*)` suffix — used to surface
+   * artefacts that were left untouched by a cascade-update and
+   * may no longer match the latest upstream artefacts.
+   * Paths can match either a file or a directory.
+   */
+  stalePaths?: string[];
 }
 
 function getFileIcon(name: string) {
@@ -14,18 +22,26 @@ function getFileIcon(name: string) {
   return FileText;
 }
 
+/** Normalise separators so Windows-style "\" still matches.
+ *  Relative paths from listChangeTree use POSIX "/". */
+function normalise(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 function TreeRow({
   node,
   tag,
   depth,
   isLast,
   ancestors,
+  stalePaths,
 }: {
   node: TreeNode;
   tag: string;
   depth: number;
   isLast: boolean;
   ancestors: boolean[];
+  stalePaths: string[];
 }) {
   const Icon = node.type === "directory" ? Folder : getFileIcon(node.name);
 
@@ -46,6 +62,10 @@ function TreeRow({
     .join("");
   const currentConnector =
     depth === 0 ? "" : isLast ? "└── " : "├── ";
+
+  const isStale = stalePaths.some(
+    (p) => normalise(p) === normalise(node.relativePath),
+  );
 
   return (
     <>
@@ -70,11 +90,23 @@ function TreeRow({
         />
         <span
           className={`shrink-0 ${
-            node.type === "directory" ? "text-slate-600" : "text-slate-800"
+            isStale
+              ? "text-amber-700"
+              : node.type === "directory"
+                ? "text-slate-600"
+                : "text-slate-800"
           }`}
         >
           {node.name}
           {node.type === "directory" ? "/" : ""}
+          {isStale && (
+            <span
+              className="ml-1 rounded bg-amber-100 px-1 font-sans text-[10px] font-medium text-amber-800"
+              title="Артефакт устарел из-за каскадного обновления — обновите вручную или подтвердите как есть"
+            >
+              (*)
+            </span>
+          )}
         </span>
         <span className="ml-auto shrink-0 pl-3 tabular-nums text-[10px] text-slate-400">
           {node.type === "file" ? formatSize(node.size) : ""}
@@ -88,6 +120,7 @@ function TreeRow({
           depth={depth + 1}
           isLast={i === node.children!.length - 1}
           ancestors={[...ancestors, !isLast]}
+          stalePaths={stalePaths}
         />
       ))}
     </>
@@ -100,7 +133,7 @@ function formatSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function FileTree({ root, tag }: FileTreeProps) {
+export function FileTree({ root, tag, stalePaths = [] }: FileTreeProps) {
   return (
     <div className="rounded-md border border-border bg-white px-2 py-2">
       <TreeRow
@@ -109,6 +142,7 @@ export function FileTree({ root, tag }: FileTreeProps) {
         depth={0}
         isLast
         ancestors={[]}
+        stalePaths={stalePaths}
       />
     </div>
   );

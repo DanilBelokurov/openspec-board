@@ -2,20 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { readState, updateTask, findTaskByTag } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { runUpdateArtifact } from "@/lib/continuation";
-import { deleteArtefactsAfterStage } from "@/lib/git-cleanup-artifacts";
 
 /**
- * Stages the analyst can revert a done task back to. These are
- * the stages that produce a re-writeable artefact (proposal.md /
- * specs/ / design.md / adr.md). Selecting a stage:
- *   1. Sets task.stage back to that stage so the auto pipeline
- *      will re-generate the artefact on the next watcher tick.
- *   2. Deletes every artefact produced by a stage at or after
- *      the selected one (the selected stage's own artefact
- *      included, so the re-write starts from scratch).
- *   3. Spawns a detached gigacode --prompt re-run for the
- *      selected stage with the analyst's free-form comment
- *      folded into the prompt (templates/spec-driven/update-*).
+ * Stages the analyst can revert back to from a higher stage
+ * (including from done). These are the stages that produce a
+ * re-writeable artefact (proposal.md / specs/ / design.md /
+ * adr.md). Selecting a target stage T:
+ *   1. Sets task.stage to T so the artefact for T is re-written
+ *      via the cascade-update flow.
+ *   2. Spawns a detached gigacode --prompt re-run for T with
+ *      the analyst's free-form comment folded into the prompt.
+ *   3. Arms the cascade: `cascadeTargetStage = T` (lower bound),
+ *      `cascadeFromStage = originalStage` (upper bound), and
+ *      `cascadeComment = <comments>`. /confirm will then
+ *      automatically re-write every subsequent stage in
+ *      [T, originalStage] with the same comment, until the task
+ *      leaves that range. After the cascade ends, any artefact
+ *      strictly past `cascadeFromStage` is left stale (surfaced
+ *      in the UI with a `(*)` marker).
+ *
+ * Works from any analyst stage, including `done`. There is no
+ * wipe — the artefacts are re-written in place by the cascade.
  */
 const REOPEN_ALLOWED_STAGES = [
   "proposal",
@@ -30,6 +37,25 @@ function isReopenStage(value: unknown): value is ReopenStage {
     typeof value === "string" &&
     (REOPEN_ALLOWED_STAGES as readonly string[]).includes(value)
   );
+}
+
+/** All analyst stages in pipeline order, used to validate that
+ *  the user can actually revert to a target (target must be
+ *  strictly earlier than the stage the task is currently on). */
+const STAGE_ORDER = [
+  "proposal",
+  "delta-spec",
+  "design",
+  "adr",
+  "done",
+] as const;
+
+function stageIndex(stage: string): number {
+  return STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number]);
+}
+
+function isStageEarlier(a: string, b: string): boolean {
+  return stageIndex(a) < stageIndex(b);
 }
 
 const ARTIFACT_CONFIG_FOR_STAGE: Record<
@@ -62,23 +88,13 @@ export async function POST(
   { params }: { params: { tag: string } },
 ) {
   const state = await readState();
-  // Reopen is analyst-mode only (revert a done analyst task).
+  // Reopen is analyst-mode only.
   const found = await findTaskByTag(params.tag, "analyst");
   const task = found?.task;
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена` },
       { status: 404 },
-    );
-  }
-  if (task.stage !== "done") {
-    return NextResponse.json(
-      {
-        error:
-          "Откатить можно только задачу в стадии 'done' — текущая стадия: " +
-          task.stage,
-      },
-      { status: 409 },
     );
   }
   if (task.mode !== "analyst") {
@@ -130,19 +146,29 @@ export async function POST(
     );
   }
 
-  // 1) Wipe the artefacts produced by every stage at or after the
-  //    selected one. The selected stage's own artefact is wiped so
-  //    the re-write starts from a clean slate.
-  const removed = await deleteArtefactsAfterStage(
-    task.openspecWorktreePath,
-    params.tag,
-    body.targetStage,
-  );
+  // Validate that the target stage is strictly earlier than the
+  // task's current stage. From proposal there's nowhere to revert
+  // to, so the button is hidden in the UI but we defend here too.
+  if (!isStageEarlier(body.targetStage, task.stage)) {
+    return NextResponse.json(
+      {
+        error:
+          "Целевой этап должен быть строго раньше текущего — текущий: " +
+          task.stage,
+      },
+      { status: 400 },
+    );
+  }
 
-  // 2) Reset task stage so triggerContinueIfNeeded / the watcher
-  //    see the new stage and the per-stage Create/Update PIDs are
-  //    all cleared (we don't want a stale proposal PID to leak
-  //    into the delta-spec run after a revert).
+  // Capture the original stage BEFORE we mutate task.stage — this
+  // becomes the upper bound of the cascade (cascadeFromStage).
+  const originalStage = task.stage;
+
+  // Reset the task to the target stage and clear per-stage state
+  // for every stage at or after the target, so a stale
+  // proposal/delta-spec/design/adr PID doesn't leak into the
+  // re-write. Cascade fields are armed with the user's comment so
+  // /confirm can auto-trigger the next stage's update.
   await updateTask("analyst", params.tag, {
     stage: body.targetStage,
     committedAt: undefined,
@@ -181,12 +207,15 @@ export async function POST(
     adrUpdateExitSignal: undefined,
     adrUpdateLogPath: undefined,
     adrUpdateComments: undefined,
+    cascadeTargetStage: body.targetStage,
+    cascadeFromStage: originalStage,
+    cascadeComment: comments,
   });
 
-  // 3) Spawn the artifact-update gigacode run with the analyst's
-  //    free-form comment folded in. runUpdateArtifact returns the
-  //    spawned PID; the watcher will pick up the exit code and
-  //    the next user confirm will commit the new artefact.
+  // Spawn the artefact-update gigacode run for the target stage
+  // with the user's comment. Subsequent confirms will spawn the
+  // cascade-updates for the in-between stages until the task
+  // leaves [targetStage, originalStage].
   const result = await runUpdateArtifact(
     task,
     params.tag,
@@ -205,7 +234,11 @@ export async function POST(
       ok: true,
       tag: params.tag,
       targetStage: body.targetStage,
-      removed,
+      originalStage,
+      cascade: {
+        targetStage: body.targetStage,
+        fromStage: originalStage,
+      },
       update: {
         pid: result.pid,
         logFile: result.logFile,

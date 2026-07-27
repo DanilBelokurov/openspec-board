@@ -173,6 +173,31 @@ export interface TaskEntry {
   adrCommittedAt?: string;
   adrCommitExitCode?: number | null;
   adrCommitError?: string;
+  // Cascade-update flow (analyst mode). When the user clicks
+  // «Редактировать» on a non-proposal stage and picks an earlier
+  // target stage T, the task is moved to T, T's update is spawned
+  // with the user's comment, and — on every subsequent confirm —
+  // the next stage is *automatically* re-updated with the same
+  // comment, until the task reaches `cascadeFromStage` (the stage
+  // the user was on when they clicked «Редактировать»). This is
+  // a single mechanism that works from any analyst stage
+  // (including done); the UI is identical for from-done and
+  // from-non-done. After cascade ends, ordinary pipeline resumes:
+  // any artefact strictly past `cascadeFromStage` is left stale
+  // and surfaced in the UI with a `(*)` marker so the user can
+  // pencil-update or confirm-as-is. Manual pencil on any stage
+  // implicitly cancels the cascade (clears the three fields
+  // below). The cascade-update spawns reuse the existing
+  // `*UpdatePid` fields — they are not separate from manual
+  // pencil-updates, only triggered automatically.
+  //
+  // `cascadeTargetStage` is the lower bound of the cascade scope;
+  // `cascadeFromStage` is the upper bound (inclusive). Cascade is
+  // active while `cascadeTargetStage <= task.stage <=
+  // cascadeFromStage && task.stage !== "done"`; cleared otherwise.
+  cascadeTargetStage?: Stage;
+  cascadeFromStage?: Stage;
+  cascadeComment?: string;
   // 'Опубликовать ветку' / 'Сделать pull request' actions on the
   // done stage (analyst mode only). The push is a one-shot
   // git operation; pushedAt is set on success. The PR is a

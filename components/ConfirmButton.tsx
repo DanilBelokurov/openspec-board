@@ -9,6 +9,7 @@ import {
   X,
   Send,
 } from "lucide-react";
+import { ReopenTaskDialog } from "./ReopenTaskDialog";
 
 interface ConfirmArtifactButtonProps {
   tag: string;
@@ -28,6 +29,16 @@ interface ConfirmArtifactButtonProps {
  *
  * On a successful confirm we router.push("/") so the analyst lands
  * back on the board and sees the task in its new column.
+ *
+ * Plus a "Редактировать этап…" link (visible only on analyst
+ * stages with at least one earlier stage to revert to — i.e.
+ * delta-spec / design / adr, NOT proposal or plan). It opens the
+ * ReopenTaskDialog, which arms a cascade: every stage from the
+ * chosen target up to the current one will be re-written with the
+ * user's comment. The same mechanism is wired to the done-stage
+ * "Редактировать" button in DoneTaskActions — UI is identical
+ * regardless of whether the user reverts from done or from a
+ * non-done analyst stage.
  */
 export function ConfirmArtifactButton({
   tag,
@@ -43,6 +54,15 @@ export function ConfirmArtifactButton({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [updating, setUpdating] = useState(false);
+
+  const [reopenOpen, setReopenOpen] = useState(false);
+
+  // The "Редактировать этап…" button only makes sense when the
+  // analyst can revert to an earlier stage. Proposal is the first
+  // analyst stage — nothing earlier. Plan is a developer-mode
+  // stage — no cascade there.
+  const canRevert =
+    stage === "delta-spec" || stage === "design" || stage === "adr";
 
   function openEditor() {
     setEditing(true);
@@ -127,7 +147,7 @@ export function ConfirmArtifactButton({
           <button
             type="button"
             onClick={openEditor}
-            title="Запросить изменения"
+            title="Запросить изменения к текущему этапу"
             aria-label="Запросить изменения"
             className="flex h-8 w-8 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100"
           >
@@ -147,6 +167,18 @@ export function ConfirmArtifactButton({
           )}
           <span>Подтверждено</span>
         </button>
+        {canRevert && !editing && (
+          <button
+            type="button"
+            onClick={() => setReopenOpen(true)}
+            title="Вернуть задачу на более ранний этап с переписыванием всех последующих артефактов каскадом"
+            aria-label="Редактировать этап"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-amber-500 px-3 text-[12px] font-medium text-white hover:bg-amber-600"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            <span>Редактировать</span>
+          </button>
+        )}
       </div>
 
       {editing && (
@@ -206,6 +238,15 @@ export function ConfirmArtifactButton({
         <div className="mt-2 rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">
           {error}
         </div>
+      )}
+
+      {canRevert && (
+        <ReopenTaskDialog
+          open={reopenOpen}
+          tag={tag}
+          fromStage={stage}
+          onClose={() => setReopenOpen(false)}
+        />
       )}
     </div>
   );

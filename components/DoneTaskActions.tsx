@@ -98,6 +98,7 @@ export function DoneTaskActions({ tag }: DoneTaskActionsProps) {
       <ReopenTaskDialog
         open={reopenOpen}
         tag={tag}
+        fromStage="done"
         onClose={() => setReopenOpen(false)}
       />
     </div>

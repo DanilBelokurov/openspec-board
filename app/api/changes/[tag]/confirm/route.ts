@@ -17,6 +17,33 @@ import { listServicesInChange } from "@/lib/openspec-scanner";
 import { createWorktree, pickFreeFeatureWorktree } from "@/lib/git";
 import { extractJiraId } from "@/lib/jira";
 import { resolveRepoLocalPath } from "@/lib/config";
+import { runUpdateArtifact, STAGE_CONFIG } from "@/lib/continuation";
+
+// Analyst stages in pipeline order. Used to test whether a
+// nextStage falls inside the cascade scope
+// [cascadeTargetStage, cascadeFromStage].
+const ANALYST_STAGE_ORDER = [
+  "proposal",
+  "delta-spec",
+  "design",
+  "adr",
+  "done",
+] as const;
+
+function stageIndex(stage: string): number {
+  return ANALYST_STAGE_ORDER.indexOf(
+    stage as (typeof ANALYST_STAGE_ORDER)[number],
+  );
+}
+
+function isInStageRange(
+  stage: string,
+  lower: string,
+  upper: string,
+): boolean {
+  const idx = stageIndex(stage);
+  return idx >= stageIndex(lower) && idx <= stageIndex(upper);
+}
 
 // Each non-plan confirm call is gated on the previous stage
 // being ready (artifact on disk). The "next stage" key is what
@@ -121,6 +148,108 @@ export async function POST(
   const updated = await updateTask(task.mode, params.tag, {
     stage: nextStage as import("@/lib/openspec").Stage,
   });
+  if (!updated) {
+    return NextResponse.json(
+      { error: "Не удалось обновить задачу (state.json)" },
+      { status: 500 },
+    );
+  }
+
+  // ── Cascade-update trigger ─────────────────────────────────
+  // If /reopen armed a cascade (user clicked «Редактировать» on
+  // a non-target stage and provided a comment), then on every
+  // subsequent confirm we auto-spawn an update for the new
+  // stage until we leave [cascadeTargetStage, cascadeFromStage].
+  //
+  // Two distinct phases of cascade-state cleanup:
+  //
+  //   1. When nextStage leaves the cascade scope AND
+  //      cascadeComment is still set, the cascade is *over*
+  //      — clear cascadeComment (no more auto-trigger) but
+  //      keep cascadeFromStage as the stale-artifact marker
+  //      until the stale stage is itself confirmed.
+  //
+  //   2. When nextStage moves strictly past cascadeFromStage
+  //      (i.e. the stale stage was just confirmed and committed),
+  //      clear cascadeFromStage too — no more `(*)` markers
+  //      on the file tree.
+  if (
+    updated.cascadeComment &&
+    updated.cascadeTargetStage &&
+    updated.cascadeFromStage &&
+    task.mode === "analyst"
+  ) {
+    const inScope = isInStageRange(
+      nextStage,
+      updated.cascadeTargetStage,
+      updated.cascadeFromStage,
+    );
+    const hasArtifact = Boolean(STAGE_CONFIG[nextStage]);
+    if (inScope && hasArtifact) {
+      // Cascade is active for this stage — fire the
+      // update synchronously so the user sees the process
+      // card on the next render instead of waiting for a
+      // watcher tick.
+      const cascadeResult = await runUpdateArtifact(
+        updated,
+        params.tag,
+        STAGE_CONFIG[nextStage],
+        updated.cascadeComment,
+      );
+      if (!cascadeResult.ok) {
+        return NextResponse.json(
+          { error: cascadeResult.error },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        task: updated,
+        cascade: {
+          active: true,
+          targetStage: updated.cascadeTargetStage,
+          fromStage: updated.cascadeFromStage,
+          spawnedUpdate: {
+            pid: cascadeResult.pid,
+            logFile: cascadeResult.logFile,
+          },
+        },
+      });
+    }
+    // Cascade is over — clear only the trigger (cascadeComment).
+    // cascadeFromStage stays set so the file tree keeps marking
+    // artefacts after `cascadeFromStage` as `(*)` until the user
+    // addresses them (via pencil) or confirms them (via this
+    // endpoint, see below).
+    const commentCleared = await updateTask(task.mode, params.tag, {
+      cascadeComment: undefined,
+    });
+    return NextResponse.json({ ok: true, task: commentCleared });
+  }
+
+  // Stale-stage confirm: when the user confirms the LAST
+  // analyst stage (`adr`) and the cascade originated from a
+  // stage strictly earlier than `adr`, the stale stage was
+  // just confirmed and the marker is no longer meaningful —
+  // clear cascadeFromStage (and cascadeTargetStage for
+  // symmetry). The trigger nextStage === "done" check means
+  // we only fire after the user actually presses "Подтверждено"
+  // on the stale stage; arriving at adr from a fresh cascade
+  // end (nextStage === "adr", cascadeComment cleared above)
+  // is NOT enough — the user still has to deal with it.
+  if (
+    updated.cascadeFromStage &&
+    task.mode === "analyst" &&
+    nextStage === "done" &&
+    stageIndex(updated.cascadeFromStage) < stageIndex("adr")
+  ) {
+    const markerCleared = await updateTask(task.mode, params.tag, {
+      cascadeTargetStage: undefined,
+      cascadeFromStage: undefined,
+    });
+    return NextResponse.json({ ok: true, task: markerCleared });
+  }
+
   return NextResponse.json({ ok: true, task: updated });
 }
 

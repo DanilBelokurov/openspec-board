@@ -244,6 +244,49 @@ export default async function ChangePage({
     ? extractJiraId(task.jiraUrl)
     : null;
 
+  // ── Cascade-update UI state ────────────────────────────────
+  // Compute the cascade progress and the list of artefact paths
+  // left stale by the cascade. While cascadeComment is set the
+  // cascade is active; cascadeFromStage persists as the stale
+  // marker even after cascadeComment is cleared, until either
+  // the stale stage is confirmed (cleared in /confirm) or any
+  // pencil is fired (cleared in /update-<stage>).
+  const ANALYST_STAGES_FOR_CASCADE = [
+    "proposal",
+    "delta-spec",
+    "design",
+    "adr",
+  ] as const;
+  const ARTIFACT_SUBPATH_FOR_STAGE: Record<string, string> = {
+    proposal: "proposal.md",
+    "delta-spec": "specs",
+    design: "design.md",
+    adr: "adr.md",
+  };
+  function stageIndexLocal(s: string): number {
+    return ANALYST_STAGES_FOR_CASCADE.indexOf(
+      s as (typeof ANALYST_STAGES_FOR_CASCADE)[number],
+    );
+  }
+  // Stale paths = artefacts of stages strictly after
+  // cascadeFromStage (analyst stages only — `done` is not a
+  // stage with a re-writeable artefact, so reverting from
+  // done leaves no stale markers: every stage in scope was
+  // rewritten by the cascade).
+  const stalePaths: string[] =
+    task.cascadeFromStage &&
+    task.cascadeFromStage !== "done"
+      ? ANALYST_STAGES_FOR_CASCADE.filter(
+          (s) => stageIndexLocal(s) > stageIndexLocal(task.cascadeFromStage!),
+        ).map((s) => ARTIFACT_SUBPATH_FOR_STAGE[s])
+      : [];
+  // Cascade progress: how many stages have been re-written
+  // (proposal + delta-spec + design + adr vs. the original
+  // cascadeFromStage). Used for the banner copy.
+  const cascadeCurrentStage = task.stage;
+  const cascadeCascadeFromStage = task.cascadeFromStage;
+  const cascadeTargetStage = task.cascadeTargetStage;
+
   // "Подтверждено" button is shown when the artifact for the current
 // stage is ready and no CLI step in this stage has failed. proposal
 // checks openspecNew + gigacodeContinue; delta-spec checks the
@@ -440,6 +483,38 @@ export default async function ChangePage({
                     task.stage === "adr" ||
                     task.stage === "plan") && (
               <section className="mb-5">
+                {task.cascadeComment &&
+                  task.cascadeTargetStage &&
+                  task.cascadeFromStage && (
+                    <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+                      <div className="font-semibold">
+                        Каскадное обновление активно
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-amber-800/90">
+                        Комментарий:{" "}
+                        <span className="font-medium text-amber-900">
+                          «{task.cascadeComment}»
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-amber-800/90">
+                        Текущий этап:{" "}
+                        <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-[10px]">
+                          {cascadeCurrentStage}
+                        </code>
+                        . Каскад начался с «{cascadeTargetStage}» и
+                        автоматически завершится на «
+                        {cascadeCascadeFromStage}». После каждого
+                        подтверждения артефакт следующего этапа
+                        будет переписан автоматически.
+                      </div>
+                      <div className="mt-1 text-[11px] text-amber-700/90">
+                        Чтобы остановить каскад, воспользуйтесь
+                        карандашом на текущем этапе — ручное
+                        вмешательство отменяет дальнейшие
+                        авто-переписывания.
+                      </div>
+                    </div>
+                  )}
                 {task.stage === "plan" &&
                 task.mode === "developer" &&
                 selectableServices.length > 0 ? (
@@ -547,7 +622,7 @@ export default async function ChangePage({
               </span>
             </summary>
             {folderExists ? (
-              <FileTree root={tree!} tag={tag} />
+              <FileTree root={tree!} tag={tag} stalePaths={stalePaths} />
             ) : (
               <div className="rounded-md border border-dashed border-border bg-white px-4 py-6 text-center text-[12px] text-slate-500">
                 Папка <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] font-mono">openspec/changes/{changeName}</code> ещё не создана.

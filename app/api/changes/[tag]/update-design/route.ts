@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readState, findTaskByTag } from "@/lib/state";
+import { readState, findTaskByTag, updateTask } from "@/lib/state";
 import { runUpdateArtifact } from "@/lib/continuation";
 
 export async function POST(
@@ -30,6 +30,22 @@ export async function POST(
       { error: "У задачи не записан openspecWorktreePath" },
       { status: 400 },
     );
+  }
+
+  // Manual pencil cancels any active cascade AND clears the
+  // stale-marker state (cascadeFromStage) if the cascade has
+  // already ended — the user's targeted edit takes priority
+  // over the auto-triggered cascade-updates.
+  if (
+    task.cascadeComment ||
+    task.cascadeFromStage ||
+    task.cascadeTargetStage
+  ) {
+    await updateTask("analyst", params.tag, {
+      cascadeTargetStage: undefined,
+      cascadeFromStage: undefined,
+      cascadeComment: undefined,
+    });
   }
 
   let body: { comments?: string } = {};
