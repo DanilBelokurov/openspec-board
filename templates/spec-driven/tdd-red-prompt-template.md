@@ -18,12 +18,9 @@ make the tests pass, do not refactor.
         error. If it passes, you are testing existing
         behaviour — fix the test. If it errors, fix the test
         setup until it fails cleanly.
-     c. COMMIT — one commit per test, message
-        "test: <short description of behaviour the test
-        asserts>". Do NOT squash test commits.
 
-  2. After all tasks have a failing test + commit, run the
-     full test suite ONCE. Paste the summary line into your
+  2. After all tasks have a failing test, run the full
+     test suite ONCE. Paste the summary line into your
      report. Every test you wrote should still be failing;
      no test that was passing before should have been
      broken by the new tests.
@@ -47,8 +44,8 @@ When all tasks are complete, report back with:
   - the final test-suite output (paste the summary line —
     it should show N failing tests where N is the number
     of tasks)
-  - the git log of the commits you made on the feature
-    branch (each commit's hash + subject)
+  - the file paths of the test files you created or
+    modified
 
 Do NOT:
   - modify the tasks file
@@ -60,10 +57,10 @@ Do NOT:
   - create a PR
   - run the GREEN phase on your own
 
-A human reviewer will look at your test commits and click
+A human reviewer will look at your test changes and click
 "Подтвердить" before the GREEN phase starts. If they don't
 approve, do not panic — the work you did in RED is still
-on the feature branch and can be re-run after edits.
+on the working tree and can be re-run after edits.
 
 The change context, in JSON form, is:
 "{json}"
