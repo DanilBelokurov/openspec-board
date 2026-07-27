@@ -550,11 +550,10 @@ async function spawnCreateArtifactGigacode(
     });
     pid = result.pid || null;
     const exitHandler = (code: number | null, signal: string | null) =>
-      updateTask(
-        task.mode,
-        changeName,
-        buildCreateExitPatch(config.stage, code, signal),
-      );
+      updateTask(task.mode, changeName, {
+        ...buildCreateExitPatch(config.stage, code, signal),
+        ...(cascadeMarkerClearPatch(task, config.stage, code) ?? {}),
+      });
     result.promise
       .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>
@@ -1373,6 +1372,73 @@ function buildCreateSpawnPatch(
 }
 
 // ============================================================================
+// Cascade-marker cleanup on artifact regeneration
+// ============================================================================
+
+/**
+ * Pipeline order for analyst stages, used to test whether a
+ * just-finished create/update belongs to a stage strictly
+ * past `cascadeFromStage`. Mirrors the local ANALYST_STAGE_ORDER
+ * array in app/api/changes/[tag]/confirm/route.ts — kept here
+ * as a separate constant so the exit-handler cleanup doesn't
+ * have to depend on the route module.
+ */
+const CASCADE_STAGE_ORDER = [
+  "proposal",
+  "delta-spec",
+  "design",
+  "adr",
+  "done",
+] as const;
+
+function cascadeStageIndex(stage: string): number {
+  return CASCADE_STAGE_ORDER.indexOf(
+    stage as (typeof CASCADE_STAGE_ORDER)[number],
+  );
+}
+
+/**
+ * When a create or update finishes successfully for a stage
+ * strictly past `cascadeFromStage`, the artifact has been
+ * freshly regenerated and the stale-marker (cascadeFromStage)
+ * is no longer meaningful — clear it so FileTree stops
+ * showing `(*)`. Without this, a task that ran a fresh
+ * `adr` create after a cascade from `design` would carry the
+ * stale-marker all the way until the user pressed
+ * "Подтверждено" on adr (and even then, only because the
+ * /confirm handler's stale-stage cleanup finally fired).
+ *
+ * Only fires on success (exit 0 or null — gigacode sometimes
+ * exits with `null` when the parent shell kills it cleanly),
+ * and only when the just-finished stage's index is strictly
+ * greater than cascadeFromStage's index. Stages in or before
+ * the cascade scope are NOT cleared — the cascade-update path
+ * (called from /confirm) writes to those stages intentionally,
+ * and the stale marker there would be wrong anyway.
+ *
+ * Returns the additional patch fields to merge into the
+ * exit-state write, or `null` when no cleanup is needed.
+ */
+function cascadeMarkerClearPatch(
+  task: import("./state").TaskEntry,
+  currentStage: string,
+  exitCode: number | null,
+): Partial<import("./state").TaskEntry> | null {
+  if (exitCode !== 0 && exitCode !== null) return null;
+  if (!task.cascadeFromStage) return null;
+  if (
+    cascadeStageIndex(currentStage) <=
+    cascadeStageIndex(task.cascadeFromStage)
+  ) {
+    return null;
+  }
+  return {
+    cascadeTargetStage: undefined,
+    cascadeFromStage: undefined,
+  };
+}
+
+// ============================================================================
 // Git commit helper
 // ============================================================================
 
@@ -1662,11 +1728,10 @@ export async function runUpdateArtifact(
     });
     pid = result.pid || null;
     const exitHandler = (code: number | null, signal: string | null) =>
-      updateTask(
-        "analyst",
-        changeName,
-        buildUpdateExitPatch(config.stage, code, signal),
-      );
+      updateTask("analyst", changeName, {
+        ...buildUpdateExitPatch(config.stage, code, signal),
+        ...(cascadeMarkerClearPatch(task, config.stage, code) ?? {}),
+      });
     result.promise
       .then(({ exitCode, signal }) => exitHandler(exitCode, signal))
       .catch((e) =>

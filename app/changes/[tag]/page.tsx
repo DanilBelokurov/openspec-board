@@ -268,17 +268,55 @@ export default async function ChangePage({
       s as (typeof ANALYST_STAGES_FOR_CASCADE)[number],
     );
   }
-  // Stale paths = artefacts of stages strictly after
-  // cascadeFromStage (analyst stages only — `done` is not a
-  // stage with a re-writeable artefact, so reverting from
-  // done leaves no stale markers: every stage in scope was
-  // rewritten by the cascade).
+  // Stale paths surface artefacts that are out-of-sync with the
+  // latest intent. Two distinct cases:
+  //
+  //   1. Cascade is ACTIVE (cascadeComment set): stages between
+  //      the current stage and cascadeFromStage (inclusive) are
+  //      "pending cascade-updates" — they still hold the old
+  //      content from before the revert and will be rewritten
+  //      by the cascade as the user advances through confirms.
+  //      For cascadeFromStage = "adr" this means stages
+  //      delta-spec / design / adr are marked immediately after
+  //      /reopen (when current = proposal), and the marker
+  //      shrinks as cascade progresses: pending → design / adr
+  //      after confirming proposal, then → adr after delta-spec,
+  //      then empty when current reaches cascadeFromStage.
+  //
+  //   2. Cascade is OVER (cascadeComment cleared but
+  //      cascadeFromStage still set): stages strictly past
+  //      cascadeFromStage were never rewritten by the cascade
+  //      and need manual attention (pencil-update or
+  //      confirm-as-is). For cascadeFromStage = "design" this
+  //      means adr is marked until the user does something
+  //      about it (my recent cascadeMarkerClearPatch fix in
+  //      lib/continuation.ts clears the marker as soon as a
+  //      fresh adr create or update finishes successfully).
+  //
+  // cascadeFromStage = "done" is excluded entirely: reverting
+  // from done means the cascade covers every analyst stage, so
+  // there's no "not in scope" residue and no "pending" queue
+  // that would benefit from a marker — the user already saw
+  // every artefact before pressing «Редактировать».
   const stalePaths: string[] =
     task.cascadeFromStage &&
     task.cascadeFromStage !== "done"
-      ? ANALYST_STAGES_FOR_CASCADE.filter(
-          (s) => stageIndexLocal(s) > stageIndexLocal(task.cascadeFromStage!),
-        ).map((s) => ARTIFACT_SUBPATH_FOR_STAGE[s])
+      ? ANALYST_STAGES_FOR_CASCADE.filter((s) => {
+          const idx = stageIndexLocal(s);
+          const fromIdx = stageIndexLocal(task.cascadeFromStage!);
+          if (task.cascadeComment) {
+            // Active cascade: stages in (current, cascadeFromStage]
+            // are pending. Note task.stage is the stage being
+            // cascade-updated right now (or just finished) — it
+            // is NOT marked stale itself; the cascade-updates
+            // target stages strictly past it.
+            const currentIdx = stageIndexLocal(task.stage);
+            return idx > currentIdx && idx <= fromIdx;
+          }
+          // Cascade over: stages strictly past cascadeFromStage
+          // were never rewritten.
+          return idx > fromIdx;
+        }).map((s) => ARTIFACT_SUBPATH_FOR_STAGE[s])
       : [];
   // Cascade progress: how many stages have been re-written
   // (proposal + delta-spec + design + adr vs. the original
