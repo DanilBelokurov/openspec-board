@@ -709,8 +709,15 @@ export default async function ChangePage({
                 {!openspecNewAlive &&
                   task.openspecNewExitCode != null &&
                   task.openspecNewExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.openspecNewExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.openspecNewExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="proposal"
+                        sub="openspec-new"
+                      />
                     </div>
                   )}
               </div>
@@ -738,8 +745,15 @@ export default async function ChangePage({
                 {!gigacodeContinueAlive &&
                   task.gigacodeContinueExitCode != null &&
                   task.gigacodeContinueExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.gigacodeContinueExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.gigacodeContinueExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="proposal"
+                        sub="create"
+                      />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -781,8 +795,15 @@ export default async function ChangePage({
                 {!proposalUpdateAlive &&
                   task.proposalUpdateExitCode != null &&
                   task.proposalUpdateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.proposalUpdateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.proposalUpdateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="proposal"
+                        sub="update"
+                      />
                     </div>
                   )}
                 {task.proposalUpdateComments && (
@@ -832,8 +853,15 @@ export default async function ChangePage({
                 {!deltaSpecCreateAlive &&
                   task.deltaSpecCreateExitCode != null &&
                   task.deltaSpecCreateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.deltaSpecCreateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.deltaSpecCreateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="delta-spec"
+                        sub="create"
+                      />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -875,8 +903,15 @@ export default async function ChangePage({
                 {!deltaSpecUpdateAlive &&
                   task.deltaSpecUpdateExitCode != null &&
                   task.deltaSpecUpdateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.deltaSpecUpdateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.deltaSpecUpdateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="delta-spec"
+                        sub="update"
+                      />
                     </div>
                   )}
                 {task.deltaSpecUpdateComments && (
@@ -926,8 +961,15 @@ export default async function ChangePage({
                 {!designCreateAlive &&
                   task.designCreateExitCode != null &&
                   task.designCreateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.designCreateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.designCreateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="design"
+                        sub="create"
+                      />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -969,8 +1011,15 @@ export default async function ChangePage({
                 {!designUpdateAlive &&
                   task.designUpdateExitCode != null &&
                   task.designUpdateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.designUpdateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.designUpdateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="design"
+                        sub="update"
+                      />
                     </div>
                   )}
                 {task.designUpdateComments && (
@@ -1020,8 +1069,15 @@ export default async function ChangePage({
                 {!adrCreateAlive &&
                   task.adrCreateExitCode != null &&
                   task.adrCreateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.adrCreateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.adrCreateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="adr"
+                        sub="create"
+                      />
                     </div>
                   )}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
@@ -1063,8 +1119,15 @@ export default async function ChangePage({
                 {!adrUpdateAlive &&
                   task.adrUpdateExitCode != null &&
                   task.adrUpdateExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      Ошибка (exit {task.adrUpdateExitCode}) — см. лог
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        Ошибка (exit {task.adrUpdateExitCode}) — см. лог
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="adr"
+                        sub="update"
+                      />
                     </div>
                   )}
                 {task.adrUpdateComments && (
@@ -1412,9 +1475,16 @@ export default async function ChangePage({
                 )}
                 {task.pushExitCode != null &&
                   task.pushExitCode !== 0 && (
-                    <div className="text-[11px] text-red-700">
-                      {task.pushError ??
-                        `Ошибка (exit ${task.pushExitCode}) — см. лог`}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] text-red-700">
+                        {task.pushError ??
+                          `Ошибка (exit ${task.pushExitCode}) — см. лог`}
+                      </div>
+                      <RestartSubtaskButton
+                        tag={tag}
+                        stage="done"
+                        sub="push"
+                      />
                     </div>
                   )}
                 {task.pushRemoteUrl && (
@@ -1467,9 +1537,16 @@ export default async function ChangePage({
                   )}
                   {task.pullRequestExitCode != null &&
                     task.pullRequestExitCode !== 0 && (
-                      <div className="text-[11px] text-red-700">
-                        {task.pullRequestError ??
-                          `Ошибка (exit ${task.pullRequestExitCode}) — см. лог`}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[11px] text-red-700">
+                          {task.pullRequestError ??
+                            `Ошибка (exit ${task.pullRequestExitCode}) — см. лог`}
+                        </div>
+                        <RestartSubtaskButton
+                          tag={tag}
+                          stage="done"
+                          sub="pull-request"
+                        />
                       </div>
                     )}
                   {task.pullRequestUrl && (

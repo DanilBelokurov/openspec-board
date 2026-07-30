@@ -169,11 +169,23 @@ export async function POST(
   // proposal/delta-spec/design/adr PID doesn't leak into the
   // re-write. Cascade fields are armed with the user's comment so
   // /confirm can auto-trigger the next stage's update.
+  //
+  // CREATE-state (`*CreatePid` / `*CreateExitCode` / …) is wiped
+  // here too. Without it, a stale «Ошибка (exit N) — см. лог»
+  // card from a pre-cascade CREATE failure would keep showing
+  // for the freshly-rewritten artefact, misleading the user
+  // into thinking the cascade-update was the one that failed.
   await updateTask("analyst", params.tag, {
     stage: body.targetStage,
     committedAt: undefined,
     commitExitCode: undefined,
     commitError: undefined,
+    // proposal CREATE (legacy field name: gigacodeContinue*).
+    gigacodeContinuePid: null,
+    gigacodeContinueStartedAt: undefined,
+    gigacodeContinueExitCode: undefined,
+    gigacodeContinueExitSignal: undefined,
+    gigacodeContinueLogPath: undefined,
     proposalUpdatePid: null,
     proposalUpdateStartedAt: undefined,
     proposalUpdateExitCode: undefined,
@@ -183,6 +195,11 @@ export async function POST(
     deltaSpecCommittedAt: undefined,
     deltaSpecCommitExitCode: undefined,
     deltaSpecCommitError: undefined,
+    deltaSpecCreatePid: null,
+    deltaSpecCreateStartedAt: undefined,
+    deltaSpecCreateExitCode: undefined,
+    deltaSpecCreateExitSignal: undefined,
+    deltaSpecCreateLogPath: undefined,
     deltaSpecUpdatePid: null,
     deltaSpecUpdateStartedAt: undefined,
     deltaSpecUpdateExitCode: undefined,
@@ -192,6 +209,11 @@ export async function POST(
     designCommittedAt: undefined,
     designCommitExitCode: undefined,
     designCommitError: undefined,
+    designCreatePid: null,
+    designCreateStartedAt: undefined,
+    designCreateExitCode: undefined,
+    designCreateExitSignal: undefined,
+    designCreateLogPath: undefined,
     designUpdatePid: null,
     designUpdateStartedAt: undefined,
     designUpdateExitCode: undefined,
@@ -201,6 +223,11 @@ export async function POST(
     adrCommittedAt: undefined,
     adrCommitExitCode: undefined,
     adrCommitError: undefined,
+    adrCreatePid: null,
+    adrCreateStartedAt: undefined,
+    adrCreateExitCode: undefined,
+    adrCreateExitSignal: undefined,
+    adrCreateLogPath: undefined,
     adrUpdatePid: null,
     adrUpdateStartedAt: undefined,
     adrUpdateExitCode: undefined,

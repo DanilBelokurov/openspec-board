@@ -4,44 +4,85 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RotateCw } from "lucide-react";
 
+/**
+ * Sub-task target for an analyst-mode restart. Mirrors the
+ * discriminated set in `app/api/changes/[tag]/analyst/restart/route.ts`:
+ * the same `{stage, sub}` body shape is POSTed there verbatim.
+ */
+export type AnalystSub = "openspec-new" | "create" | "update" | "push" | "pull-request";
+
+export type AnalystStage =
+  | "proposal"
+  | "delta-spec"
+  | "design"
+  | "adr"
+  | "done";
+
 interface RestartSubtaskButtonProps {
-  /** Child task tag (the service-name directory). */
+  /** Change tag the failing sub-task belongs to. */
   tag: string;
-  /** Which TDD phase to restart. */
-  phase: "red" | "green";
+  /**
+   * Developer-mode TDD phase (RED / GREEN). When set, POSTs to
+   * `/api/changes/<tag>/implement/restart` with `{ phase }`.
+   * Mutually exclusive with `stage` / `sub`.
+   */
+  phase?: "red" | "green";
+  /**
+   * Analyst-mode restart target. When both `stage` and `sub`
+   * are set, POSTs to `/api/changes/<tag>/analyst/restart`
+   * with `{ stage, sub }`.
+   */
+  stage?: AnalystStage;
+  sub?: AnalystSub;
 }
 
 /**
- * "Перезапустить" button for a failed TDD sub-task on the develop
- * page. Mirrors the implementation pattern of `ImplementStartCard`:
- * POSTs to the new `/api/changes/<tag>/implement/restart` endpoint
- * with `{ phase }`, shows a spinner while the gigacode process is
- * being spawned, and refreshes the page on success so the parent
- * process card flips back to the live-spinner state.
- *
- * Stylistically distinct from the green "Запустить" and the amber
- * "Подтвердить" buttons: slate-700 background reads as a recovery
- * action rather than a primary advance. Disabled while submitting
- * to prevent double-spawns (the server enforces the same check
- * and returns 409 if the previous run is still alive).
+ * "Перезапустить" button for a failed TDD sub-task on the
+ * develop page (developer mode) or for any failed analyst-mode
+ * sub-task on the change detail page. Two endpoints, one
+ * component, one visual style — slate-700 background reads as
+ * a recovery action rather than a primary advance. Disabled
+ * while submitting to prevent double-spawns; the server
+ * enforces the same check and returns 409 if the previous run
+ * is still alive.
  */
-export function RestartSubtaskButton({ tag, phase }: RestartSubtaskButtonProps) {
+export function RestartSubtaskButton({
+  tag,
+  phase,
+  stage,
+  sub,
+}: RestartSubtaskButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const developerMode = phase != null;
+  const analystMode = stage != null && sub != null;
+  const configured = developerMode || analystMode;
+  if (!configured) {
+    // Misconfiguration at the call site. Surface loudly in dev;
+    // silently no-op in production to avoid breaking the page.
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "RestartSubtaskButton requires either `phase` (developer) or `stage`+`sub` (analyst)",
+      );
+    }
+  }
+
   async function handleRestart() {
+    if (!configured) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/changes/${encodeURIComponent(tag)}/implement/restart`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phase }),
-        },
-      );
+      const url = developerMode
+        ? `/api/changes/${encodeURIComponent(tag)}/implement/restart`
+        : `/api/changes/${encodeURIComponent(tag)}/analyst/restart`;
+      const body = developerMode ? { phase } : { stage, sub };
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
       };
@@ -62,7 +103,7 @@ export function RestartSubtaskButton({ tag, phase }: RestartSubtaskButtonProps) 
       <button
         type="button"
         onClick={handleRestart}
-        disabled={submitting}
+        disabled={submitting || !configured}
         className="flex h-7 items-center gap-1.5 rounded-md bg-slate-700 px-2.5 text-[11px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
         {submitting ? (

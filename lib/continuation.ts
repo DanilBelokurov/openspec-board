@@ -437,7 +437,7 @@ export async function triggerContinueIfNeeded(
       changePath,
       config,
     );
-    if (spawned) triggered.push(tag);
+    if (spawned.ok) triggered.push(tag);
   }
   return triggered;
 }
@@ -448,8 +448,11 @@ export async function triggerContinueIfNeeded(
  * `gigacodeContinuePid` for proposal, dedicated
  * `deltaSpecCreatePid` for delta-spec, …). New stages should add
  * their field here.
+ *
+ * Exported so the analyst-restart endpoint can do the same
+ * live-PID pre-flight before re-spawning a failed CREATE.
  */
-function getCreatePid(task: import("./state").TaskEntry): number | null {
+export function getCreatePid(task: import("./state").TaskEntry): number | null {
   switch (task.stage) {
     case "proposal":
       return task.gigacodeContinuePid ?? null;
@@ -466,12 +469,25 @@ function getCreatePid(task: import("./state").TaskEntry): number | null {
   }
 }
 
+/**
+ * Result shape for spawnCreateArtifactGigacode and the public
+ * runCreateArtifact wrapper. Mirrors UpdateArtifactResult so the
+ * analyst-restart endpoint can treat CREATE and UPDATE spawns
+ * uniformly when shaping the HTTP response.
+ */
+export interface CreateArtifactResult {
+  ok: boolean;
+  pid?: number | null;
+  logFile?: string;
+  error?: string;
+}
+
 async function spawnCreateArtifactGigacode(
   task: import("./state").TaskEntry,
   changeName: string,
   _changePath: string,
   config: ArtifactConfig,
-): Promise<boolean> {
+): Promise<CreateArtifactResult> {
   const worktree = task.openspecWorktreePath!;
 
   // Get the artifact-generation instructions as JSON.
@@ -515,7 +531,7 @@ async function spawnCreateArtifactGigacode(
     await updateTask(task.mode, changeName, {
       [errField]: `openspec instructions: ${(e as Error).message}`,
     } as Partial<import("./state").TaskEntry>);
-    return false;
+    return { ok: false, error: `openspec instructions: ${(e as Error).message}` };
   }
 
   const template = await loadCreateArtifactPromptTemplate();
@@ -572,12 +588,55 @@ async function spawnCreateArtifactGigacode(
       changeName,
       buildCreateSpawnPatch(config.stage, pid, logFile),
     );
-    return true;
+    return { ok: true, pid, logFile };
   }
   console.error(
     `Failed to spawn gigacode --prompt for ${changeName} (${config.stage})`,
   );
-  return false;
+  return { ok: false, error: "Не удалось запустить gigacode --prompt" };
+}
+
+/**
+ * Public entry point for re-spawning a failed CREATE for an
+ * analyst stage. Distinct from `spawnCreateArtifactGigacode`
+ * (still private to this module) in three ways:
+ *
+ *   1. The function does the pre-flight (worktree + live-PID
+ *      check) so callers don't need to know how stage fields
+ *      are named. The watcher in `triggerContinueIfNeeded` does
+ *      its own checks inline; analyst-restart delegates here.
+ *   2. Returns a CreateArtifactResult with the spawned PID /
+ *      logFile so the HTTP layer can surface them in 202.
+ *   3. Bypasses the watcher's "is the artifact on disk?"
+ *      readiness gate — restart is the recovery path for an
+ *      artifact that *is* expected to be re-written.
+ *
+ * Used by POST /api/changes/[tag]/analyst/restart when
+ * `sub === "create"`.
+ */
+export async function runCreateArtifact(
+  task: import("./state").TaskEntry,
+  changeName: string,
+  config: ArtifactConfig,
+): Promise<CreateArtifactResult> {
+  if (!task.openspecWorktreePath) {
+    return { ok: false, error: "Не задан worktree задачи" };
+  }
+  const livePid = getCreatePid(task);
+  if (livePid && isProcessAliveByPid(livePid)) {
+    return {
+      ok: false,
+      error:
+        "Предыдущая итерация создания ещё выполняется — дождитесь завершения",
+    };
+  }
+  const changePath = path.join(
+    task.openspecWorktreePath,
+    "openspec",
+    "changes",
+    changeName,
+  );
+  return spawnCreateArtifactGigacode(task, changeName, changePath, config);
 }
 
 // ============================================================================
