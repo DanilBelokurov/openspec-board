@@ -1,0 +1,280 @@
+import fs from "fs/promises";
+import path from "path";
+import { DEFAULT_MODE, isBoardModeId, type BoardModeId } from "./modes";
+import { atomicWriteFile } from "./atomic-write";
+
+// Pure (no-fs) helpers live in lib/repo-name.ts so client components
+// can import them without dragging in fs/promises. Re-exported here
+// for server-side callers that prefer one-stop imports.
+export {
+  isValidRepoName,
+  isValidRepoUrl,
+  isValidRepoBranch,
+  deriveRepoNameFromUrl,
+} from "./repo-name";
+
+export const DEFAULT_BRANCH = "master";
+
+/**
+ * A git submodule the user tracks alongside the openspecDir repo.
+ * The `name` is the key under `repos` in the config — it doubles
+ * as the directory name inside `repos/`, so it has to be a safe
+ * path segment (kebab-case, no slashes / dots).
+ *
+ * `build*` and `wiki*` fields track the two-step code-review-graph
+ * pipeline that runs detached right after `git submodule add`
+ * succeeds:
+ *   1. build  — `mcp__code-review-graph__build_or_update_graph_tool`
+ *               on the repo (the tool writes its index to
+ *               `<repoRoot>/.code-review-graph/`)
+ *   2. wiki   — `mcp__code-review-graph__generate_wiki_tool` on
+ *               the same repo
+ * The pipeline is considered "wiki done" only after step 2 exits
+ * with code 0.
+ *
+ * Shape mirrors the proposal-stage PIDs in TaskEntry (pid /
+ * startedAt / exitCode / exitSignal / logPath) so the same
+ * watcher.ts + lib/process.ts code can poll them.
+ */
+export interface RepoConfig {
+  url: string;
+  branch: string;
+  /**
+   * Local filesystem path to a working copy of the repo. The
+   * dev-mode TDD pipeline creates its worktree inside this
+   * directory (under `<localPathParent>/<localPathBasename>.worktrees/<JIRA-ID>/`)
+   * and runs `gigacode --prompt` there. Falls back to the
+   * submodule convention `<openspecDirParent>/repos/<name>/`
+   * (where `name` is the key under `repos` in config) when
+   * unset. Set this explicitly when the code repo lives outside
+   * the openspec-store parent directory.
+   */
+  localPath?: string;
+  buildPid?: number | null;
+  buildStartedAt?: string;
+  buildExitCode?: number | null;
+  buildExitSignal?: string | null;
+  buildLogPath?: string;
+  buildError?: string;
+  wikiPid?: number | null;
+  wikiStartedAt?: string;
+  wikiExitCode?: number | null;
+  wikiExitSignal?: string | null;
+  wikiLogPath?: string;
+  wikiError?: string;
+}
+
+/**
+ * Identity of the person running THIS instance of the board.
+ *
+ * - `email` is read from `git config user.email` on first launch
+ *   and stored on disk. It's used by the board to decide which
+ *   tasks belong to "me" (filter "Мои / Чужие") and to display
+ *   "от <email>" badges on remote tasks. It is NOT used to
+ *   rewrite commit authorship — git commits still go through
+ *   the user's regular git config.
+ *
+ * - `displayName` is optional. When present, it overrides the
+ *   truncated email in the UI. Falls back to `git config
+ *   user.name` if unset.
+ */
+export interface UserIdentity {
+  email?: string;
+  displayName?: string;
+}
+
+export interface AppConfig {
+  openspecDir: string;
+  mode: BoardModeId;
+  // Name of the main branch in the openspecDir git repo. The proposal
+  // creation flow pulls this branch from origin and creates feature
+  // branches off it.
+  defaultBranch: string;
+  // Tracked git submodules. Key = repo name (kebab-case), value =
+  // URL + branch to track. Backed by `git submodule add` + checkout
+  // under <openspecDirParent>/repos/<name>/.
+  repos?: Record<string, RepoConfig>;
+  /**
+   * Developer-mode auto-scan cadence, in minutes. The watcher
+   * runs `scanChangeProposalsOnBranch(openspecDir,
+   * defaultBranch)` every N minutes so the backlog auto-populates
+   * without the dev having to click ↻. Only consulted in
+   * developer mode (in analyst mode the scan is a one-shot
+   * trigger, not periodic). 0 disables auto-scan entirely.
+   */
+  developerScanIntervalMinutes?: number;
+  /**
+   * Analyst-mode remote-feature-branches scan cadence, in
+   * minutes. The watcher runs `scanRemoteFeatureBranches()`
+   * every N minutes so the board picks up proposals published
+   * by other users (read-only — no local worktree is created).
+   * Only consulted in analyst mode. 0 disables auto-scan
+   * entirely; the user can still trigger it manually via the
+   * ↻ button which calls mergeRemoteFeatureScan unconditionally.
+   * Default if unset: 5 minutes.
+   */
+  remoteScanIntervalMinutes?: number;
+  /**
+   * Identity of the current user. Used to filter the board
+   * ("Мои / Чужие") and to render authorship on remote tasks.
+   * Optional — when unset, the board treats every task as
+   * "ours" and skips the "Чужие" filter altogether.
+   */
+  user?: UserIdentity;
+}
+
+const CONFIG_DIR = path.join(process.cwd(), ".sdd-board");
+const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
+
+const DEFAULT_CONFIG: AppConfig = {
+  openspecDir: "",
+  mode: DEFAULT_MODE,
+  defaultBranch: DEFAULT_BRANCH,
+  repos: {},
+};
+
+/**
+ * Validate a UserIdentity-shaped patch and return a normalised
+ * UserIdentity (or undefined when both fields are empty). Used by
+ * writeConfig and /api/config to keep config.json's `user` field
+ * tidy: a record with empty strings is rewritten as `undefined` so
+ * downstream code can rely on `config.user?.email` being a
+ * non-empty string when present.
+ */
+function normaliseUserIdentity(raw: unknown): UserIdentity | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const email = typeof obj.email === "string" ? obj.email.trim() : "";
+  const displayName =
+    typeof obj.displayName === "string" ? obj.displayName.trim() : "";
+  if (!email && !displayName) return undefined;
+  return {
+    email: email || undefined,
+    displayName: displayName || undefined,
+  };
+}
+
+export async function readConfig(): Promise<AppConfig> {
+  try {
+    const raw = await fs.readFile(CONFIG_FILE, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const mode = isBoardModeId(parsed.mode) ? parsed.mode : DEFAULT_MODE;
+    const defaultBranch =
+      typeof parsed.defaultBranch === "string" &&
+      parsed.defaultBranch.trim().length > 0
+        ? parsed.defaultBranch.trim()
+        : DEFAULT_BRANCH;
+    const repos =
+      parsed.repos && typeof parsed.repos === "object"
+        ? (parsed.repos as Record<string, RepoConfig>)
+        : {};
+    const user = normaliseUserIdentity(parsed.user);
+    return {
+      openspecDir: parsed.openspecDir ?? "",
+      mode,
+      defaultBranch,
+      repos,
+      user,
+    };
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") return DEFAULT_CONFIG;
+    throw e;
+  }
+}
+
+export async function writeConfig(
+  patch: Partial<AppConfig>,
+): Promise<AppConfig> {
+  const current = await readConfig();
+  const next: AppConfig = { ...current, ...patch };
+  // Empty defaultBranch in the patch must NOT clobber the saved value
+  // (the SettingsDialog can momentarily hold an empty field while
+  // editing). Fall back to the existing value.
+  if (typeof next.defaultBranch !== "string" || next.defaultBranch.trim() === "") {
+    next.defaultBranch = current.defaultBranch;
+  }
+  // developerScanIntervalMinutes: 0 is a legitimate value
+  // (disable auto-scan), so we don't filter it out. Just normalise
+  // undefined / non-numbers to a sane default of 0 (i.e. off).
+  if (typeof next.developerScanIntervalMinutes !== "number" || !Number.isFinite(next.developerScanIntervalMinutes)) {
+    next.developerScanIntervalMinutes = current.developerScanIntervalMinutes ?? 0;
+  }
+  // remoteScanIntervalMinutes: same semantics as the developer
+  // one — 0 is a valid "disabled" value, but undefined falls
+  // back to the saved value (preserving previous setting across
+  // partial PATCHes).
+  if (typeof next.remoteScanIntervalMinutes !== "number" || !Number.isFinite(next.remoteScanIntervalMinutes)) {
+    next.remoteScanIntervalMinutes = current.remoteScanIntervalMinutes ?? 0;
+  }
+  // user: explicit `undefined` (PATCH sent `user: null`) clears
+  // the identity record; missing field preserves the current value.
+  if ("user" in patch) {
+    next.user = normaliseUserIdentity(patch.user);
+  } else {
+    next.user = current.user;
+  }
+  // Make sure repos is always present in the on-disk file (even if
+  // empty) so callers reading JSON directly see a consistent shape.
+  if (!next.repos || typeof next.repos !== "object") next.repos = {};
+  // Atomic write — same rationale as writeState in lib/state.ts.
+  await atomicWriteFile(
+    CONFIG_FILE,
+    JSON.stringify(next, null, 2) + "\n",
+  );
+  return next;
+}
+
+/**
+ * Patch a single repo's config without touching the other entries.
+ * Used by lib/watcher.ts to flip buildExitCode on the repo whose
+ * code-review-graph build process just died — passing the whole
+ * repos map through writeConfig every tick would race with any
+ * concurrent user add/remove and is more work than needed.
+ */
+export async function updateRepoEntry(
+  name: string,
+  patch: Partial<RepoConfig>,
+): Promise<RepoConfig | null> {
+  const current = await readConfig();
+  const existing = current.repos?.[name];
+  if (!existing) return null;
+  const updated: RepoConfig = { ...existing, ...patch };
+  const nextRepos = { ...(current.repos ?? {}), [name]: updated };
+  // Atomic write — same rationale as writeState in lib/state.ts.
+  await atomicWriteFile(
+    CONFIG_FILE,
+    JSON.stringify({ ...current, repos: nextRepos }, null, 2) + "\n",
+  );
+  return updated;
+}
+
+/**
+ * Resolve the local filesystem path for a code repo by name.
+ *
+ * Lookup order:
+ *  1. Explicit `localPath` on the repo's config entry (set
+ *     in `.sdd-board/config.json` under `repos.<name>.localPath`).
+ *  2. Default convention: `<process.cwd()>/repos/<repoName>` —
+ *     i.e. the `repos/` subdirectory of the sdd-board project
+ *     (where `next dev` runs). This is the typical layout when
+ *     the code repos are checked out alongside the board.
+ *
+ * Note: a previous revision used
+ * `<path.dirname(openspecDir)>/repos/<repoName>` (the
+ * "submodule" convention, treating repos as submodules of the
+ * openspec-store). That breaks layouts where sdd-store and
+ * sdd-board are sibling projects and the repos live in the
+ * sdd-board project itself — the dev would see
+ * `Worktree: <store-parent>/repos/<name> не является
+ * git-репозиторием` because the convention resolved a path
+ * outside the sdd-board. The `process.cwd()`-based default
+ * matches the layout we ship in this repo.
+ */
+export function resolveRepoLocalPath(
+  repoName: string,
+  repoConfig: { localPath?: string } | undefined,
+): string {
+  if (repoConfig?.localPath) return repoConfig.localPath;
+  return path.join(process.cwd(), "repos", repoName);
+}
