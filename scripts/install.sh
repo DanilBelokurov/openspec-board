@@ -23,6 +23,16 @@ MCP_BITBUCKET_SUBDIR="${MCP_BITBUCKET_SUBDIR:-mcp/bitbucket-mcp}"
 MCP_BITBUCKET_ENTRY="${MCP_BITBUCKET_ENTRY:-dist/index.js}"
 MCP_BITBUCKET_PERMISSION_TOOL="${MCP_BITBUCKET_PERMISSION_TOOL:-mcp__bitbucket__create_pull_request}"
 
+# Links shown when a required toolchain is missing. Replace with the
+# real installation/dependency guides before publishing the script.
+INSTALLER_INSTRUCTION_UV="${INSTALLER_INSTRUCTION_UV:-https://example.com/install-uv}"
+INSTALLER_INSTRUCTION_PIP="${INSTALLER_INSTRUCTION_PIP:-https://example.com/install-python-pip}"
+INSTALLER_INSTRUCTION_DEPS="${INSTALLER_INSTRUCTION_DEPS:-https://example.com/install-deps}"
+
+# Python package that backs the code-review-graph MCP server. Override
+# only if you forked the project under a different PyPI name.
+CODE_REVIEW_GRAPH_PACKAGE="${CODE_REVIEW_GRAPH_PACKAGE:-code-review-graph}"
+
 show_installation_info() {
   printf '%s\n\n' "Будет установлено всё необходимое harness-окружение для работы доски sdd:"
   printf '%s\n' "  • MCP-сервер jira"
@@ -315,6 +325,45 @@ select_checkboxes() {
 
 install_sbertrack_mcp() {
   printf '%s\n' "Установка sbertrack-mcp пока не реализована."
+}
+
+# Install the code-review-graph MCP server via `uv pip install`. Before
+# doing anything, the function verifies the local toolchain:
+#   - `uv` is on PATH                → otherwise emit INSTALLER_INSTRUCTION_UV
+#   - `pip` and `python` are present → otherwise emit INSTALLER_INSTRUCTION_PIP
+#   - the install actually succeeds → otherwise emit INSTALLER_INSTRUCTION_DEPS
+# Each diagnostic is informational only — the installer never aborts the
+# outer pipeline because the code-review-graph MCP is optional for the
+# «Аналитик/Разработчик» flow.
+install_code_review_graph_mcp() {
+  local package_name="$CODE_REVIEW_GRAPH_PACKAGE"
+
+  if ! command -v uv >/dev/null 2>&1; then
+    printf '%s\n' "Не найден uv — code-review-graph не установлен." >&2
+    printf '%s\n' "Инструкция по установке uv: $INSTALLER_INSTRUCTION_UV" >&2
+    return 0
+  fi
+
+  if ! command -v pip >/dev/null 2>&1; then
+    printf '%s\n' "Не найден pip — code-review-graph не установлен." >&2
+    printf '%s\n' "Инструкция по установке pip/python: $INSTALLER_INSTRUCTION_PIP" >&2
+    return 0
+  fi
+
+  if ! command -v python >/dev/null 2>&1; then
+    printf '%s\n' "Не найден python — code-review-graph не установлен." >&2
+    printf '%s\n' "Инструкция по установке pip/python: $INSTALLER_INSTRUCTION_PIP" >&2
+    return 0
+  fi
+
+  printf '%s\n' "Устанавливаю $package_name через uv pip install ..."
+  if ! uv pip install "$package_name"; then
+    printf '%s\n' "Не удалось установить $package_name — возможно, нет доступа до зависимостей." >&2
+    printf '%s\n' "Инструкция по настройке окружения: $INSTALLER_INSTRUCTION_DEPS" >&2
+    return 0
+  fi
+
+  printf '%s\n' "MCP-сервер code-review-graph установлен."
 }
 
 # Shared helpers used by install_bitbucket_mcp and install_sourcecontrol_mcp.
@@ -623,6 +672,7 @@ main() {
   show_installation_info
   install_selected_mcps
   select_install_mode
+  install_code_review_graph_mcp
   install_board "$INSTALL_MODE"
 }
 
