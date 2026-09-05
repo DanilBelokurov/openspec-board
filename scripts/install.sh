@@ -6,11 +6,22 @@ INSTALL_MODE=""
 
 # Repositories and endpoints for each MCP server. Adjust here when the
 # upstream location changes — every installer reads from these constants
-# instead of duplicating URLs.
-MCP_SOURCECONTROL_REPO_URL="ssh://sc@api.sc-ci.sber.ru:7998/InSourceHub_AI/ai_market.git"
-MCP_SOURCECONTROL_API_URL="https://sc-ci.sber.ru"
-MCP_SOURCECONTROL_LOCAL_DIR=".mcp/sourcecontrol"
-MCP_SOURCECONTROL_ENTRY="mcp-sourcecontrol/dist/index.js"
+# instead of duplicating URLs. Each default can also be overridden from
+# the environment before invoking the script.
+MCP_SOURCECONTROL_REPO_URL="${MCP_SOURCECONTROL_REPO_URL:-ssh://sc@api.sc-ci.sber.ru:7998/InSourceHub_AI/ai_market.git}"
+MCP_SOURCECONTROL_API_URL="${MCP_SOURCECONTROL_API_URL:-https://sc-ci.sber.ru}"
+MCP_SOURCECONTROL_LOCAL_DIR="${MCP_SOURCECONTROL_LOCAL_DIR:-.mcp/sourcecontrol}"
+MCP_SOURCECONTROL_ENTRY="${MCP_SOURCECONTROL_ENTRY:-mcp-sourcecontrol/dist/index.js}"
+
+# bitbucket-mcp lives in a separate upstream repo. Set
+# MCP_BITBUCKET_REPO_URL before invoking the script to point at your
+# checkout (placeholder below — replace before running the installer).
+MCP_BITBUCKET_REPO_URL="${MCP_BITBUCKET_REPO_URL:-placeholder/bitbucket-mcp.git}"
+MCP_BITBUCKET_API_URL="${MCP_BITBUCKET_API_URL:-https://stash.sigma.sbrf.ru}"
+MCP_BITBUCKET_LOCAL_DIR="${MCP_BITBUCKET_LOCAL_DIR:-.mcp/bitbucket-mcp}"
+MCP_BITBUCKET_SUBDIR="${MCP_BITBUCKET_SUBDIR:-mcp/bitbucket-mcp}"
+MCP_BITBUCKET_ENTRY="${MCP_BITBUCKET_ENTRY:-dist/index.js}"
+MCP_BITBUCKET_PERMISSION_TOOL="${MCP_BITBUCKET_PERMISSION_TOOL:-mcp__bitbucket__create_pull_request}"
 
 show_installation_info() {
   printf '%s\n\n' "Будет установлено всё необходимое harness-окружение для работы доски sdd:"
@@ -66,6 +77,77 @@ select_arrow_option() {
       return 0
     fi
   done
+}
+
+# Atomically add a permission tool name to
+# ~/.gigacode/settings.json → permissions.allow. Idempotent: skips the
+# write when the tool is already listed.
+register_permission_tool() {
+  local tool="$1"
+
+  if [[ -z "$tool" ]]; then
+    printf '%s\n' "register_permission_tool: пустое имя инструмента." >&2
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    printf '%s\n' "Для обновления .gigacode/settings.json требуется Node.js." >&2
+    return 1
+  fi
+
+  local settings_dir="$HOME/.gigacode"
+  local settings_file="$settings_dir/settings.json"
+  mkdir -p "$settings_dir"
+
+  SETTINGS_FILE="$settings_file" PERMISSION_TOOL="$tool" node <<'NODE'
+const fs = require("fs");
+
+const settingsFile = process.env.SETTINGS_FILE;
+const permissionTool = process.env.PERMISSION_TOOL;
+
+let settings = {};
+if (fs.existsSync(settingsFile)) {
+  const raw = fs.readFileSync(settingsFile, "utf8").trim();
+  if (raw.length > 0) settings = JSON.parse(raw);
+}
+
+if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+  throw new Error("Файл .gigacode/settings.json должен содержать JSON-объект.");
+}
+
+if (settings.permissions === undefined) {
+  settings.permissions = {};
+}
+if (
+  !settings.permissions ||
+  typeof settings.permissions !== "object" ||
+  Array.isArray(settings.permissions)
+) {
+  throw new Error("Поле permissions в settings.json должно быть JSON-объектом.");
+}
+
+if (!Array.isArray(settings.permissions.allow)) {
+  settings.permissions.allow = [];
+}
+if (
+  !settings.permissions.allow.every((value) => typeof value === "string")
+) {
+  throw new Error("Поле permissions.allow должно содержать только строки.");
+}
+
+if (!settings.permissions.allow.includes(permissionTool)) {
+  settings.permissions.allow.push(permissionTool);
+}
+
+const temporaryFile = `${settingsFile}.tmp-${process.pid}`;
+fs.writeFileSync(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
+  encoding: "utf8",
+  mode: 0o600,
+});
+fs.chmodSync(temporaryFile, 0o600);
+fs.renameSync(temporaryFile, settingsFile);
+NODE
+
+  printf '%s\n' "Разрешение $tool добавлено в permissions.allow."
 }
 
 install_jira_mcp() {
@@ -139,56 +221,7 @@ NODE
   unset jira_token
   printf '%s\n' "MCP-сервер jira-mcp добавлен в $settings_file."
 
-  SETTINGS_FILE="$settings_file" PERMISSION_TOOL="mcp__jira-mcp__add_labels" node <<'NODE'
-const fs = require("fs");
-
-const settingsFile = process.env.SETTINGS_FILE;
-const permissionTool = process.env.PERMISSION_TOOL;
-
-let settings = {};
-if (fs.existsSync(settingsFile)) {
-  const raw = fs.readFileSync(settingsFile, "utf8").trim();
-  if (raw.length > 0) settings = JSON.parse(raw);
-}
-
-if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
-  throw new Error("Файл .gigacode/settings.json должен содержать JSON-объект.");
-}
-
-if (settings.permissions === undefined) {
-  settings.permissions = {};
-}
-if (
-  !settings.permissions ||
-  typeof settings.permissions !== "object" ||
-  Array.isArray(settings.permissions)
-) {
-  throw new Error("Поле permissions в settings.json должно быть JSON-объектом.");
-}
-
-if (!Array.isArray(settings.permissions.allow)) {
-  settings.permissions.allow = [];
-}
-if (
-  !settings.permissions.allow.every((value) => typeof value === "string")
-) {
-  throw new Error("Поле permissions.allow должно содержать только строки.");
-}
-
-if (!settings.permissions.allow.includes(permissionTool)) {
-  settings.permissions.allow.push(permissionTool);
-}
-
-const temporaryFile = `${settingsFile}.tmp-${process.pid}`;
-fs.writeFileSync(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
-  encoding: "utf8",
-  mode: 0o600,
-});
-fs.chmodSync(temporaryFile, 0o600);
-fs.renameSync(temporaryFile, settingsFile);
-NODE
-
-  printf '%s\n' "Разрешение mcp__jira-mcp__add_labels добавлено в permissions.allow."
+  register_permission_tool "mcp__jira-mcp__add_labels"
 }
 
 select_install_mode() {
@@ -284,8 +317,161 @@ install_sbertrack_mcp() {
   printf '%s\n' "Установка sbertrack-mcp пока не реализована."
 }
 
+# Shared helpers used by install_bitbucket_mcp and install_sourcecontrol_mcp.
+clone_repo() {
+  local repo_url="$1"
+  local local_dir="$2"
+  local label="$3"
+
+  if [[ -e "$local_dir" ]]; then
+    if [[ -d "$local_dir/.git" ]]; then
+      printf '%s\n' "Каталог $local_dir уже содержит git-репозиторий — пропускаю клон."
+      return 0
+    fi
+    printf '%s\n' "Каталог $local_dir существует, но не является git-репозиторием." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$local_dir")"
+  printf '%s\n' "Клонирую $repo_url в $local_dir ..."
+  if ! git clone --depth 1 "$repo_url" "$local_dir"; then
+    printf '%s\n' "Не удалось склонировать $repo_url — установка $label остановлена." >&2
+    return 1
+  fi
+}
+
+build_npm_project() {
+  local build_dir="$1"
+  local label="$2"
+
+  if [[ ! -d "$build_dir" ]]; then
+    printf '%s\n' "Каталог для сборки $label не найден: $build_dir" >&2
+    return 1
+  fi
+
+  printf '%s\n' "Запускаю npm install и npm run build в $build_dir ..."
+  if ! (
+    cd "$build_dir"
+    npm install
+    npm run build
+  ); then
+    printf '%s\n' "Сборка $label в $build_dir завершилась с ошибкой — установка остановлена." >&2
+    return 1
+  fi
+}
+
 install_bitbucket_mcp() {
-  printf '%s\n' "Установка bitbucket-mcp пока не реализована."
+  local bb_token
+  printf '%s' "Введите токен bitbucket: "
+  IFS= read -r -s bb_token
+  printf '\n'
+
+  if [[ -z "$bb_token" ]]; then
+    printf '%s\n' "Токен bitbucket не может быть пустым — установка остановлена." >&2
+    return 1
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    printf '%s\n' "Для клонирования MCP bitbucket требуется git." >&2
+    return 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    printf '%s\n' "Для сборки MCP bitbucket требуется npm." >&2
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    printf '%s\n' "Для обновления .gigacode/settings.json требуется Node.js." >&2
+    return 1
+  fi
+
+  local repo_url="$MCP_BITBUCKET_REPO_URL"
+  local local_dir="$MCP_BITBUCKET_LOCAL_DIR"
+  local build_subdir="$MCP_BITBUCKET_SUBDIR"
+  if [[ -z "$build_subdir" || "$build_subdir" == "." ]]; then
+    build_subdir=""
+  fi
+  local build_dir="$local_dir"
+  [[ -n "$build_subdir" ]] && build_dir="$local_dir/$build_subdir"
+  local entry_rel="$build_subdir/$MCP_BITBUCKET_ENTRY"
+  [[ -z "$build_subdir" ]] && entry_rel="$MCP_BITBUCKET_ENTRY"
+  local entry_path="$local_dir/$entry_rel"
+
+  if [[ "$repo_url" == placeholder/* ]]; then
+    printf '%s\n' "MCP_BITBUCKET_REPO_URL не настроен (значение placeholder). Укажите реальный URL в переменной окружения или в шапке скрипта и повторите установку." >&2
+    return 1
+  fi
+
+  clone_repo "$repo_url" "$local_dir" "bitbucket" || return 1
+  build_npm_project "$build_dir" "bitbucket" || return 1
+
+  if [[ ! -f "$entry_path" ]]; then
+    printf '%s\n' "После сборки не найден $entry_path — установка остановлена." >&2
+    return 1
+  fi
+
+  local settings_dir="$HOME/.gigacode"
+  local settings_file="$settings_dir/settings.json"
+  mkdir -p "$settings_dir"
+
+  SDD_BB_TOKEN="$bb_token" \
+    SDD_BB_ENTRY="$entry_path" \
+    SDD_BB_API_URL="$MCP_BITBUCKET_API_URL" \
+    SETTINGS_FILE="$settings_file" \
+    node <<'NODE'
+const fs = require("fs");
+
+const settingsFile = process.env.SETTINGS_FILE;
+const bbToken = process.env.SDD_BB_TOKEN;
+const bbEntry = process.env.SDD_BB_ENTRY;
+const bbApiUrl = process.env.SDD_BB_API_URL;
+
+function readSettings() {
+  if (fs.existsSync(settingsFile)) {
+    const raw = fs.readFileSync(settingsFile, "utf8").trim();
+    if (raw.length > 0) return JSON.parse(raw);
+  }
+  return {};
+}
+
+function ensureObject(value, message) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(message);
+  }
+}
+
+const settings = readSettings();
+ensureObject(settings, "Файл .gigacode/settings.json должен содержать JSON-объект.");
+
+if (settings.mcpServers === undefined) {
+  settings.mcpServers = {};
+}
+ensureObject(
+  settings.mcpServers,
+  "Поле mcpServers в settings.json должно быть JSON-объектом.",
+);
+
+settings.mcpServers.bitbucket = {
+  command: "node",
+  args: [bbEntry],
+  env: {
+    BITBUCKET_URL: bbApiUrl,
+    BITBUCKET_TOKEN: bbToken,
+  },
+};
+
+const temporaryFile = `${settingsFile}.tmp-${process.pid}`;
+fs.writeFileSync(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
+  encoding: "utf8",
+  mode: 0o600,
+});
+fs.chmodSync(temporaryFile, 0o600);
+fs.renameSync(temporaryFile, settingsFile);
+NODE
+
+  unset bb_token
+  printf '%s\n' "MCP-сервер bitbucket добавлен в $settings_file."
+
+  register_permission_tool "$MCP_BITBUCKET_PERMISSION_TOOL"
 }
 
 install_sourcecontrol_mcp() {
@@ -316,31 +502,8 @@ install_sourcecontrol_mcp() {
   local repo_url="$MCP_SOURCECONTROL_REPO_URL"
   local entry="$MCP_SOURCECONTROL_ENTRY"
 
-  if [[ -e "$local_dir" ]]; then
-    if [[ -d "$local_dir/.git" ]]; then
-      printf '%s\n' "Каталог $local_dir уже содержит git-репозиторий — пропускаю клон."
-    else
-      printf '%s\n' "Каталог $local_dir существует, но не является git-репозиторием." >&2
-      return 1
-    fi
-  else
-    mkdir -p "$(dirname "$local_dir")"
-    printf '%s\n' "Клонирую $repo_url в $local_dir ..."
-    if ! git clone --depth 1 "$repo_url" "$local_dir"; then
-      printf '%s\n' "Не удалось склонировать $repo_url — установка остановлена." >&2
-      return 1
-    fi
-  fi
-
-  printf '%s\n' "Запускаю npm install и npm run build в $local_dir ..."
-  if ! (
-    cd "$local_dir"
-    npm install
-    npm run build
-  ); then
-    printf '%s\n' "Сборка $local_dir завершилась с ошибкой — установка остановлена." >&2
-    return 1
-  fi
+  clone_repo "$repo_url" "$local_dir" "sourcecontrol" || return 1
+  build_npm_project "$local_dir" "sourcecontrol" || return 1
 
   local entry_path="$local_dir/$entry"
   if [[ ! -f "$entry_path" ]]; then
@@ -410,13 +573,18 @@ NODE
 
   unset sc_token
   printf '%s\n' "MCP-сервер sourcecontrol добавлен в $settings_file."
+
+  register_permission_tool "mcp__sourcecontrol__git_create_pull_request"
 }
 
 install_selected_mcps() {
   SELECTED_CHECKBOXES=()
   select_checkboxes "Какие MCP-серверы установить?" \
     "jira" "sbertrack" "bitbucket" "sourcecontrol"
-  local -a chosen=("${SELECTED_CHECKBOXES[@]}")
+  local -a chosen=()
+  if [[ ${#SELECTED_CHECKBOXES[@]} -gt 0 ]]; then
+    chosen=("${SELECTED_CHECKBOXES[@]}")
+  fi
   SELECTED_CHECKBOXES=()
   if [[ "${#chosen[@]}" -eq 0 ]]; then
     printf '%s\n' "Ни один MCP-сервер не выбран."
