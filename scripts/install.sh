@@ -4,6 +4,14 @@ set -euo pipefail
 
 INSTALL_MODE=""
 
+# Repositories and endpoints for each MCP server. Adjust here when the
+# upstream location changes — every installer reads from these constants
+# instead of duplicating URLs.
+MCP_SOURCECONTROL_REPO_URL="ssh://sc@api.sc-ci.sber.ru:7998/InSourceHub_AI/ai_market.git"
+MCP_SOURCECONTROL_API_URL="https://sc-ci.sber.ru"
+MCP_SOURCECONTROL_LOCAL_DIR=".mcp/sourcecontrol"
+MCP_SOURCECONTROL_ENTRY="mcp-sourcecontrol/dist/index.js"
+
 show_installation_info() {
   printf '%s\n\n' "Будет установлено всё необходимое harness-окружение для работы доски sdd:"
   printf '%s\n' "  • MCP-сервер jira"
@@ -38,7 +46,11 @@ select_arrow_option() {
 
   render_options >&2
   while true; do
-    IFS= read -rsn1 key
+    if ! IFS= read -rsn1 key; then
+      printf '\033[?25h\n' >&2
+      SELECTED_OPTION=""
+      return 1
+    fi
     if [[ "$key" == $'\x1b' ]]; then
       IFS= read -rsn2 -t 1 rest || true
       case "$rest" in
@@ -50,7 +62,7 @@ select_arrow_option() {
       render_options >&2
     elif [[ -z "$key" || "$key" == $'\n' || "$key" == $'\r' ]]; then
       printf '\033[?25h\n' >&2
-      printf '%s' "${values[$selected]}"
+      SELECTED_OPTION="${values[$selected]}"
       return 0
     fi
   done
@@ -180,8 +192,11 @@ NODE
 }
 
 select_install_mode() {
-  INSTALL_MODE=$(select_arrow_option "В каком режиме установить доску sdd?" 0 \
-    "Аналитик/разработчик" "Эксперт УЭК")
+  SELECTED_OPTION=""
+  select_arrow_option "В каком режиме установить доску sdd?" 0 \
+    "Аналитик/разработчик" "Эксперт УЭК"
+  INSTALL_MODE="$SELECTED_OPTION"
+  SELECTED_OPTION=""
   printf 'Выбран режим установки: %s\n' "$INSTALL_MODE"
 }
 
@@ -230,7 +245,11 @@ select_checkboxes() {
 
   render
   while true; do
-    IFS= read -rsn1 key
+    if ! IFS= read -rsn1 key; then
+      printf '\033[?25h\n' >&2
+      SELECTED_CHECKBOXES=()
+      return 1
+    fi
     if [[ "$key" == $'\x1b' ]]; then
       IFS= read -rsn2 -t 1 rest || true
       case "$rest" in
@@ -250,9 +269,10 @@ select_checkboxes() {
       render
     elif [[ -z "$key" || "$key" == $'\n' || "$key" == $'\r' ]]; then
       printf '\033[?25h\n' >&2
+      SELECTED_CHECKBOXES=()
       for index in "${!selected[@]}"; do
         if [[ "${selected[$index]}" -eq 1 ]]; then
-          printf '%s\n' "${labels[$index]}"
+          SELECTED_CHECKBOXES+=("${labels[$index]}")
         fi
       done
       return 0
@@ -269,37 +289,166 @@ install_bitbucket_mcp() {
 }
 
 install_sourcecontrol_mcp() {
-  printf '%s\n' "Установка sourcecontrol-mcp пока не реализована."
+  local sc_token
+  printf '%s' "Введите токен sourcecontrol: "
+  IFS= read -r -s sc_token
+  printf '\n'
+
+  if [[ -z "$sc_token" ]]; then
+    printf '%s\n' "Токен sourcecontrol не может быть пустым — установка остановлена." >&2
+    return 1
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    printf '%s\n' "Для клонирования MCP sourcecontrol требуется git." >&2
+    return 1
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    printf '%s\n' "Для сборки MCP sourcecontrol требуется npm." >&2
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    printf '%s\n' "Для обновления .gigacode/settings.json требуется Node.js." >&2
+    return 1
+  fi
+
+  local local_dir="$MCP_SOURCECONTROL_LOCAL_DIR"
+  local repo_url="$MCP_SOURCECONTROL_REPO_URL"
+  local entry="$MCP_SOURCECONTROL_ENTRY"
+
+  if [[ -e "$local_dir" ]]; then
+    if [[ -d "$local_dir/.git" ]]; then
+      printf '%s\n' "Каталог $local_dir уже содержит git-репозиторий — пропускаю клон."
+    else
+      printf '%s\n' "Каталог $local_dir существует, но не является git-репозиторием." >&2
+      return 1
+    fi
+  else
+    mkdir -p "$(dirname "$local_dir")"
+    printf '%s\n' "Клонирую $repo_url в $local_dir ..."
+    if ! git clone --depth 1 "$repo_url" "$local_dir"; then
+      printf '%s\n' "Не удалось склонировать $repo_url — установка остановлена." >&2
+      return 1
+    fi
+  fi
+
+  printf '%s\n' "Запускаю npm install и npm run build в $local_dir ..."
+  if ! (
+    cd "$local_dir"
+    npm install
+    npm run build
+  ); then
+    printf '%s\n' "Сборка $local_dir завершилась с ошибкой — установка остановлена." >&2
+    return 1
+  fi
+
+  local entry_path="$local_dir/$entry"
+  if [[ ! -f "$entry_path" ]]; then
+    printf '%s\n' "После сборки не найден $entry_path — установка остановлена." >&2
+    return 1
+  fi
+
+  local settings_dir="$HOME/.gigacode"
+  local settings_file="$settings_dir/settings.json"
+  mkdir -p "$settings_dir"
+
+  SDD_SC_TOKEN="$sc_token" \
+    SDD_SC_ENTRY="$entry_path" \
+    SDD_SC_API_URL="$MCP_SOURCECONTROL_API_URL" \
+    SETTINGS_FILE="$settings_file" \
+    node <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const settingsFile = process.env.SETTINGS_FILE;
+const scToken = process.env.SDD_SC_TOKEN;
+const scEntry = process.env.SDD_SC_ENTRY;
+const scApiUrl = process.env.SDD_SC_API_URL;
+
+function readSettings() {
+  if (fs.existsSync(settingsFile)) {
+    const raw = fs.readFileSync(settingsFile, "utf8").trim();
+    if (raw.length > 0) return JSON.parse(raw);
+  }
+  return {};
+}
+
+function ensureObject(value, message) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(message);
+  }
+}
+
+const settings = readSettings();
+ensureObject(settings, "Файл .gigacode/settings.json должен содержать JSON-объект.");
+
+if (settings.mcpServers === undefined) {
+  settings.mcpServers = {};
+}
+ensureObject(
+  settings.mcpServers,
+  "Поле mcpServers в settings.json должно быть JSON-объектом.",
+);
+
+settings.mcpServers.sourcecontrol = {
+  command: "node",
+  args: [scEntry],
+  env: {
+    SC_API_URL: scApiUrl,
+    SC_TOKEN: scToken,
+  },
+};
+
+const temporaryFile = `${settingsFile}.tmp-${process.pid}`;
+fs.writeFileSync(temporaryFile, `${JSON.stringify(settings, null, 2)}\n`, {
+  encoding: "utf8",
+  mode: 0o600,
+});
+fs.chmodSync(temporaryFile, 0o600);
+fs.renameSync(temporaryFile, settingsFile);
+NODE
+
+  unset sc_token
+  printf '%s\n' "MCP-сервер sourcecontrol добавлен в $settings_file."
 }
 
 install_selected_mcps() {
-  local chosen
-  chosen=$(select_checkboxes "Какие MCP-серверы установить?" \
-    "jira" "sbertrack" "bitbucket" "sourcecontrol")
-  if [[ -z "$chosen" ]]; then
+  SELECTED_CHECKBOXES=()
+  select_checkboxes "Какие MCP-серверы установить?" \
+    "jira" "sbertrack" "bitbucket" "sourcecontrol"
+  local -a chosen=("${SELECTED_CHECKBOXES[@]}")
+  SELECTED_CHECKBOXES=()
+  if [[ "${#chosen[@]}" -eq 0 ]]; then
     printf '%s\n' "Ни один MCP-сервер не выбран."
     return 0
   fi
-  while IFS= read -r name; do
-    [[ -z "$name" ]] && continue
+  for name in "${chosen[@]}"; do
     case "$name" in
       jira)
-        install_jira_mcp
+        if ! install_jira_mcp; then
+          printf '%s\n' "Установка jira-mcp не завершена — продолжаю." >&2
+        fi
         ;;
       sbertrack)
-        install_sbertrack_mcp
+        if ! install_sbertrack_mcp; then
+          printf '%s\n' "Установка sbertrack-mcp не завершена — продолжаю." >&2
+        fi
         ;;
       bitbucket)
-        install_bitbucket_mcp
+        if ! install_bitbucket_mcp; then
+          printf '%s\n' "Установка bitbucket-mcp не завершена — продолжаю." >&2
+        fi
         ;;
       sourcecontrol)
-        install_sourcecontrol_mcp
+        if ! install_sourcecontrol_mcp; then
+          printf '%s\n' "Установка sourcecontrol-mcp не завершена — продолжаю." >&2
+        fi
         ;;
       *)
         printf '%s\n' "Неизвестный сервер: $name" >&2
         ;;
     esac
-  done <<< "$chosen"
+  done
 }
 
 main() {
