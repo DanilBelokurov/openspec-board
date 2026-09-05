@@ -28,6 +28,19 @@ git --version   # >= 2.30
 which gigacode  # должен вернуть путь к CLI
 ```
 
+### 2.1. Интерактивный установщик harness-окружения
+
+В корне проекта есть `scripts/install.sh`. Он:
+
+- выводит информационный блок о составе harness-окружения;
+- запрашивает токен Jira в скрытом режиме и атомарно добавляет `jira-mcp` в `~/.gigacode/settings.json`;
+- прописывает `mcp__jira-mcp__add_labels` в `permissions.allow`;
+- предлагает выбор режима работы стрелками (`Аналитик/разработчик` или `Эксперт УЭК`).
+
+```bash
+./scripts/install.sh
+```
+
 ## 3. MCP-серверы
 
 Доска спавнит `gigacode --prompt` per-step; сами MCP она не поднимает — только передаёт нужные инструменты агенту. Конфиг — в `~/.gigacode/settings.json` (секция `mcpServers`).
