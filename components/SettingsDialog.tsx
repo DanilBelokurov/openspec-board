@@ -319,7 +319,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         aria-modal="true"
         aria-labelledby="settings-title"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-lg border border-border bg-white shadow-cardHover"
+        className="flex max-h-[90vh] w-full max-w-md flex-col rounded-lg border border-border bg-white shadow-cardHover"
       >
         <header className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
           <h2
@@ -338,7 +338,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </button>
         </header>
 
-        <div className="flex flex-col gap-4 px-4 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-slate-800">
               Режим доски
