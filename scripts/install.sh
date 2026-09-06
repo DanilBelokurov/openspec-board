@@ -29,6 +29,13 @@ INSTALLER_INSTRUCTION_UV="${INSTALLER_INSTRUCTION_UV:-https://example.com/instal
 INSTALLER_INSTRUCTION_PIP="${INSTALLER_INSTRUCTION_PIP:-https://example.com/install-python-pip}"
 INSTALLER_INSTRUCTION_DEPS="${INSTALLER_INSTRUCTION_DEPS:-https://example.com/install-deps}"
 
+# Per-MCP guides for getting the corresponding access token. Each entry
+# is shown right under the token prompt so the user knows where to look
+# when they don't have one at hand.
+INSTALLER_INSTRUCTION_JIRA_TOKEN="${INSTALLER_INSTRUCTION_JIRA_TOKEN:-https://example.com/get-jira-token}"
+INSTALLER_INSTRUCTION_BITBUCKET_TOKEN="${INSTALLER_INSTRUCTION_BITBUCKET_TOKEN:-https://example.com/get-bitbucket-token}"
+INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN="${INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN:-https://example.com/get-sourcecontrol-token}"
+
 # Python package that backs the code-review-graph MCP server. Override
 # only if you forked the project under a different PyPI name.
 CODE_REVIEW_GRAPH_PACKAGE="${CODE_REVIEW_GRAPH_PACKAGE:-code-review-graph}"
@@ -45,9 +52,19 @@ select_arrow_option() {
   local prompt="$1"
   local default_index="$2"
   shift 2
-  local -a labels=("$@")
-  local -a values=("${labels[@]}")
-  local -a display_labels=("${labels[@]}")
+  local -a raw_labels=("$@")
+  local -a display_labels=()
+  local -a values=()
+  local raw label value index
+  for raw in "${raw_labels[@]}"; do
+    label="${raw%%:*}"
+    value="${raw#*:}"
+    if [[ "$label" == "$value" ]]; then
+      value="$label"
+    fi
+    display_labels+=("$label")
+    values+=("$value")
+  done
   local selected="$default_index"
   local key rest
 
@@ -55,12 +72,12 @@ select_arrow_option() {
   printf '\033[?25l' >&2
 
   render_options() {
-    local index
-    for index in "${!display_labels[@]}"; do
-      if [[ "$index" -eq "$selected" ]]; then
-        printf '\033[1m❯ %s\033[0m\n' "${display_labels[$index]}" >&2
+    local i
+    for i in "${!display_labels[@]}"; do
+      if [[ "$i" -eq "$selected" ]]; then
+        printf '\033[1m❯ %s\033[0m\n' "${display_labels[$i]}" >&2
       else
-        printf '  %s\n' "${display_labels[$index]}" >&2
+        printf '  %s\n' "${display_labels[$i]}" >&2
       fi
     done
   }
@@ -75,8 +92,8 @@ select_arrow_option() {
     if [[ "$key" == $'\x1b' ]]; then
       IFS= read -rsn2 -t 1 rest || true
       case "$rest" in
-        '[A') selected=$(( (selected + ${#labels[@]} - 1) % ${#labels[@]} )) ;;
-        '[B') selected=$(( (selected + 1) % ${#labels[@]} )) ;;
+        '[A') selected=$(( (selected + ${#display_labels[@]} - 1) % ${#display_labels[@]} )) ;;
+        '[B') selected=$(( (selected + 1) % ${#display_labels[@]} )) ;;
         *) continue ;;
       esac
       printf '\033[2A' >&2
@@ -165,12 +182,7 @@ install_jira_mcp() {
   local settings_file="$settings_dir/settings.json"
   local jira_token
 
-  printf '%s' "Введите токен Jira: "
-  IFS= read -r -s jira_token
-  printf '\n'
-
-  if [[ -z "$jira_token" ]]; then
-    printf '%s\n' "Токен Jira не может быть пустым." >&2
+  if ! jira_token=$(prompt_for_token "Токен Jira (x-jira-token)." "$INSTALLER_INSTRUCTION_JIRA_TOKEN"); then
     return 1
   fi
 
@@ -237,7 +249,8 @@ NODE
 select_install_mode() {
   SELECTED_OPTION=""
   select_arrow_option "В каком режиме установить доску sdd?" 0 \
-    "Аналитик/разработчик" "Эксперт УЭК"
+    "Аналитик/разработчик:analyst-developer" \
+    "Эксперт УЭК:uek-expert"
   INSTALL_MODE="$SELECTED_OPTION"
   SELECTED_OPTION=""
   printf 'Выбран режим установки: %s\n' "$INSTALL_MODE"
@@ -327,6 +340,36 @@ install_sbertrack_mcp() {
   printf '%s\n' "Установка sbertrack-mcp пока не реализована."
 }
 
+# Prompt the user for a token with hidden input. Prints the supplied
+# label, then a one-line guide so the user knows where to get the token.
+# Returns the entered value on stdout; exits with status 1 on EOF or
+# empty input. Used by install_jira_mcp, install_bitbucket_mcp, and
+# install_sourcecontrol_mcp. Labels and instructions go to stderr so
+# that callers can capture the value via $(...) without polluting it.
+prompt_for_token() {
+  local label="$1"
+  local instruction_url="$2"
+  local value
+
+  printf '%s\n' "$label" >&2
+  if [[ -n "$instruction_url" ]]; then
+    printf '%s\n' "Где взять токен: $instruction_url" >&2
+  fi
+  printf '%s' "Введите токен: " >&2
+  if ! IFS= read -r -s value; then
+    printf '\n' >&2
+    return 1
+  fi
+  printf '\n' >&2
+
+  if [[ -z "$value" ]]; then
+    printf '%s\n' "Токен не может быть пустым." >&2
+    return 1
+  fi
+
+  printf '%s' "$value"
+}
+
 # Install the code-review-graph MCP server via `uv pip install`. Before
 # doing anything, the function verifies the local toolchain:
 #   - `uv` is on PATH                → otherwise emit INSTALLER_INSTRUCTION_UV
@@ -411,12 +454,8 @@ build_npm_project() {
 
 install_bitbucket_mcp() {
   local bb_token
-  printf '%s' "Введите токен bitbucket: "
-  IFS= read -r -s bb_token
-  printf '\n'
-
-  if [[ -z "$bb_token" ]]; then
-    printf '%s\n' "Токен bitbucket не может быть пустым — установка остановлена." >&2
+  if ! bb_token=$(prompt_for_token "Токен bitbucket (BITBUCKET_TOKEN)." "$INSTALLER_INSTRUCTION_BITBUCKET_TOKEN"); then
+    printf '%s\n' "Установка остановлена." >&2
     return 1
   fi
 
@@ -525,12 +564,8 @@ NODE
 
 install_sourcecontrol_mcp() {
   local sc_token
-  printf '%s' "Введите токен sourcecontrol: "
-  IFS= read -r -s sc_token
-  printf '\n'
-
-  if [[ -z "$sc_token" ]]; then
-    printf '%s\n' "Токен sourcecontrol не может быть пустым — установка остановлена." >&2
+  if ! sc_token=$(prompt_for_token "Токен sourcecontrol (SC_TOKEN)." "$INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN"); then
+    printf '%s\n' "Установка остановлена." >&2
     return 1
   fi
 
@@ -672,7 +707,9 @@ main() {
   show_installation_info
   install_selected_mcps
   select_install_mode
-  install_code_review_graph_mcp
+  if [[ "$INSTALL_MODE" == "analyst-developer" ]]; then
+    install_code_review_graph_mcp
+  fi
   install_board "$INSTALL_MODE"
 }
 
