@@ -343,6 +343,16 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <span className="text-[12px] font-medium text-slate-800">
               Режим доски
             </span>
+            {mode === "developer" && (
+              <div
+                role="note"
+                className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800"
+              >
+                Режим «Разработчик» сейчас в активной разработке: часть
+                сценариев работает нестабильно, возможны ошибки в интерфейсе и
+                незавершённые этапы.
+              </div>
+            )}
             <div
               role="radiogroup"
               aria-label="Режим доски"
@@ -357,13 +367,21 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                     role="radio"
                     aria-checked={active}
                     onClick={() => setMode(m.id)}
-                    className={`flex-1 rounded px-2.5 py-1 text-[12px] font-medium transition ${
+                    className={`relative flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${
                       active
                         ? "bg-white text-slate-900 shadow-sm"
                         : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
-                    {m.label}
+                    <span>{m.label}</span>
+                    {m.id === "developer" && (
+                      <span
+                        className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                        title="Режим дорабатывается"
+                      >
+                        in progress
+                      </span>
+                    )}
                   </button>
                 );
               })}
