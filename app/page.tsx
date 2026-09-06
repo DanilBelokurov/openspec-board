@@ -8,6 +8,7 @@ import path from "node:path";
 import "@/lib/watcher";
 import { TopBar } from "@/components/TopBar";
 import { Board } from "@/components/Board";
+import { UekReviewBoard } from "@/components/UekReviewBoard";
 import { readConfig } from "@/lib/config";
 import { readState } from "@/lib/state";
 import { triggerContinueIfNeeded } from "@/lib/continuation";
@@ -32,7 +33,12 @@ export default async function Home({
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
   const config = await readConfig();
-  if (!config.openspecDir) {
+  // The openspec store directory is required only for the
+  // openspec-aware modes (developer / analyst). The UEK-expert
+  // mode renders the review board, which doesn't read or write
+  // anything under `<openspecDir>`, so the "specify the
+  // directory" prompt shouldn't appear there.
+  if (config.mode !== "uek-expert" && !config.openspecDir) {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-surface">
         <TopBar mode={config.mode} />
@@ -291,12 +297,16 @@ export default async function Home({
         hasUserEmail={Boolean(myEmail)}
       />
       <main className="flex-1 overflow-hidden">
-        <Board
-          items={items}
-          stages={mode.stages}
-          meta={mode.meta}
-          mode={config.mode}
-        />
+        {config.mode === "uek-expert" ? (
+          <UekReviewBoard />
+        ) : (
+          <Board
+            items={items}
+            stages={mode.stages}
+            meta={mode.meta}
+            mode={config.mode}
+          />
+        )}
       </main>
     </div>
   );

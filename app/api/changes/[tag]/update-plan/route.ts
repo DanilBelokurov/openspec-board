@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findTaskByTagStrict } from "@/lib/state";
+import { findTaskByTagStrict, requireOpenspecMode } from "@/lib/state";
 import { runUpdateArtifact } from "@/lib/continuation";
 import { readConfig } from "@/lib/config";
 
@@ -14,7 +14,10 @@ export async function POST(
   // must not pick up the analyst-companion task here, otherwise
   // we'd be writing to state.tasks["analyst:<tag>"] with
   // plan-shaped fields.
-  const task = await findTaskByTagStrict(config.mode, params.tag);
+  const modeGate = requireOpenspecMode(config.mode);
+  if (!modeGate.ok) return modeGate.response;
+  const taskMode = modeGate.taskMode;
+  const task = await findTaskByTagStrict(taskMode, params.tag);
   if (!task) {
     return NextResponse.json(
       {

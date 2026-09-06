@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { readConfig } from "@/lib/config";
-import { updateTask, findTaskByTagStrict } from "@/lib/state";
+import { updateTask, findTaskByTagStrict, requireOpenspecMode } from "@/lib/state";
 import { createWorktree, pickFreeFeatureWorktree } from "@/lib/git";
 import { extractJiraId } from "@/lib/jira";
 
@@ -26,7 +26,10 @@ export async function POST(
   // can never be picked up as the target of a developer-mode
   // action, even if a misconfigured client tried to call /start
   // from the analyst board.
-  const task = await findTaskByTagStrict(config.mode, params.tag);
+  const modeGate = requireOpenspecMode(config.mode);
+  if (!modeGate.ok) return modeGate.response;
+  const taskMode = modeGate.taskMode;
+  const task = await findTaskByTagStrict(taskMode, params.tag);
   if (!task) {
     return NextResponse.json(
       {

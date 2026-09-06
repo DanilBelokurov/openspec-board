@@ -5,6 +5,7 @@ import {
   readState,
   updateTask,
   findTaskByTagStrict,
+  requireOpenspecMode,
   taskKey,
 } from "@/lib/state";
 import {
@@ -89,7 +90,10 @@ export async function POST(
   // waiting to be confirmed. The mode is determined by the
   // board the user is on, same as page.tsx does it.
   const config = await readConfig();
-  const task = await findTaskByTagStrict(config.mode, params.tag);
+  const modeGate = requireOpenspecMode(config.mode);
+  if (!modeGate.ok) return modeGate.response;
+  const taskMode = modeGate.taskMode;
+  const task = await findTaskByTagStrict(taskMode, params.tag);
   if (!task) {
     return NextResponse.json(
       {

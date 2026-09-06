@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readConfig, writeConfig } from "@/lib/config";
-import { isBoardModeId } from "@/lib/modes";
+import { isBoardModeId, type BoardModeId } from "@/lib/modes";
 
 export async function GET() {
   const config = await readConfig();
@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest) {
 
   const patch: {
     openspecDir?: string;
-    mode?: "developer" | "analyst";
+    mode?: BoardModeId;
     defaultBranch?: string;
     developerScanIntervalMinutes?: number;
     remoteScanIntervalMinutes?: number;
@@ -56,7 +56,7 @@ export async function PUT(req: NextRequest) {
   if (mode !== undefined) {
     if (!isBoardModeId(mode)) {
       return NextResponse.json(
-        { error: 'mode must be "developer" or "analyst"' },
+        { error: 'mode must be "developer", "analyst" or "uek-expert"' },
         { status: 400 },
       );
     }

@@ -10,7 +10,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { readConfig, resolveRepoLocalPath } from "@/lib/config";
-import { readState, findTaskByTagStrict } from "@/lib/state";
+import { readState, findTaskByTagStrict, requireOpenspecMode } from "@/lib/state";
 import {
   listChangeTree,
   formatBytes,
@@ -66,7 +66,12 @@ export default async function ChangePage({
   // doesn't exist yet (e.g. the developer scan hasn't run
   // since the PR was merged), the page 404s and the user is
   // expected to refresh the board to trigger the scan.
-  const task = await findTaskByTagStrict(config.mode, params.tag);
+  // The UEK-expert mode does not own openspec tasks, so we
+  // bounce it out before the lookup.
+  const modeGate = requireOpenspecMode(config.mode);
+  if (!modeGate.ok) notFound();
+  const taskMode = modeGate.taskMode;
+  const task = await findTaskByTagStrict(taskMode, params.tag);
   if (!task) notFound();
 
   const tag = task.summary.changeName;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, FolderSearch, Plus, Loader2, Trash2 } from "lucide-react";
-import { MODES, type BoardModeId } from "@/lib/modes";
+import { MODES, isBoardModeId, type BoardModeId } from "@/lib/modes";
 import { useCreateProposal } from "./CreateProposalContext";
 import { deriveRepoNameFromUrl } from "@/lib/repo-name";
 
@@ -85,7 +85,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         const v = data?.openspecDir ?? "";
         setPath(v);
         setInitialPath(v);
-        const m: BoardModeId = data?.mode === "analyst" ? "analyst" : "developer";
+        const m: BoardModeId = isBoardModeId(data?.mode) ? data.mode : "developer";
         setMode(m);
         setInitialMode(m);
         const b: string =
@@ -356,35 +356,57 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <div
               role="radiogroup"
               aria-label="Режим доски"
-              className="flex rounded-md border border-border bg-slate-50 p-0.5"
+              className="flex flex-col gap-1.5 rounded-md border border-border bg-slate-50 p-1"
             >
-              {Object.values(MODES).map((m) => {
+              <div className="flex gap-1">
+                {(["developer", "analyst"] as const).map((modeId) => {
+                  const m = MODES[modeId];
+                  const active = mode === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setMode(m.id)}
+                      className={`relative flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${
+                        active
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <span>{m.label}</span>
+                      {m.id === "developer" && (
+                        <span
+                          className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                          title="Режим дорабатывается"
+                        >
+                          in progress
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {(() => {
+                const m = MODES["uek-expert"];
                 const active = mode === m.id;
                 return (
                   <button
-                    key={m.id}
                     type="button"
                     role="radio"
                     aria-checked={active}
                     onClick={() => setMode(m.id)}
-                    className={`relative flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${
+                    className={`flex w-full items-center justify-center gap-1.5 rounded px-2.5 py-1 text-[12px] font-medium transition ${
                       active
                         ? "bg-white text-slate-900 shadow-sm"
                         : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
                     <span>{m.label}</span>
-                    {m.id === "developer" && (
-                      <span
-                        className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700"
-                        title="Режим дорабатывается"
-                      >
-                        in progress
-                      </span>
-                    )}
                   </button>
                 );
-              })}
+              })()}
             </div>
             <span className="text-[11px] text-slate-500">
               «Разработчик» — 7 этапов реализации (бэклог → готово). «Аналитик» —
@@ -393,6 +415,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </span>
           </div>
 
+          {mode !== "uek-expert" && (
+            <>
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-slate-800">
               Директория OpenSpec store
@@ -713,6 +737,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700">
               Сохранено. Новое значение будет использоваться при следующих запусках.
             </div>
+          )}
+            </>
           )}
         </div>
 

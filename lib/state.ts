@@ -24,7 +24,12 @@ const STATE_FILE = path.join(STATE_DIR, "state.json");
  * We infer it from the stage for legacy entries that don't have
  * the field set.
  */
-export type TaskMode = BoardModeId;
+/**
+ * Which openspec-stage flow a task belongs to. The `uek-expert`
+ * mode is a review board and does not own openspec tasks, so it is
+ * intentionally absent from this union.
+ */
+export type TaskMode = Exclude<BoardModeId, "uek-expert">;
 
 export interface TaskEntry {
   id: string;
@@ -398,6 +403,46 @@ export interface AppState {
  */
 export function taskKey(mode: TaskMode, tag: string): string {
   return `${mode}:${tag}`;
+}
+
+/**
+ * Convert a board mode into the openspec-task mode. UEK-expert is
+ * rejected because the UEK review board doesn't own openspec tasks;
+ * callers should treat it as a "go back to the openspec modes"
+ * signal.
+ */
+export function toTaskMode(mode: BoardModeId): TaskMode {
+  if (mode === "uek-expert") {
+    throw new Error(
+      `Board mode "${mode}" does not own openspec tasks; switch to developer or analyst.`,
+    );
+  }
+  return mode;
+}
+
+/**
+ * Same as `toTaskMode` but returns a discriminated response instead
+ * of throwing, suitable for the public API layer:
+ *
+ *   const taskMode = requireOpenspecMode(config.mode);
+ *   if (!taskMode.ok) return taskMode.response;
+ */
+export function requireOpenspecMode(mode: BoardModeId):
+  | { ok: true; taskMode: TaskMode }
+  | { ok: false; response: Response } {
+  if (mode === "uek-expert") {
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({
+          error:
+            'Board mode "uek-expert" does not own openspec tasks; switch to developer or analyst mode.',
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    };
+  }
+  return { ok: true, taskMode: mode };
 }
 
 /**
@@ -931,19 +976,33 @@ export async function updateTask(
  * Returns null when neither `developer:<tag>` nor `analyst:<tag>`
  * is present.
  */
+/**
+ * Lookup a task by tag, preferring `preferredMode` and falling back
+ * to the other openspec mode if needed.
+ *
+ * Accepts any `BoardModeId` (including `uek-expert`); the UEK-expert
+ * mode doesn't own openspec tasks, so the call resolves to a lookup
+ * across both openspec modes only.
+ */
 export async function findTaskByTag(
   changeName: string,
-  preferredMode: TaskMode,
+  preferredMode: BoardModeId,
 ): Promise<{ key: string; task: TaskEntry } | null> {
   const state = await readState();
-  const preferredKey = taskKey(preferredMode, changeName);
-  if (state.tasks[preferredKey]) {
-    return { key: preferredKey, task: state.tasks[preferredKey] };
-  }
-  const otherMode: TaskMode = preferredMode === "developer" ? "analyst" : "developer";
-  const otherKey = taskKey(otherMode, changeName);
-  if (state.tasks[otherKey]) {
-    return { key: otherKey, task: state.tasks[otherKey] };
+  // UEK-expert mode doesn't own openspec tasks; fall back to
+  // searching both openspec modes without bias.
+  const modesToTry: TaskMode[] =
+    preferredMode === "uek-expert"
+      ? ["developer", "analyst"]
+      : [
+          preferredMode as TaskMode,
+          (preferredMode === "developer" ? "analyst" : "developer") as TaskMode,
+        ];
+  for (const mode of modesToTry) {
+    const key = taskKey(mode, changeName);
+    if (state.tasks[key]) {
+      return { key, task: state.tasks[key] };
+    }
   }
   return null;
 }

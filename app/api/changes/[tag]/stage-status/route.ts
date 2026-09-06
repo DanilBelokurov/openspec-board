@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findTaskByTagStrict } from "@/lib/state";
+import { findTaskByTagStrict, requireOpenspecMode } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { isProcessAlive } from "@/lib/process";
 import { isStageReady, isPlanTasksReady, STAGE_CONFIG } from "@/lib/continuation";
@@ -24,7 +24,10 @@ export async function GET(
   { params }: { params: { tag: string } },
 ) {
   const config = await readConfig();
-  const task = await findTaskByTagStrict(config.mode, params.tag);
+  const modeGate = requireOpenspecMode(config.mode);
+  if (!modeGate.ok) return modeGate.response;
+  const taskMode = modeGate.taskMode;
+  const task = await findTaskByTagStrict(taskMode, params.tag);
   if (!task) {
     return NextResponse.json(
       { error: `Задача "${params.tag}" не найдена в режиме "${config.mode}"` },
