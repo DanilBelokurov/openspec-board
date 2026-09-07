@@ -54,6 +54,43 @@ describe("renderSddLauncher", () => {
     expect(source).toContain("proc.kill");
   });
 
+  it("captures npm child output via pipe (not inherit) for URL detection", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain('stdio: ["inherit", "pipe", "pipe"]');
+  });
+
+  it("defines a URL regex matching Next.js Local line", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain("URL_PATTERN");
+    expect(source).toContain("localhost");
+    expect(source).toContain("127\\.0\\.0\\.1");
+  });
+
+  it("auto-opens browser by default (--no-open opt-out)", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain("AUTO_OPEN = !args.includes(\"--no-open\")");
+  });
+
+  it("picks the right opener per platform", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain('process.platform === "darwin"');
+    expect(source).toContain('process.platform === "win32"');
+    expect(source).toContain("xdg-open");
+    expect(source).toContain('"open"');
+    expect(source).toContain('"start"');
+  });
+
+  it("uses detached + unref for the opener so it does not block exit", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain("detached: true");
+    expect(source).toContain("unref()");
+  });
+
+  it("documents --no-open in --help output", () => {
+    const source = renderSddLauncher("/Users/test/project");
+    expect(source).toContain("--no-open");
+  });
+
   it("uses SDD_BOARD_DIR env override when set", () => {
     const source = renderSddLauncher("/Users/test/project");
     expect(source).toContain("process.env.SDD_BOARD_DIR");

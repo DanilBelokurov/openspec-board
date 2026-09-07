@@ -31,6 +31,7 @@ if (args.includes("--help") || args.includes("-h")) {
       "",
       "Options:",
       "  --where    Print the configured board directory and exit.",
+      "  --no-open  Do not auto-open the browser when the server is ready.",
       "  --help     Show this help and exit.",
       "",
       "Environment:",
@@ -57,13 +58,68 @@ if (!fs.existsSync(SDD_BOARD_DIR)) {
   process.exit(1);
 }
 
+const AUTO_OPEN = !args.includes("--no-open");
+
+function openBrowser(url) {
+  let opener, openerArgs;
+  if (process.platform === "darwin") {
+    opener = "open";
+    openerArgs = [url];
+  } else if (process.platform === "win32") {
+    opener = "cmd";
+    openerArgs = ["/c", "start", "", url];
+  } else {
+    opener = "xdg-open";
+    openerArgs = [url];
+  }
+  try {
+    const openerProc = require("node:child_process").spawn(
+      opener,
+      openerArgs,
+      { stdio: "ignore", detached: true },
+    );
+    openerProc.on("error", () => {});
+    openerProc.unref();
+  } catch (_error) {
+    // best-effort; do not crash sdd if the opener is missing
+  }
+}
+
+// Matches the Local URL line that Next.js prints:
+//   ▲ Next.js 14.x.x
+//   - Local:        http://localhost:3000
+const URL_PATTERN = /https?:\\/\\/(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::\\]):\\d+/;
+
 const { spawn } = require("node:child_process");
 
 const proc = spawn("npm", ["run", "dev"], {
   cwd: SDD_BOARD_DIR,
-  stdio: "inherit",
+  stdio: ["inherit", "pipe", "pipe"],
   env: process.env,
 });
+
+let opened = false;
+const recent = { stdout: "", stderr: "" };
+const MAX_BUFFER = 4096;
+
+function pipeWithDetection(stream, channel) {
+  stream.on("data", (chunk) => {
+    const text = chunk.toString("utf8");
+    process.stdout.write(text);
+
+    if (AUTO_OPEN && !opened) {
+      recent[channel] = (recent[channel] + text).slice(-MAX_BUFFER);
+      const match = recent[channel].match(URL_PATTERN);
+      if (match) {
+        opened = true;
+        openBrowser(match[0]);
+      }
+    }
+  });
+}
+
+pipeWithDetection(proc.stdout, "stdout");
+pipeWithDetection(proc.stderr, "stderr");
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
