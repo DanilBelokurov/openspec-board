@@ -3,10 +3,10 @@ import { evaluatePreflight, type PreflightInput } from "../preflight";
 
 function input(overrides: Partial<PreflightInput> = {}): PreflightInput {
   return {
-    node: { present: true, version: "v20.5.0" },
-    python: { present: true, version: "Python 3.12.0" },
-    uv: { present: true, version: "uv 0.4.7" },
-    gigacode: { present: true, version: "0.3.0" },
+    node: { present: true, binary: "node", version: "v20.5.0" },
+    python: { present: true, binary: "python3", version: "Python 3.12.0" },
+    uv: { present: true, binary: "uv", version: "uv 0.4.7" },
+    gigacode: { present: true, binary: "gigacode", version: "0.3.0" },
     ...overrides,
   };
 }
@@ -51,7 +51,7 @@ describe("evaluatePreflight", () => {
 
   it("passes through the captured version string", () => {
     const result = evaluatePreflight(
-      input({ gigacode: { present: true, version: "gigacode 1.2.3" } }),
+      input({ gigacode: { present: true, binary: "gigacode", version: "gigacode 1.2.3" } }),
     );
     const gigacode = result.checks.find((c) => c.id === "gigacode");
     expect(gigacode?.version).toBe("gigacode 1.2.3");
@@ -59,10 +59,21 @@ describe("evaluatePreflight", () => {
 
   it("marks tool as present without a version when probe could not capture one", () => {
     const result = evaluatePreflight(
-      input({ uv: { present: true } }),
+      input({ uv: { present: true, binary: "uv" } }),
     );
     const uv = result.checks.find((c) => c.id === "uv");
     expect(uv?.present).toBe(true);
     expect(uv?.version).toBeUndefined();
+  });
+
+  it("preserves which python binary resolved the probe (python3.13 case)", () => {
+    const result = evaluatePreflight(
+      input({
+        python: { present: true, binary: "python3.13", version: "Python 3.13.2" },
+      }),
+    );
+    const python = result.checks.find((c) => c.id === "python");
+    expect(python?.binary).toBe("python3.13");
+    expect(python?.version).toBe("Python 3.13.2");
   });
 });
