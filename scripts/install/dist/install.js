@@ -21,8 +21,7 @@ class InstallCommand {
         print_1.print.banner("sdd-board install", "установка harness-окружения для доски sdd-sessions-board");
         const preflight = await (0, preflight_1.runPreflight)();
         if (!preflight.ok) {
-            process.exitCode = 1;
-            return;
+            process.exit(1);
         }
         await this.installSelectedMcps();
         const mode = await (0, mode_1.selectInstallMode)(this.options.nonInteractive, this.options.modeOverride);
@@ -38,6 +37,7 @@ class InstallCommand {
             mode,
             force: this.options.force,
         });
+        process.exit(0);
     }
     get settingsFilePath() {
         return this.options.settingsFilePath ?? (0, settings_1.getSettingsPath)();

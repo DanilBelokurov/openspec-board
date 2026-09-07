@@ -32,8 +32,7 @@ export class InstallCommand {
 
     const preflight = await runPreflight();
     if (!preflight.ok) {
-      process.exitCode = 1;
-      return;
+      process.exit(1);
     }
 
     await this.installSelectedMcps();
@@ -56,6 +55,8 @@ export class InstallCommand {
       mode,
       force: this.options.force,
     });
+
+    process.exit(0);
   }
 
   get settingsFilePath(): string {
