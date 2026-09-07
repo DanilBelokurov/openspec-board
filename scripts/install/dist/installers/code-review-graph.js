@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.PYTHON_CANDIDATES = void 0;
+exports.resolvePython = resolvePython;
 exports.installCodeReviewGraphMcp = installCodeReviewGraphMcp;
 const settings_1 = require("../settings");
 const permissions_1 = require("../permissions");
@@ -7,7 +9,43 @@ const shell_1 = require("../shell");
 const constants_1 = require("../constants");
 const detect_1 = require("../detect");
 const print_1 = require("../print");
+exports.PYTHON_CANDIDATES = [
+    "python3.13",
+    "python3.12",
+    "python3.11",
+    "python3.10",
+    "python3.9",
+    "python3.8",
+    "python3.7",
+    "python3",
+    "python",
+];
+function resolvePython() {
+    for (const bin of exports.PYTHON_CANDIDATES) {
+        if (!(0, shell_1.commandExists)(bin))
+            continue;
+        const result = (0, shell_1.runCommand)(bin, ["--version"], { stdio: "pipe" });
+        if (result.status !== 0)
+            continue;
+        const stream = (result.stdout || result.stderr || "").trim();
+        const firstLine = stream.split("\n", 1)[0]?.trim() ?? "";
+        if (firstLine) {
+            return { present: true, binary: bin, version: firstLine };
+        }
+    }
+    return { present: false };
+}
 async function installCodeReviewGraphMcp(options) {
+    print_1.print.step("Разрешение Python для code-review-graph ...");
+    const python = resolvePython();
+    if (python.present) {
+        print_1.print.success(`python (через ${python.binary}) — ${python.version}`);
+    }
+    else {
+        print_1.print.warn("Системный python не найден (проверены python3.7..3.13 и python). " +
+            "uv поставляет собственный Python, поэтому установка продолжится.");
+        print_1.print.note(`Если нужен fallback через pip: ${constants_1.INSTALLER_INSTRUCTION_PIP}`);
+    }
     const settingsKey = constants_1.CODE_REVIEW_GRAPH_SETTINGS_KEY;
     const packageName = constants_1.CODE_REVIEW_GRAPH_PACKAGE;
     const force = options.force;
@@ -32,7 +70,7 @@ async function installCodeReviewGraphMcp(options) {
         print_1.print.note(`Инструкция по установке pip/python: ${constants_1.INSTALLER_INSTRUCTION_PIP}`);
         return true;
     }
-    if (!(0, shell_1.commandExists)("python")) {
+    if (!python.present) {
         print_1.print.warn("Не найден python — code-review-graph не установлен.");
         print_1.print.note(`Инструкция по установке pip/python: ${constants_1.INSTALLER_INSTRUCTION_PIP}`);
         return true;

@@ -21,9 +21,53 @@ export interface InstallCodeReviewGraphOptions {
   force: boolean;
 }
 
+export const PYTHON_CANDIDATES = [
+  "python3.13",
+  "python3.12",
+  "python3.11",
+  "python3.10",
+  "python3.9",
+  "python3.8",
+  "python3.7",
+  "python3",
+  "python",
+];
+
+export interface PythonResolution {
+  present: boolean;
+  binary?: string;
+  version?: string;
+}
+
+export function resolvePython(): PythonResolution {
+  for (const bin of PYTHON_CANDIDATES) {
+    if (!commandExists(bin)) continue;
+    const result = runCommand(bin, ["--version"], { stdio: "pipe" });
+    if (result.status !== 0) continue;
+    const stream = (result.stdout || result.stderr || "").trim();
+    const firstLine = stream.split("\n", 1)[0]?.trim() ?? "";
+    if (firstLine) {
+      return { present: true, binary: bin, version: firstLine };
+    }
+  }
+  return { present: false };
+}
+
 export async function installCodeReviewGraphMcp(
   options: InstallCodeReviewGraphOptions,
 ): Promise<boolean> {
+  print.step("Разрешение Python для code-review-graph ...");
+  const python = resolvePython();
+  if (python.present) {
+    print.success(`python (через ${python.binary}) — ${python.version}`);
+  } else {
+    print.warn(
+      "Системный python не найден (проверены python3.7..3.13 и python). " +
+        "uv поставляет собственный Python, поэтому установка продолжится.",
+    );
+    print.note(`Если нужен fallback через pip: ${INSTALLER_INSTRUCTION_PIP}`);
+  }
+
   const settingsKey = CODE_REVIEW_GRAPH_SETTINGS_KEY;
   const packageName = CODE_REVIEW_GRAPH_PACKAGE;
   const force = options.force;
@@ -49,7 +93,7 @@ export async function installCodeReviewGraphMcp(
     print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;
   }
-  if (!commandExists("python")) {
+  if (!python.present) {
     print.warn("Не найден python — code-review-graph не установлен.");
     print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;

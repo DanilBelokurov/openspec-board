@@ -1,12 +1,11 @@
 import { commandExists, runCommand } from "./shell";
 import {
   INSTALLER_INSTRUCTION_GIGACODE,
-  INSTALLER_INSTRUCTION_PIP,
   INSTALLER_INSTRUCTION_UV,
 } from "./constants";
 import { print } from "./print";
 
-export type ToolId = "node" | "python" | "uv" | "gigacode";
+export type ToolId = "node" | "uv" | "gigacode";
 
 export interface PreflightStatus {
   present: boolean;
@@ -16,7 +15,6 @@ export interface PreflightStatus {
 
 export interface PreflightInput {
   node: PreflightStatus;
-  python: PreflightStatus;
   uv: PreflightStatus;
   gigacode: PreflightStatus;
 }
@@ -39,18 +37,6 @@ export interface PreflightResult {
   checks: PreflightCheck[];
 }
 
-const PYTHON_CANDIDATES = [
-  "python3.13",
-  "python3.12",
-  "python3.11",
-  "python3.10",
-  "python3.9",
-  "python3.8",
-  "python3.7",
-  "python3",
-  "python",
-];
-
 function probe(bin: string, args: string[] = ["--version"]): PreflightStatus {
   if (!commandExists(bin)) {
     return { present: false };
@@ -68,28 +54,9 @@ function probe(bin: string, args: string[] = ["--version"]): PreflightStatus {
   };
 }
 
-function probeByCandidates(
-  candidates: readonly string[],
-  args: string[] = ["--version"],
-): PreflightStatus {
-  for (const bin of candidates) {
-    if (!commandExists(bin)) continue;
-    const result = runCommand(bin, args, { stdio: "pipe" });
-    if (result.status !== 0) continue;
-    const stream = (result.stdout || result.stderr || "").trim();
-    const firstLine = stream.split("\n", 1)[0]?.trim() ?? "";
-    if (!firstLine) {
-      return { present: true, binary: bin };
-    }
-    return { present: true, version: firstLine, binary: bin };
-  }
-  return { present: false };
-}
-
 export async function probeEnvironment(): Promise<PreflightInput> {
   return {
     node: probe("node"),
-    python: probeByCandidates(PYTHON_CANDIDATES),
     uv: probe("uv"),
     gigacode: probe("gigacode"),
   };
@@ -105,16 +72,6 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
       version: input.node.version,
       binary: input.node.binary,
       consequence: "Требуется для запуска самого инсталлятора и записи settings.json.",
-    },
-    {
-      id: "python",
-      label: "python",
-      required: false,
-      present: input.python.present,
-      version: input.python.version,
-      binary: input.python.binary,
-      consequence: "Нужен для MCP-сервера code-review-graph (устанавливается в режиме «Аналитик/разработчик»).",
-      instructions: INSTALLER_INSTRUCTION_PIP,
     },
     {
       id: "uv",
