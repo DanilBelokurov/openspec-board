@@ -5,6 +5,7 @@ import {
 } from "../settings";
 import { registerPermissionTool } from "../permissions";
 import { commandExists, runCommand } from "../shell";
+import { resolvePip, resolvePython } from "../binaries";
 import {
   CODE_REVIEW_GRAPH_PACKAGE,
   CODE_REVIEW_GRAPH_PERMISSION_TOOL,
@@ -21,38 +22,6 @@ export interface InstallCodeReviewGraphOptions {
   force: boolean;
 }
 
-export const PYTHON_CANDIDATES = [
-  "python3.13",
-  "python3.12",
-  "python3.11",
-  "python3.10",
-  "python3.9",
-  "python3.8",
-  "python3.7",
-  "python3",
-  "python",
-];
-
-export interface PythonResolution {
-  present: boolean;
-  binary?: string;
-  version?: string;
-}
-
-export function resolvePython(): PythonResolution {
-  for (const bin of PYTHON_CANDIDATES) {
-    if (!commandExists(bin)) continue;
-    const result = runCommand(bin, ["--version"], { stdio: "pipe" });
-    if (result.status !== 0) continue;
-    const stream = (result.stdout || result.stderr || "").trim();
-    const firstLine = stream.split("\n", 1)[0]?.trim() ?? "";
-    if (firstLine) {
-      return { present: true, binary: bin, version: firstLine };
-    }
-  }
-  return { present: false };
-}
-
 export async function installCodeReviewGraphMcp(
   options: InstallCodeReviewGraphOptions,
 ): Promise<boolean> {
@@ -66,6 +35,18 @@ export async function installCodeReviewGraphMcp(
         "uv поставляет собственный Python, поэтому установка продолжится.",
     );
     print.note(`Если нужен fallback через pip: ${INSTALLER_INSTRUCTION_PIP}`);
+  }
+
+  print.step("Разрешение pip для code-review-graph ...");
+  const pip = resolvePip();
+  if (pip.present) {
+    print.success(`pip (через ${pip.binary}) — ${pip.version}`);
+  } else {
+    print.warn(
+      "Системный pip не найден (проверены pip3.7..3.13, pip3, pip). " +
+        "uv поставляет собственный pip через uv pip install, поэтому установка продолжится.",
+    );
+    print.note(`Инструкция по установке pip: ${INSTALLER_INSTRUCTION_PIP}`);
   }
 
   const settingsKey = CODE_REVIEW_GRAPH_SETTINGS_KEY;
@@ -88,13 +69,13 @@ export async function installCodeReviewGraphMcp(
     print.note(`Инструкция по установке uv: ${INSTALLER_INSTRUCTION_UV}`);
     return true;
   }
-  if (!commandExists("pip")) {
-    print.warn("Не найден pip — code-review-graph не установлен.");
+  if (!pip.present) {
+    print.warn("Не найден pip — code-review-graph не установлен через fallback pip.");
     print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;
   }
   if (!python.present) {
-    print.warn("Не найден python — code-review-graph не установлен.");
+    print.warn("Не найден python — code-review-graph не установлен через fallback pip.");
     print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;
   }
