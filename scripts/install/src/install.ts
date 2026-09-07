@@ -13,6 +13,7 @@ import { print } from "./print";
 import type { InstallMode } from "./constants";
 import { installSddLauncher } from "./binaries/sdd-launcher";
 import { printSddStoreIntro, setupSddStore } from "./sdd-store";
+import { updateBoardConfig } from "./board-config";
 
 export interface InstallCommandOptions {
   projectRoot: string;
@@ -122,6 +123,18 @@ export class InstallCommand {
       storeName,
       schemaSourcePath: process.env.SCHEMA_SOURCE_PATH,
     });
+
+    if (result.storeRegistered) {
+      const cfgResult = await updateBoardConfig(this.options.projectRoot, {
+        openspecDir: result.storePath,
+        sddStoreName: result.storeName,
+      });
+      if (cfgResult.changed) {
+        print.success(
+          `.sdd-board/config.json: openspecDir → ${result.storePath}`,
+        );
+      }
+    }
 
     if (result.ok) {
       print.success(

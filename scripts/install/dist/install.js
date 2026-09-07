@@ -18,6 +18,7 @@ const preflight_1 = require("./preflight");
 const print_1 = require("./print");
 const sdd_launcher_1 = require("./binaries/sdd-launcher");
 const sdd_store_1 = require("./sdd-store");
+const board_config_1 = require("./board-config");
 class InstallCommand {
     options;
     constructor(options) {
@@ -84,7 +85,17 @@ class InstallCommand {
         const result = await (0, sdd_store_1.setupSddStore)({
             storePath,
             storeName,
+            schemaSourcePath: process.env.SCHEMA_SOURCE_PATH,
         });
+        if (result.storeRegistered) {
+            const cfgResult = (0, board_config_1.updateBoardConfig)(this.options.projectRoot, {
+                openspecDir: result.storePath,
+                sddStoreName: result.storeName,
+            });
+            if (cfgResult.changed) {
+                print_1.print.success(`.sdd-board/config.json: openspecDir → ${result.storePath}`);
+            }
+        }
         if (result.ok) {
             print_1.print.success(`sdd-store готов: ${result.storeName} → ${result.storePath}`);
         }
