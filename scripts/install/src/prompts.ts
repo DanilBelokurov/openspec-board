@@ -78,8 +78,15 @@ export async function selectArrowOption(
   }
   let selected = Math.max(0, Math.min(defaultIndex, options.length - 1));
 
+  // Row budget:
+  //   HEADER_ROWS  = 4  (heavy rule, title, hint, light rule)
+  //   options      = N
+  //   FOOTER_ROWS  = 3  (blank line, summary line, closing rule)
+  // TOTAL_ROWS must match the number of lines render() actually writes,
+  // otherwise CURSOR_UP lands one row short and a duplicate line of
+  // rules accumulates on every keypress.
   const HEADER_ROWS = 4;
-  const FOOTER_ROWS = 2;
+  const FOOTER_ROWS = 3;
   const TOTAL_ROWS = HEADER_ROWS + options.length + FOOTER_ROWS;
 
   const render = () => {
