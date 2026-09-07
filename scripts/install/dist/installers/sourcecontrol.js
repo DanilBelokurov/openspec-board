@@ -12,21 +12,22 @@ const prompts_1 = require("../prompts");
 const shell_1 = require("../shell");
 const git_1 = require("../git");
 const constants_1 = require("../constants");
+const print_1 = require("../print");
 async function installSourcecontrolMcp(options) {
     let token = options.token;
     if (!token) {
         token = await (0, prompts_1.promptForToken)("Токен sourcecontrol (SC_TOKEN).", constants_1.INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN);
     }
     if (!(0, shell_1.commandExists)("git")) {
-        console.error("Для клонирования MCP sourcecontrol требуется git.");
+        print_1.print.error("Для клонирования MCP sourcecontrol требуется git.");
         return false;
     }
     if (!(0, shell_1.commandExists)("npm")) {
-        console.error("Для сборки MCP sourcecontrol требуется npm.");
+        print_1.print.error("Для сборки MCP sourcecontrol требуется npm.");
         return false;
     }
     if (!(0, shell_1.commandExists)("node")) {
-        console.error("Для обновления .gigacode/settings.json требуется Node.js.");
+        print_1.print.error("Для обновления .gigacode/settings.json требуется Node.js.");
         return false;
     }
     const localDir = constants_1.MCP_SOURCECONTROL_LOCAL_DIR;
@@ -38,7 +39,7 @@ async function installSourcecontrolMcp(options) {
         return false;
     const entryPath = node_path_1.default.join(localDir, entry);
     if (!(0, node_fs_1.existsSync)(entryPath)) {
-        console.error(`После сборки не найден ${entryPath} — установка остановлена.`);
+        print_1.print.error(`После сборки не найден ${entryPath} — установка остановлена.`);
         return false;
     }
     const settings = (0, settings_1.readSettings)(options.settingsFilePath);
@@ -53,7 +54,7 @@ async function installSourcecontrolMcp(options) {
     };
     await (0, settings_1.writeSettings)(options.settingsFilePath, settings);
     token = "";
-    console.log(`MCP-сервер sourcecontrol добавлен в ${options.settingsFilePath}.`);
+    print_1.print.success(`MCP-сервер sourcecontrol добавлен в ${options.settingsFilePath}.`);
     await (0, permissions_1.registerPermissionTool)(options.settingsFilePath, "mcp__sourcecontrol__git_create_pull_request");
     return true;
 }

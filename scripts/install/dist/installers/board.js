@@ -8,53 +8,55 @@ exports.installBoard = installBoard;
 const node_fs_1 = require("node:fs");
 const node_path_1 = __importDefault(require("node:path"));
 const shell_1 = require("../shell");
+const print_1 = require("../print");
 function printRunDevInstructions(projectRoot, mode) {
-    console.log("");
-    console.log("=============================================================");
-    console.log(`Доска SDD установлена (режим: ${mode}).`);
-    console.log("");
-    console.log("Чтобы запустить доску локально:");
-    console.log("");
-    console.log(`    cd "${projectRoot}"`);
-    console.log("    npm run dev");
-    console.log("");
-    console.log("После старта Next.js по умолчанию слушает http://localhost:3000 —");
-    console.log("откройте этот адрес в браузере, чтобы увидеть UI доски.");
-    console.log('Если порт занят, Next.js автоматически предложит следующий свободный');
-    console.log('порт и напечатает его в терминале; ориентируйтесь на строку «Local:».');
-    console.log("");
+    print_1.print.blank();
+    print_1.print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    print_1.print.raw(`  Доска SDD установлена  ·  режим: ${mode}\n`);
+    print_1.print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    print_1.print.raw("\n");
+    print_1.print.raw("  Чтобы запустить доску локально:\n");
+    print_1.print.raw("\n");
+    print_1.print.raw(`      cd "${projectRoot}"\n`);
+    print_1.print.raw("      npm run dev\n");
+    print_1.print.raw("\n");
+    print_1.print.raw("  После старта Next.js по умолчанию слушает http://localhost:3000 —\n");
+    print_1.print.raw("  откройте этот адрес в браузере, чтобы увидеть UI доски.\n");
+    print_1.print.raw("  Если порт занят, Next.js автоматически предложит следующий\n");
+    print_1.print.raw("  свободный порт (ориентируйтесь на строку «Local:»).\n");
+    print_1.print.blank();
 }
 async function installBoard(options) {
     const projectRoot = options.projectRoot;
     if (!(0, shell_1.commandExists)("npm")) {
-        console.error("Не найден npm — установка зависимостей доски пропущена.");
-        console.error("Установите Node.js ≥ 18 и npm, затем выполните:\n    cd " +
-            projectRoot +
-            " && npm install");
+        print_1.print.warn("Не найден npm — установка зависимостей доски пропущена.");
+        print_1.print.note("Установите Node.js ≥ 18 и npm, затем выполните:\n" +
+            `      cd ${projectRoot}\n` +
+            "      npm install");
         printRunDevInstructions(projectRoot, options.mode);
         return true;
     }
     if (!(0, node_fs_1.existsSync)(node_path_1.default.join(projectRoot, "package.json"))) {
-        console.error(`Не найден ${projectRoot}/package.json — пропускаю npm install.`);
+        print_1.print.warn(`Не найден ${projectRoot}/package.json — пропускаю npm install.`);
         printRunDevInstructions(projectRoot, options.mode);
         return true;
     }
     if ((0, node_fs_1.existsSync)(node_path_1.default.join(projectRoot, "node_modules")) && !options.force) {
-        console.log(`node_modules уже установлены в ${projectRoot} — пропускаю npm install.`);
-        console.log(" Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1.");
+        print_1.print.dim(`node_modules уже установлены в ${projectRoot} — пропускаю npm install.`);
+        print_1.print.dim("Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1 или --force.");
     }
     else {
         if (options.force) {
-            console.log("INSTALLER_FORCE_REINSTALL_LOCKED=1 — переустанавливаю npm-зависимости.");
+            print_1.print.warn("Принудительная переустановка npm-зависимостей (--force).");
         }
-        console.log(`Выполняю npm install в ${projectRoot} ...`);
+        print_1.print.step(`Выполняю npm install в ${projectRoot} ...`);
         const result = (0, shell_1.runCommand)("npm", ["install"], { cwd: projectRoot, stdio: "inherit" });
         if (result.status !== 0) {
-            console.error("npm install завершился с ошибкой — проверьте сетевой доступ к реестру npm.");
+            print_1.print.error("npm install завершился с ошибкой — проверьте сетевой доступ к реестру npm.");
             printRunDevInstructions(projectRoot, options.mode);
             return true;
         }
-        console.log("npm-зависимости доски установлены.");
+        print_1.print.success("npm-зависимости доски установлены.");
     }
     printRunDevInstructions(projectRoot, options.mode);
     return true;

@@ -6,12 +6,14 @@ const jira_1 = require("./jira");
 const bitbucket_1 = require("./bitbucket");
 const sourcecontrol_1 = require("./sourcecontrol");
 const sbertrack_1 = require("./sbertrack");
+const print_1 = require("../print");
 async function dispatchMcpInstall(rawValue, context, tokenOverride) {
     const entry = (0, catalog_1.findCatalogEntryByRaw)(rawValue);
     if (!entry) {
-        console.error(`Неизвестный сервер: ${rawValue}`);
+        print_1.print.error(`Неизвестный сервер: ${rawValue}`);
         return "failed";
     }
+    print_1.print.step(`Устанавливаю ${entry.displayLabel} ...`);
     let ok = false;
     switch (rawValue) {
         case "jira":
@@ -36,11 +38,11 @@ async function dispatchMcpInstall(rawValue, context, tokenOverride) {
             ok = (0, sbertrack_1.installSbertrackMcp)();
             break;
         default:
-            console.error(`Неизвестный сервер: ${rawValue}`);
+            print_1.print.error(`Неизвестный сервер: ${rawValue}`);
             return "failed";
     }
     if (!ok) {
-        console.error(`Установка ${rawValue}-mcp не завершена — продолжаю.`);
+        print_1.print.warn(`Установка ${rawValue}-mcp не завершена — продолжаю.`);
         return "failed";
     }
     return "installed";

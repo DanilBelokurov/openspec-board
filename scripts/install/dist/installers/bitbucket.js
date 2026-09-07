@@ -12,21 +12,22 @@ const prompts_1 = require("../prompts");
 const shell_1 = require("../shell");
 const git_1 = require("../git");
 const constants_1 = require("../constants");
+const print_1 = require("../print");
 async function installBitbucketMcp(options) {
     let token = options.token;
     if (!token) {
         token = await (0, prompts_1.promptForToken)("Токен bitbucket (BITBUCKET_TOKEN).", constants_1.INSTALLER_INSTRUCTION_BITBUCKET_TOKEN);
     }
     if (!(0, shell_1.commandExists)("git")) {
-        console.error("Для клонирования MCP bitbucket требуется git.");
+        print_1.print.error("Для клонирования MCP bitbucket требуется git.");
         return false;
     }
     if (!(0, shell_1.commandExists)("npm")) {
-        console.error("Для сборки MCP bitbucket требуется npm.");
+        print_1.print.error("Для сборки MCP bitbucket требуется npm.");
         return false;
     }
     if (!(0, shell_1.commandExists)("node")) {
-        console.error("Для обновления .gigacode/settings.json требуется Node.js.");
+        print_1.print.error("Для обновления .gigacode/settings.json требуется Node.js.");
         return false;
     }
     const repoUrl = constants_1.MCP_BITBUCKET_REPO_URL;
@@ -38,7 +39,7 @@ async function installBitbucketMcp(options) {
         : constants_1.MCP_BITBUCKET_ENTRY;
     const entryPath = node_path_1.default.join(localDir, entryRel);
     if (repoUrl.startsWith("placeholder/")) {
-        console.error("MCP_BITBUCKET_REPO_URL не настроен (значение placeholder). Укажите реальный URL в переменной окружения или в шапке скрипта и повторите установку.");
+        print_1.print.error("MCP_BITBUCKET_REPO_URL не настроен (значение placeholder). Укажите реальный URL в переменной окружения или в шапке скрипта и повторите установку.");
         return false;
     }
     if (!(0, git_1.cloneRepo)(repoUrl, localDir, "bitbucket"))
@@ -46,7 +47,7 @@ async function installBitbucketMcp(options) {
     if (!(0, git_1.buildNpmProject)(buildDir, "bitbucket"))
         return false;
     if (!(0, node_fs_1.existsSync)(entryPath)) {
-        console.error(`После сборки не найден ${entryPath} — установка остановлена.`);
+        print_1.print.error(`После сборки не найден ${entryPath} — установка остановлена.`);
         return false;
     }
     const settings = (0, settings_1.readSettings)(options.settingsFilePath);
@@ -61,7 +62,7 @@ async function installBitbucketMcp(options) {
     };
     await (0, settings_1.writeSettings)(options.settingsFilePath, settings);
     token = "";
-    console.log(`MCP-сервер bitbucket добавлен в ${options.settingsFilePath}.`);
+    print_1.print.success(`MCP-сервер bitbucket добавлен в ${options.settingsFilePath}.`);
     await (0, permissions_1.registerPermissionTool)(options.settingsFilePath, constants_1.MCP_BITBUCKET_PERMISSION_TOOL);
     return true;
 }

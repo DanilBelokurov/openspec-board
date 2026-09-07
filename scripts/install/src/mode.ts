@@ -1,5 +1,6 @@
 import { selectArrowOption } from "./prompts";
 import type { InstallMode } from "./constants";
+import { print } from "./print";
 
 const MODE_OPTIONS = [
   { label: "Аналитик/разработчик", value: "analyst-developer" as const },
@@ -11,17 +12,18 @@ export async function selectInstallMode(
   override?: InstallMode,
 ): Promise<InstallMode> {
   if (override) {
-    console.log(`Выбран режим установки: ${override}`);
+    print.success(`Выбран режим установки: ${override}`);
     return override;
   }
   if (nonInteractive) {
     return "analyst-developer";
   }
+  print.section("Режим работы доски");
   const value = await selectArrowOption(
     "В каком режиме установить доску sdd?",
     0,
     MODE_OPTIONS,
   );
-  console.log(`Выбран режим установки: ${value}`);
+  print.success(`Выбран режим установки: ${value}`);
   return value as InstallMode;
 }

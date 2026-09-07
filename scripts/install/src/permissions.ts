@@ -7,6 +7,7 @@ import {
   type SettingsShape,
 } from "./settings";
 import { MCP_CATALOG_ENTRIES } from "./catalog";
+import { print } from "./print";
 
 export async function registerPermissionTool(
   settingsFilePath: string,
@@ -19,7 +20,7 @@ export async function registerPermissionTool(
     allow.push(tool);
   }
   await writeSettings(settingsFilePath, settings);
-  console.log(`Разрешение ${tool} добавлено в permissions.allow.`);
+  print.success(`Разрешение ${tool} добавлено в permissions.allow.`);
 }
 
 export interface ReconcileResult {
@@ -60,7 +61,7 @@ export async function reconcileMcpServerKeys(
         delete servers[key];
         result.removedDuplicates.push(key);
         result.changed = true;
-        console.error(`[reconcile] удалён дубль mcpServers["${key}"]`);
+        print.dim(`[reconcile] удалён дубль mcpServers["${key}"]`);
       }
       continue;
     }
@@ -75,7 +76,7 @@ export async function reconcileMcpServerKeys(
     delete servers[promotedKey];
     result.changed = true;
     result.rewrites.push({ from: promotedKey, to: plan.settingsKey });
-    console.error(
+    print.dim(
       `[reconcile] mcpServers["${promotedKey}"] → mcpServers["${plan.settingsKey}"]`,
     );
   }
@@ -123,7 +124,7 @@ export async function syncRequiredPermissions(
   if (result.added.length > 0) {
     await writeSettings(settingsFilePath, settings);
     result.changed = true;
-    console.error(`[permissions] добавлены: ${result.added.join(", ")}`);
+    print.dim(`[permissions] добавлены: ${result.added.join(", ")}`);
   }
   return result;
 }

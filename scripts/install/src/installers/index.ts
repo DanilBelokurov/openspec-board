@@ -3,6 +3,7 @@ import { installJiraMcp } from "./jira";
 import { installBitbucketMcp } from "./bitbucket";
 import { installSourcecontrolMcp } from "./sourcecontrol";
 import { installSbertrackMcp } from "./sbertrack";
+import { print } from "../print";
 
 export interface InstallerContext {
   settingsFilePath: string;
@@ -17,10 +18,11 @@ export async function dispatchMcpInstall(
 ): Promise<InstallerResult> {
   const entry = findCatalogEntryByRaw(rawValue);
   if (!entry) {
-    console.error(`Неизвестный сервер: ${rawValue}`);
+    print.error(`Неизвестный сервер: ${rawValue}`);
     return "failed";
   }
 
+  print.step(`Устанавливаю ${entry.displayLabel} ...`);
   let ok = false;
   switch (rawValue) {
     case "jira":
@@ -45,12 +47,12 @@ export async function dispatchMcpInstall(
       ok = installSbertrackMcp();
       break;
     default:
-      console.error(`Неизвестный сервер: ${rawValue}`);
+      print.error(`Неизвестный сервер: ${rawValue}`);
       return "failed";
   }
 
   if (!ok) {
-    console.error(`Установка ${rawValue}-mcp не завершена — продолжаю.`);
+    print.warn(`Установка ${rawValue}-mcp не завершена — продолжаю.`);
     return "failed";
   }
   return "installed";

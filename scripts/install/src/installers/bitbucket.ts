@@ -18,6 +18,7 @@ import {
   MCP_BITBUCKET_REPO_URL,
   MCP_BITBUCKET_SUBDIR,
 } from "../constants";
+import { print } from "../print";
 
 export interface InstallBitbucketOptions {
   settingsFilePath: string;
@@ -34,15 +35,15 @@ export async function installBitbucketMcp(options: InstallBitbucketOptions): Pro
   }
 
   if (!commandExists("git")) {
-    console.error("Для клонирования MCP bitbucket требуется git.");
+    print.error("Для клонирования MCP bitbucket требуется git.");
     return false;
   }
   if (!commandExists("npm")) {
-    console.error("Для сборки MCP bitbucket требуется npm.");
+    print.error("Для сборки MCP bitbucket требуется npm.");
     return false;
   }
   if (!commandExists("node")) {
-    console.error("Для обновления .gigacode/settings.json требуется Node.js.");
+    print.error("Для обновления .gigacode/settings.json требуется Node.js.");
     return false;
   }
 
@@ -56,7 +57,7 @@ export async function installBitbucketMcp(options: InstallBitbucketOptions): Pro
   const entryPath = path.join(localDir, entryRel);
 
   if (repoUrl.startsWith("placeholder/")) {
-    console.error(
+    print.error(
       "MCP_BITBUCKET_REPO_URL не настроен (значение placeholder). Укажите реальный URL в переменной окружения или в шапке скрипта и повторите установку.",
     );
     return false;
@@ -66,7 +67,7 @@ export async function installBitbucketMcp(options: InstallBitbucketOptions): Pro
   if (!buildNpmProject(buildDir, "bitbucket")) return false;
 
   if (!existsSync(entryPath)) {
-    console.error(`После сборки не найден ${entryPath} — установка остановлена.`);
+    print.error(`После сборки не найден ${entryPath} — установка остановлена.`);
     return false;
   }
 
@@ -83,7 +84,7 @@ export async function installBitbucketMcp(options: InstallBitbucketOptions): Pro
   await writeSettings(options.settingsFilePath, settings);
 
   token = "";
-  console.log(`MCP-сервер bitbucket добавлен в ${options.settingsFilePath}.`);
+  print.success(`MCP-сервер bitbucket добавлен в ${options.settingsFilePath}.`);
 
   await registerPermissionTool(options.settingsFilePath, MCP_BITBUCKET_PERMISSION_TOOL);
   return true;

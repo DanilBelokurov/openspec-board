@@ -7,6 +7,7 @@ import { registerPermissionTool } from "../permissions";
 import { promptForToken } from "../prompts";
 import { commandExists } from "../shell";
 import { INSTALLER_INSTRUCTION_JIRA_TOKEN } from "../constants";
+import { print } from "../print";
 
 export interface InstallJiraOptions {
   settingsFilePath: string;
@@ -23,7 +24,7 @@ export async function installJiraMcp(options: InstallJiraOptions): Promise<boole
   }
 
   if (!commandExists("node")) {
-    console.error("Для обновления .gigacode/settings.json требуется Node.js.");
+    print.error("Для обновления .gigacode/settings.json требуется Node.js.");
     return false;
   }
 
@@ -39,7 +40,7 @@ export async function installJiraMcp(options: InstallJiraOptions): Promise<boole
   await writeSettings(options.settingsFilePath, settings);
 
   token = "";
-  console.log(`MCP-сервер jira-mcp добавлен в ${options.settingsFilePath}.`);
+  print.success(`MCP-сервер jira-mcp добавлен в ${options.settingsFilePath}.`);
 
   await registerPermissionTool(options.settingsFilePath, "mcp__jira-mcp__add_labels");
   return true;

@@ -16,6 +16,7 @@ import {
   MCP_SOURCECONTROL_LOCAL_DIR,
   MCP_SOURCECONTROL_REPO_URL,
 } from "../constants";
+import { print } from "../print";
 
 export interface InstallSourcecontrolOptions {
   settingsFilePath: string;
@@ -34,15 +35,15 @@ export async function installSourcecontrolMcp(
   }
 
   if (!commandExists("git")) {
-    console.error("Для клонирования MCP sourcecontrol требуется git.");
+    print.error("Для клонирования MCP sourcecontrol требуется git.");
     return false;
   }
   if (!commandExists("npm")) {
-    console.error("Для сборки MCP sourcecontrol требуется npm.");
+    print.error("Для сборки MCP sourcecontrol требуется npm.");
     return false;
   }
   if (!commandExists("node")) {
-    console.error("Для обновления .gigacode/settings.json требуется Node.js.");
+    print.error("Для обновления .gigacode/settings.json требуется Node.js.");
     return false;
   }
 
@@ -55,7 +56,7 @@ export async function installSourcecontrolMcp(
 
   const entryPath = path.join(localDir, entry);
   if (!existsSync(entryPath)) {
-    console.error(`После сборки не найден ${entryPath} — установка остановлена.`);
+    print.error(`После сборки не найден ${entryPath} — установка остановлена.`);
     return false;
   }
 
@@ -72,7 +73,7 @@ export async function installSourcecontrolMcp(
   await writeSettings(options.settingsFilePath, settings);
 
   token = "";
-  console.log(`MCP-сервер sourcecontrol добавлен в ${options.settingsFilePath}.`);
+  print.success(`MCP-сервер sourcecontrol добавлен в ${options.settingsFilePath}.`);
 
   await registerPermissionTool(
     options.settingsFilePath,

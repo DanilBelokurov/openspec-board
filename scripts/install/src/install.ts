@@ -7,12 +7,9 @@ import { installBoard } from "./installers/board";
 import { installCodeReviewGraphMcp } from "./installers/code-review-graph";
 import { dispatchMcpInstall } from "./installers/index";
 import { getSettingsPath } from "./settings";
+import { runPreflight } from "./preflight";
+import { print } from "./print";
 import type { InstallMode } from "./constants";
-
-export function showInstallationInfo(): void {
-  console.log("Будет установлено всё необходимое harness-окружение для работы доски sdd.");
-  console.log("");
-}
 
 export interface InstallCommandOptions {
   projectRoot: string;
@@ -28,18 +25,32 @@ export class InstallCommand {
   constructor(private readonly options: InstallCommandOptions) {}
 
   async run(): Promise<void> {
-    showInstallationInfo();
+    print.banner(
+      "sdd-board install",
+      "установка harness-окружения для доски sdd-sessions-board",
+    );
+
+    const preflight = await runPreflight();
+    if (!preflight.ok) {
+      process.exitCode = 1;
+      return;
+    }
+
     await this.installSelectedMcps();
+
     const mode = await selectInstallMode(
       this.options.nonInteractive,
       this.options.modeOverride,
     );
+
     if (mode === "analyst-developer") {
+      print.section("Code-review-graph MCP");
       await installCodeReviewGraphMcp({
         settingsFilePath: this.settingsFilePath,
         force: this.options.force,
       });
     }
+
     await installBoard({
       projectRoot: this.options.projectRoot,
       mode,
@@ -52,6 +63,8 @@ export class InstallCommand {
   }
 
   private async installSelectedMcps(): Promise<void> {
+    print.section("MCP-серверы");
+
     await reconcileMcpServerKeys(this.settingsFilePath);
 
     const detectedKeys = detectInstalledMcpServers(this.settingsFilePath);
@@ -67,23 +80,19 @@ export class InstallCommand {
       };
     });
 
-    if (lockedRawValues.length > 0 && !this.options.force) {
-      console.error("Уже установленные (●) будут пропущены.");
-      console.error(
-        " Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1.",
-      );
-    }
     if (this.options.force) {
-      console.error(
-        `INSTALLER_FORCE_REINSTALL_LOCKED=1 — принудительная переустановка включена.`,
-      );
+      print.warn("Принудительная переустановка включена (--force).");
     }
 
     let chosen: string[];
     if (this.options.toolsOverride && this.options.toolsOverride.length > 0) {
       chosen = this.options.toolsOverride;
+      print.info(`Выбраны MCP через --tools: ${chosen.join(", ")}`);
     } else if (this.options.nonInteractive) {
       chosen = lockedRawValues.length > 0 ? lockedRawValues : [];
+      if (chosen.length === 0) {
+        print.info("--non-interactive и нет установленных MCP — пропускаю выбор.");
+      }
     } else {
       chosen = await selectCheckboxes(
         "Какие MCP-серверы установить?",
@@ -97,14 +106,14 @@ export class InstallCommand {
     const skippedLocked = chosen.filter((name) => lockedRawValues.includes(name));
 
     if (skippedLocked.length > 0) {
-      console.log(`Пропущено (уже установлено): ${skippedLocked.join(" ")}`);
+      print.dim(`Пропущено (уже установлено): ${skippedLocked.join(", ")}`);
     }
 
     if (effective.length === 0) {
       if (chosen.length > 0) {
-        console.log("Все выбранные серверы уже установлены — переустановка не требуется.");
+        print.info("Все выбранные серверы уже установлены — переустановка не требуется.");
       } else {
-        console.log("Ни один MCP-сервер не выбран.");
+        print.info("Ни один MCP-сервер не выбран.");
       }
       await syncRequiredPermissions(this.settingsFilePath);
       return;

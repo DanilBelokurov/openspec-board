@@ -14,6 +14,7 @@ import {
   INSTALLER_INSTRUCTION_UV,
 } from "../constants";
 import { detectInstalledMcpServers, isMcpInstalled } from "../detect";
+import { print } from "../print";
 
 export interface InstallCodeReviewGraphOptions {
   settingsFilePath: string;
@@ -30,41 +31,35 @@ export async function installCodeReviewGraphMcp(
   const detected = detectInstalledMcpServers(options.settingsFilePath);
   if (isMcpInstalled(detected, settingsKey)) {
     if (force) {
-      console.error(
-        `INSTALLER_FORCE_REINSTALL_LOCKED=1 — переустанавливаю ${settingsKey}.`,
-      );
+      print.warn(`Принудительная переустановка ${settingsKey}.`);
     } else {
-      console.log(
-        `MCP-сервер ${settingsKey} уже зарегистрирован (найден в mcpServers) — пропускаю.`,
-      );
-      console.log(
-        " Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1.",
-      );
+      print.dim(`MCP-сервер ${settingsKey} уже зарегистрирован (найден в mcpServers) — пропускаю.`);
+      print.dim("Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1 или --force.");
       return true;
     }
   }
 
   if (!commandExists("uv")) {
-    console.log("Не найден uv — code-review-graph не установлен.");
-    console.log(`Инструкция по установке uv: ${INSTALLER_INSTRUCTION_UV}`);
+    print.warn("Не найден uv — code-review-graph не установлен.");
+    print.note(`Инструкция по установке uv: ${INSTALLER_INSTRUCTION_UV}`);
     return true;
   }
   if (!commandExists("pip")) {
-    console.log("Не найден pip — code-review-graph не установлен.");
-    console.log(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
+    print.warn("Не найден pip — code-review-graph не установлен.");
+    print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;
   }
   if (!commandExists("python")) {
-    console.log("Не найден python — code-review-graph не установлен.");
-    console.log(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
+    print.warn("Не найден python — code-review-graph не установлен.");
+    print.note(`Инструкция по установке pip/python: ${INSTALLER_INSTRUCTION_PIP}`);
     return true;
   }
 
-  console.log(`Устанавливаю ${packageName} через uv pip install ...`);
+  print.step(`Устанавливаю ${packageName} через uv pip install ...`);
   const install = runCommand("uv", ["pip", "install", packageName], { stdio: "inherit" });
   if (install.status !== 0) {
-    console.log(`Не удалось установить ${packageName} — возможно, нет доступа до зависимостей.`);
-    console.log(`Инструкция по настройке окружения: ${INSTALLER_INSTRUCTION_DEPS}`);
+    print.warn(`Не удалось установить ${packageName} — возможно, нет доступа до зависимостей.`);
+    print.note(`Инструкция по настройке окружения: ${INSTALLER_INSTRUCTION_DEPS}`);
     return true;
   }
 
@@ -79,6 +74,6 @@ export async function installCodeReviewGraphMcp(
   if (CODE_REVIEW_GRAPH_PERMISSION_TOOL) {
     await registerPermissionTool(options.settingsFilePath, CODE_REVIEW_GRAPH_PERMISSION_TOOL);
   }
-  console.log("MCP-сервер code-review-graph установлен.");
+  print.success("MCP-сервер code-review-graph установлен.");
   return true;
 }

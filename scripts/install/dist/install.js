@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InstallCommand = void 0;
-exports.showInstallationInfo = showInstallationInfo;
 const catalog_1 = require("./catalog");
 const detect_1 = require("./detect");
 const permissions_1 = require("./permissions");
@@ -11,20 +10,24 @@ const board_1 = require("./installers/board");
 const code_review_graph_1 = require("./installers/code-review-graph");
 const index_1 = require("./installers/index");
 const settings_1 = require("./settings");
-function showInstallationInfo() {
-    console.log("Будет установлено всё необходимое harness-окружение для работы доски sdd.");
-    console.log("");
-}
+const preflight_1 = require("./preflight");
+const print_1 = require("./print");
 class InstallCommand {
     options;
     constructor(options) {
         this.options = options;
     }
     async run() {
-        showInstallationInfo();
+        print_1.print.banner("sdd-board install", "установка harness-окружения для доски sdd-sessions-board");
+        const preflight = await (0, preflight_1.runPreflight)();
+        if (!preflight.ok) {
+            process.exitCode = 1;
+            return;
+        }
         await this.installSelectedMcps();
         const mode = await (0, mode_1.selectInstallMode)(this.options.nonInteractive, this.options.modeOverride);
         if (mode === "analyst-developer") {
+            print_1.print.section("Code-review-graph MCP");
             await (0, code_review_graph_1.installCodeReviewGraphMcp)({
                 settingsFilePath: this.settingsFilePath,
                 force: this.options.force,
@@ -40,6 +43,7 @@ class InstallCommand {
         return this.options.settingsFilePath ?? (0, settings_1.getSettingsPath)();
     }
     async installSelectedMcps() {
+        print_1.print.section("MCP-серверы");
         await (0, permissions_1.reconcileMcpServerKeys)(this.settingsFilePath);
         const detectedKeys = (0, detect_1.detectInstalledMcpServers)(this.settingsFilePath);
         const lockedRawValues = [];
@@ -53,19 +57,19 @@ class InstallCommand {
                 locked: isInstalled,
             };
         });
-        if (lockedRawValues.length > 0 && !this.options.force) {
-            console.error("Уже установленные (●) будут пропущены.");
-            console.error(" Для принудительной переустановки задайте INSTALLER_FORCE_REINSTALL_LOCKED=1.");
-        }
         if (this.options.force) {
-            console.error(`INSTALLER_FORCE_REINSTALL_LOCKED=1 — принудительная переустановка включена.`);
+            print_1.print.warn("Принудительная переустановка включена (--force).");
         }
         let chosen;
         if (this.options.toolsOverride && this.options.toolsOverride.length > 0) {
             chosen = this.options.toolsOverride;
+            print_1.print.info(`Выбраны MCP через --tools: ${chosen.join(", ")}`);
         }
         else if (this.options.nonInteractive) {
             chosen = lockedRawValues.length > 0 ? lockedRawValues : [];
+            if (chosen.length === 0) {
+                print_1.print.info("--non-interactive и нет установленных MCP — пропускаю выбор.");
+            }
         }
         else {
             chosen = await (0, prompts_1.selectCheckboxes)("Какие MCP-серверы установить?", checkboxOptions);
@@ -75,14 +79,14 @@ class InstallCommand {
             : chosen.filter((name) => !lockedRawValues.includes(name));
         const skippedLocked = chosen.filter((name) => lockedRawValues.includes(name));
         if (skippedLocked.length > 0) {
-            console.log(`Пропущено (уже установлено): ${skippedLocked.join(" ")}`);
+            print_1.print.dim(`Пропущено (уже установлено): ${skippedLocked.join(", ")}`);
         }
         if (effective.length === 0) {
             if (chosen.length > 0) {
-                console.log("Все выбранные серверы уже установлены — переустановка не требуется.");
+                print_1.print.info("Все выбранные серверы уже установлены — переустановка не требуется.");
             }
             else {
-                console.log("Ни один MCP-сервер не выбран.");
+                print_1.print.info("Ни один MCP-сервер не выбран.");
             }
             await (0, permissions_1.syncRequiredPermissions)(this.settingsFilePath);
             return;

@@ -7,6 +7,7 @@ exports.syncRequiredPermissions = syncRequiredPermissions;
 const settings_1 = require("./settings");
 Object.defineProperty(exports, "ensureMcpServersSection", { enumerable: true, get: function () { return settings_1.ensureMcpServersSection; } });
 const catalog_1 = require("./catalog");
+const print_1 = require("./print");
 async function registerPermissionTool(settingsFilePath, tool) {
     const settings = (0, settings_1.readSettings)(settingsFilePath);
     await (0, settings_1.ensurePermissionsSection)(settings);
@@ -15,7 +16,7 @@ async function registerPermissionTool(settingsFilePath, tool) {
         allow.push(tool);
     }
     await (0, settings_1.writeSettings)(settingsFilePath, settings);
-    console.log(`Разрешение ${tool} добавлено в permissions.allow.`);
+    print_1.print.success(`Разрешение ${tool} добавлено в permissions.allow.`);
 }
 async function reconcileMcpServerKeys(settingsFilePath) {
     const result = {
@@ -45,7 +46,7 @@ async function reconcileMcpServerKeys(settingsFilePath) {
                 delete servers[key];
                 result.removedDuplicates.push(key);
                 result.changed = true;
-                console.error(`[reconcile] удалён дубль mcpServers["${key}"]`);
+                print_1.print.dim(`[reconcile] удалён дубль mcpServers["${key}"]`);
             }
             continue;
         }
@@ -59,7 +60,7 @@ async function reconcileMcpServerKeys(settingsFilePath) {
         delete servers[promotedKey];
         result.changed = true;
         result.rewrites.push({ from: promotedKey, to: plan.settingsKey });
-        console.error(`[reconcile] mcpServers["${promotedKey}"] → mcpServers["${plan.settingsKey}"]`);
+        print_1.print.dim(`[reconcile] mcpServers["${promotedKey}"] → mcpServers["${plan.settingsKey}"]`);
     }
     if (result.changed) {
         await (0, settings_1.writeSettings)(settingsFilePath, settings);
@@ -100,7 +101,7 @@ async function syncRequiredPermissions(settingsFilePath) {
     if (result.added.length > 0) {
         await (0, settings_1.writeSettings)(settingsFilePath, settings);
         result.changed = true;
-        console.error(`[permissions] добавлены: ${result.added.join(", ")}`);
+        print_1.print.dim(`[permissions] добавлены: ${result.added.join(", ")}`);
     }
     return result;
 }
