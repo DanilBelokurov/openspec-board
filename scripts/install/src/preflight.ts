@@ -1,9 +1,18 @@
 import { commandExists, runCommand } from "./shell";
 import {
   INSTALLER_INSTRUCTION_GIGACODE,
+  INSTALLER_INSTRUCTION_OPENSPEC,
   INSTALLER_INSTRUCTION_UV,
 } from "./constants";
 import { print } from "./print";
+import {
+  DEFAULT_OPENSPEC_INSTALL_ATTEMPTS,
+  ensureOpenspec,
+  type InstallAttempt,
+  type ProbeFn,
+  type SpawnFn,
+  type HasBinaryFn,
+} from "./openspec";
 
 export type ToolId = "node" | "uv" | "gigacode";
 
@@ -160,5 +169,36 @@ export async function runPreflight(): Promise<PreflightResult> {
   }
   print.blank();
 
+  await runOpenspecCheck(result);
+
   return result;
 }
+
+async function runOpenspecCheck(result: PreflightResult): Promise<void> {
+  print.section("Проверка openspec");
+  const openspec = await ensureOpenspec();
+  print.blank();
+
+  if (openspec.present) {
+    if (openspec.installedNow) {
+      print.success(`openspec установлен и готов к работе — ${openspec.version ?? ""}`.trimEnd());
+    } else {
+      const versionSuffix = openspec.version ? ` — ${openspec.version}` : "";
+      print.success(`openspec (уже установлен)${versionSuffix}`);
+    }
+    return;
+  }
+
+  print.error("openspec — не удалось установить автоматически.");
+  print.note(`Инструкция по установке: ${INSTALLER_INSTRUCTION_OPENSPEC}`);
+  result.ok = false;
+}
+
+// Test seams exposed for unit tests; the public runPreflight keeps its
+// 0-arg contract.
+export const __testing = {
+  runOpenspecCheck,
+  ensureOpenspec,
+  DEFAULT_OPENSPEC_INSTALL_ATTEMPTS,
+};
+export type { InstallAttempt, ProbeFn, SpawnFn, HasBinaryFn } from "./openspec";

@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.__testing = void 0;
 exports.probeEnvironment = probeEnvironment;
 exports.evaluatePreflight = evaluatePreflight;
 exports.runPreflight = runPreflight;
 const shell_1 = require("./shell");
 const constants_1 = require("./constants");
 const print_1 = require("./print");
+const openspec_1 = require("./openspec");
 function probe(bin, args = ["--version"]) {
     if (!(0, shell_1.commandExists)(bin)) {
         return { present: false };
@@ -116,5 +118,31 @@ async function runPreflight() {
         print_1.print.warn("Установите их и запустите инсталлятор повторно. Выход без изменений.");
     }
     print_1.print.blank();
+    await runOpenspecCheck(result);
     return result;
 }
+async function runOpenspecCheck(result) {
+    print_1.print.section("Проверка openspec");
+    const openspec = await (0, openspec_1.ensureOpenspec)();
+    print_1.print.blank();
+    if (openspec.present) {
+        if (openspec.installedNow) {
+            print_1.print.success(`openspec установлен и готов к работе — ${openspec.version ?? ""}`.trimEnd());
+        }
+        else {
+            const versionSuffix = openspec.version ? ` — ${openspec.version}` : "";
+            print_1.print.success(`openspec (уже установлен)${versionSuffix}`);
+        }
+        return;
+    }
+    print_1.print.error("openspec — не удалось установить автоматически.");
+    print_1.print.note(`Инструкция по установке: ${constants_1.INSTALLER_INSTRUCTION_OPENSPEC}`);
+    result.ok = false;
+}
+// Test seams exposed for unit tests; the public runPreflight keeps its
+// 0-arg contract.
+exports.__testing = {
+    runOpenspecCheck,
+    ensureOpenspec: openspec_1.ensureOpenspec,
+    DEFAULT_OPENSPEC_INSTALL_ATTEMPTS: openspec_1.DEFAULT_OPENSPEC_INSTALL_ATTEMPTS,
+};

@@ -75,6 +75,12 @@ export const INSTALLER_INSTRUCTION_GIGACODE = envOrDefault(
   "https://example.com/get-gigacode-cli",
 );
 
+// URL the user provides for installing openspec manually when auto-install fails.
+export const INSTALLER_INSTRUCTION_OPENSPEC = envOrDefault(
+  "INSTALLER_INSTRUCTION_OPENSPEC",
+  "https://example.com/install-openspec",
+);
+
 export const CODE_REVIEW_GRAPH_PACKAGE = envOrDefault(
   "CODE_REVIEW_GRAPH_PACKAGE",
   "code-review-graph",
