@@ -17,6 +17,7 @@ const settings_1 = require("./settings");
 const preflight_1 = require("./preflight");
 const print_1 = require("./print");
 const sdd_launcher_1 = require("./binaries/sdd-launcher");
+const sdd_store_1 = require("./sdd-store");
 class InstallCommand {
     options;
     constructor(options) {
@@ -36,6 +37,7 @@ class InstallCommand {
                 settingsFilePath: this.settingsFilePath,
                 force: this.options.force,
             });
+            await this.setupSddStore();
         }
         await (0, board_1.installBoard)({
             projectRoot: this.options.projectRoot,
@@ -58,6 +60,36 @@ class InstallCommand {
             print_1.print.note("Добавьте строку ниже в ваш ~/.zshrc или ~/.bashrc:");
             print_1.print.note(`  export PATH="${binDir}:$PATH"`);
             print_1.print.note("После этого откройте новый терминал и введите 'sdd'.");
+        }
+        print_1.print.blank();
+    }
+    async setupSddStore() {
+        (0, sdd_store_1.printSddStoreIntro)();
+        let storePath = this.options.sddStorePath;
+        let storeName = this.options.sddStoreName;
+        if (!storePath) {
+            if (this.options.nonInteractive) {
+                print_1.print.error("--non-interactive требует --store-path=<путь> и --store-name=<название>");
+                process.exit(1);
+            }
+            storePath = await (0, prompts_1.promptForText)("Путь к локальной директории sdd-store", "Абсолютный путь к пустой (или свежей) папке, например ~/projects/sdd-store-specs", undefined);
+        }
+        if (!storeName) {
+            if (this.options.nonInteractive) {
+                print_1.print.error("--non-interactive требует --store-path=<путь> и --store-name=<название>");
+                process.exit(1);
+            }
+            storeName = await (0, prompts_1.promptForText)("Название sdd-store", "Короткое имя для openspec store setup, например sdd-store", undefined);
+        }
+        const result = await (0, sdd_store_1.setupSddStore)({
+            storePath,
+            storeName,
+        });
+        if (result.ok) {
+            print_1.print.success(`sdd-store готов: ${result.storeName} → ${result.storePath}`);
+        }
+        else {
+            print_1.print.warn("Настройка sdd-store завершилась с ошибками — проверьте журнал выше.");
         }
         print_1.print.blank();
     }

@@ -2,7 +2,7 @@ import path from "node:path";
 import { MCP_CATALOG_ENTRIES } from "./catalog";
 import { detectInstalledMcpServers, isMcpInstalled } from "./detect";
 import { reconcileMcpServerKeys, syncRequiredPermissions } from "./permissions";
-import { selectCheckboxes, type CheckboxOption } from "./prompts";
+import { promptForText, selectCheckboxes, type CheckboxOption } from "./prompts";
 import { selectInstallMode } from "./mode";
 import { installBoard } from "./installers/board";
 import { installCodeReviewGraphMcp } from "./installers/code-review-graph";
@@ -12,6 +12,7 @@ import { runPreflight } from "./preflight";
 import { print } from "./print";
 import type { InstallMode } from "./constants";
 import { installSddLauncher } from "./binaries/sdd-launcher";
+import { printSddStoreIntro, setupSddStore } from "./sdd-store";
 
 export interface InstallCommandOptions {
   projectRoot: string;
@@ -21,6 +22,8 @@ export interface InstallCommandOptions {
   modeOverride?: InstallMode;
   toolsOverride?: string[];
   tokenOverrides?: Record<string, string>;
+  sddStorePath?: string;
+  sddStoreName?: string;
 }
 
 export class InstallCommand {
@@ -50,6 +53,8 @@ export class InstallCommand {
         settingsFilePath: this.settingsFilePath,
         force: this.options.force,
       });
+
+      await this.setupSddStore();
     }
 
     await installBoard({
@@ -75,6 +80,54 @@ export class InstallCommand {
       print.note("Добавьте строку ниже в ваш ~/.zshrc или ~/.bashrc:");
       print.note(`  export PATH="${binDir}:$PATH"`);
       print.note("После этого откройте новый терминал и введите 'sdd'.");
+    }
+    print.blank();
+  }
+
+  private async setupSddStore(): Promise<void> {
+    printSddStoreIntro();
+
+    let storePath = this.options.sddStorePath;
+    let storeName = this.options.sddStoreName;
+
+    if (!storePath) {
+      if (this.options.nonInteractive) {
+        print.error(
+          "--non-interactive требует --store-path=<путь> и --store-name=<название>",
+        );
+        process.exit(1);
+      }
+      storePath = await promptForText(
+        "Путь к локальной директории sdd-store",
+        "Абсолютный путь к пустой (или свежей) папке, например ~/projects/sdd-store-specs",
+        undefined,
+      );
+    }
+    if (!storeName) {
+      if (this.options.nonInteractive) {
+        print.error(
+          "--non-interactive требует --store-path=<путь> и --store-name=<название>",
+        );
+        process.exit(1);
+      }
+      storeName = await promptForText(
+        "Название sdd-store",
+        "Короткое имя для openspec store setup, например sdd-store",
+        undefined,
+      );
+    }
+
+    const result = await setupSddStore({
+      storePath,
+      storeName,
+    });
+
+    if (result.ok) {
+      print.success(
+        `sdd-store готов: ${result.storeName} → ${result.storePath}`,
+      );
+    } else {
+      print.warn("Настройка sdd-store завершилась с ошибками — проверьте журнал выше.");
     }
     print.blank();
   }

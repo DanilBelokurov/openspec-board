@@ -7,6 +7,7 @@ exports.parseRawLabels = parseRawLabels;
 exports.selectArrowOption = selectArrowOption;
 exports.selectCheckboxes = selectCheckboxes;
 exports.promptForToken = promptForToken;
+exports.promptForText = promptForText;
 const node_readline_1 = __importDefault(require("node:readline"));
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
@@ -241,6 +242,34 @@ async function promptForToken(label, instructionUrl) {
                 return;
             }
             resolve(value);
+        });
+    });
+}
+async function promptForText(label, instruction, defaultValue) {
+    process.stderr.write(`${heavyRule()}\n`);
+    process.stderr.write(`  ${style(BOLD + FG.cyan, label)}\n`);
+    if (instruction) {
+        process.stderr.write(`  ${style(FG.gray, instruction)}\n`);
+    }
+    process.stderr.write(`${lightRule(40)}\n`);
+    process.stderr.write(defaultValue ? `  [${defaultValue}] > ` : "  > ");
+    return new Promise((resolve, reject) => {
+        const rl = node_readline_1.default.createInterface({
+            input: process.stdin,
+            output: process.stderr,
+            terminal: false,
+        });
+        rl.once("line", (line) => {
+            rl.close();
+            const value = line.replace(/\r$/, "").trim();
+            process.stderr.write("\n");
+            process.stderr.write(`${lightRule(40)}\n`);
+            const resolved = value || defaultValue || "";
+            if (!resolved) {
+                reject(new Error("Ввод не может быть пустым."));
+                return;
+            }
+            resolve(resolved);
         });
     });
 }

@@ -29,6 +29,14 @@ program
     "--token <token>",
     "Токен (используется вместе с --tools=<single-server>)",
   )
+  .option(
+    "--store-path <path>",
+    "Путь к локальной директории sdd-store (analyst-developer mode). Переменная SDD_STORE_PATH.",
+  )
+  .option(
+    "--store-name <name>",
+    "Название sdd-store для openspec store setup (analyst-developer mode). Переменная SDD_STORE_NAME.",
+  )
   .action(async (opts: {
     projectRoot?: string;
     settingsFile?: string;
@@ -37,6 +45,8 @@ program
     force?: boolean;
     nonInteractive?: boolean;
     token?: string;
+    storePath?: string;
+    storeName?: string;
   }) => {
     const projectRoot =
       opts.projectRoot ?? path.resolve(__dirname, "..", "..", "..");
@@ -61,6 +71,8 @@ program
       modeOverride: mode,
       toolsOverride: opts.tools,
       tokenOverrides,
+      sddStorePath: opts.storePath ?? process.env.SDD_STORE_PATH,
+      sddStoreName: opts.storeName ?? process.env.SDD_STORE_NAME,
     });
 
     try {

@@ -19,6 +19,8 @@ program
     .option("--force", "Принудительная переустановка уже установленных MCP")
     .option("--non-interactive", "Не запрашивать интерактивный ввод")
     .option("--token <token>", "Токен (используется вместе с --tools=<single-server>)")
+    .option("--store-path <path>", "Путь к локальной директории sdd-store (analyst-developer mode). Переменная SDD_STORE_PATH.")
+    .option("--store-name <name>", "Название sdd-store для openspec store setup (analyst-developer mode). Переменная SDD_STORE_NAME.")
     .action(async (opts) => {
     const projectRoot = opts.projectRoot ?? node_path_1.default.resolve(__dirname, "..", "..", "..");
     const mode = opts.mode;
@@ -39,6 +41,8 @@ program
         modeOverride: mode,
         toolsOverride: opts.tools,
         tokenOverrides,
+        sddStorePath: opts.storePath ?? process.env.SDD_STORE_PATH,
+        sddStoreName: opts.storeName ?? process.env.SDD_STORE_NAME,
     });
     try {
         await cmd.run();
