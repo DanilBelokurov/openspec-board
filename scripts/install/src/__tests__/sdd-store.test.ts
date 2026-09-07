@@ -85,7 +85,7 @@ describe("setupSddStore — local schema copy", () => {
     expect(result.initialized).toBe(false);
   });
 
-  it("runs openspec init then openspec store setup in the right cwd", async () => {
+  it("runs openspec init, store setup, and config set defaultStore in the right cwd", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
     const source = await makeSourceFixture();
@@ -93,6 +93,7 @@ describe("setupSddStore — local schema copy", () => {
     const { spawn, calls } = makeSpawn([
       { bin: "openspec", args: ["init", ".", "--tools=none"], status: 0 },
       { bin: "openspec", args: ["store", "setup", "my-store", "--path", storeDir], status: 0 },
+      { bin: "openspec", args: ["config", "set", "defaultStore", "my-store"], status: 0 },
       { bin: "git", args: ["add", "."], status: 0 },
       { bin: "git", args: ["commit", "-m", "chore: install spec-drive-with-adr schema"], status: 0 },
       { bin: "git", args: ["branch", "--show-current"], status: 0 },
@@ -112,6 +113,7 @@ describe("setupSddStore — local schema copy", () => {
 
     expect(result.initialized).toBe(true);
     expect(result.storeRegistered).toBe(true);
+    expect(result.defaultStoreSet).toBe(true);
     expect(result.schemaInstalled).toBe(true);
     expect(result.configUpdated).toBe(false);
     expect(calls[0]).toEqual({
@@ -121,6 +123,11 @@ describe("setupSddStore — local schema copy", () => {
     });
     expect(calls[1].cwd).toBe(storeDir);
     expect(calls[1].bin).toBe("openspec");
+    expect(calls[2]).toEqual({
+      bin: "openspec",
+      args: ["config", "set", "defaultStore", "my-store"],
+      cwd: storeDir,
+    });
   });
 
   it("copies schema files from local source to <store>/openspec/schemas/<name>/", async () => {
@@ -129,6 +136,7 @@ describe("setupSddStore — local schema copy", () => {
     const source = await makeSourceFixture();
 
     const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
@@ -165,6 +173,7 @@ describe("setupSddStore — local schema copy", () => {
     const { spawn } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
@@ -190,6 +199,7 @@ describe("setupSddStore — local schema copy", () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
     const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
@@ -221,6 +231,7 @@ describe("setupSddStore — local schema copy", () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
     const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
     ]);
@@ -291,6 +302,7 @@ describe("setupSddStore — local schema copy", () => {
     const { spawn, calls } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 }, // branch --show-current
@@ -324,6 +336,7 @@ describe("setupSddStore — local schema copy", () => {
     const { spawn } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
@@ -341,10 +354,32 @@ describe("setupSddStore — local schema copy", () => {
     );
     expect(result.initialized).toBe(true);
     expect(result.storeRegistered).toBe(true);
+    expect(result.defaultStoreSet).toBe(true);
     expect(result.schemaInstalled).toBe(true);
     expect(result.configUpdated).toBe(true);
     expect(result.committedToMaster).toBe(true);
     expect(result.ok).toBe(true);
+  });
+
+  it("stops at openspec config set defaultStore failure (no copy, no commit)", async () => {
+    const storeDir = path.join(scratchDir, "store");
+    await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
+    const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 }, // init
+      { bin: "openspec", status: 0 }, // store setup
+      { bin: "openspec", status: 1 }, // config set defaultStore
+    ]);
+    const result = await setupSddStore(
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
+      { spawn, hasBinary: () => true },
+    );
+    expect(result.initialized).toBe(true);
+    expect(result.storeRegistered).toBe(true);
+    expect(result.defaultStoreSet).toBe(false);
+    expect(result.schemaInstalled).toBe(false);
+    expect(result.committedToMaster).toBe(false);
+    expect(result.ok).toBe(false);
   });
 });
 

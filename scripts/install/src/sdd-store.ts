@@ -19,6 +19,7 @@ export interface SddStoreSetupResult {
   storeName: string;
   initialized: boolean;
   storeRegistered: boolean;
+  defaultStoreSet: boolean;
   schemaInstalled: boolean;
   configUpdated: boolean;
   committedToMaster: boolean;
@@ -59,6 +60,7 @@ export async function setupSddStore(
     storeName: options.storeName,
     initialized: false,
     storeRegistered: false,
+    defaultStoreSet: false,
     schemaInstalled: false,
     configUpdated: false,
     committedToMaster: false,
@@ -100,6 +102,39 @@ export async function setupSddStore(
     return result;
   }
 
+  // Pin the just-registered store as the machine-level fallback so
+  // `openspec new change` can resolve a store from inside a worktree
+  // (which has no local openspec/ root and no project config.yaml to
+  // point at a store). Resolution precedence (per openspec docs/cli.md):
+  //   1. --store flag on the command
+  //   2. local openspec root in cwd
+  //   3. store: in openspec/config.yaml
+  //   4. defaultStore from global config  ← this step
+  // Without defaultStore, step 4 is empty and any worktree-scoped
+  // `openspec new change` (which the board uses for proposal creation)
+  // would fail with "no store resolved".
+  print.step(
+    `openspec config set defaultStore ${options.storeName} ...`,
+  );
+  const defaultStoreResult = await spawn(
+    "openspec",
+    ["config", "set", "defaultStore", options.storeName],
+    { cwd: options.storePath, stdio: "inherit" },
+  );
+  result.defaultStoreSet = defaultStoreResult.status === 0;
+  if (!result.defaultStoreSet) {
+    print.error(
+      `openspec config set defaultStore ${options.storeName} не удался.`,
+    );
+    print.note(
+      "Стор зарегистрирован, но глобальный фолбэк не выставлен. " +
+        "Запустите вручную: openspec config set defaultStore " +
+        options.storeName,
+    );
+    return result;
+  }
+  print.success(`defaultStore → ${options.storeName}`);
+
   print.step(`Копирование схемы ${schemaName} в openspec/schemas/ ...`);
   result.schemaInstalled = await installLocalSchema({
     storePath: options.storePath,
@@ -124,6 +159,7 @@ export async function setupSddStore(
   result.ok =
     result.initialized &&
     result.storeRegistered &&
+    result.defaultStoreSet &&
     result.schemaInstalled &&
     result.configUpdated &&
     result.committedToMaster;
