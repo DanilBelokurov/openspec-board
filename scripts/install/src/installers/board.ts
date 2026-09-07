@@ -12,19 +12,19 @@ export interface InstallBoardOptions {
 
 export function printRunDevInstructions(projectRoot: string, mode: InstallMode): void {
   print.blank();
-  print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-  print.raw(`  Доска SDD установлена  ·  режим: ${mode}\n`);
-  print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-  print.raw("\n");
-  print.raw("  Чтобы запустить доску локально:\n");
-  print.raw("\n");
-  print.raw(`      cd "${projectRoot}"\n`);
-  print.raw("      npm run dev\n");
-  print.raw("\n");
-  print.raw("  После старта Next.js по умолчанию слушает http://localhost:3000 —\n");
-  print.raw("  откройте этот адрес в браузере, чтобы увидеть UI доски.\n");
-  print.raw("  Если порт занят, Next.js автоматически предложит следующий\n");
-  print.raw("  свободный порт (ориентируйтесь на строку «Local:»).\n");
+  print.banner("✓ Доска SDD установлена");
+  print.info(`Режим:  ${mode}`);
+  print.info(`Проект: ${projectRoot}`);
+  print.blank();
+
+  print.card("Запуск локально", [
+    `cd "${projectRoot}"`,
+    "npm run dev",
+  ]);
+
+  print.blank();
+  print.note("После старта Next.js по умолчанию слушает http://localhost:3000.");
+  print.note("Если порт занят — ориентируйтесь на строку «Local:» в выводе next dev.");
   print.blank();
 }
 

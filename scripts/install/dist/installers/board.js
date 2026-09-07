@@ -11,19 +11,17 @@ const shell_1 = require("../shell");
 const print_1 = require("../print");
 function printRunDevInstructions(projectRoot, mode) {
     print_1.print.blank();
-    print_1.print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-    print_1.print.raw(`  Доска SDD установлена  ·  режим: ${mode}\n`);
-    print_1.print.raw("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-    print_1.print.raw("\n");
-    print_1.print.raw("  Чтобы запустить доску локально:\n");
-    print_1.print.raw("\n");
-    print_1.print.raw(`      cd "${projectRoot}"\n`);
-    print_1.print.raw("      npm run dev\n");
-    print_1.print.raw("\n");
-    print_1.print.raw("  После старта Next.js по умолчанию слушает http://localhost:3000 —\n");
-    print_1.print.raw("  откройте этот адрес в браузере, чтобы увидеть UI доски.\n");
-    print_1.print.raw("  Если порт занят, Next.js автоматически предложит следующий\n");
-    print_1.print.raw("  свободный порт (ориентируйтесь на строку «Local:»).\n");
+    print_1.print.banner("✓ Доска SDD установлена");
+    print_1.print.info(`Режим:  ${mode}`);
+    print_1.print.info(`Проект: ${projectRoot}`);
+    print_1.print.blank();
+    print_1.print.card("Запуск локально", [
+        `cd "${projectRoot}"`,
+        "npm run dev",
+    ]);
+    print_1.print.blank();
+    print_1.print.note("После старта Next.js по умолчанию слушает http://localhost:3000.");
+    print_1.print.note("Если порт занят — ориентируйтесь на строку «Local:» в выводе next dev.");
     print_1.print.blank();
 }
 async function installBoard(options) {

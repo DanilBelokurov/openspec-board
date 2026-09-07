@@ -74,4 +74,22 @@ exports.print = {
     closingRule() {
         process.stdout.write(`${heavyRule()}\n\n`);
     },
+    // Bordered card for shell-command snippets. Title is rendered inside
+    // the top border; lines are padded to a fixed inner width.
+    card(title, lines, width = 60) {
+        const innerWidth = width - 4; // "│ " + content + " │"
+        const titleSegment = ` ${title} `;
+        const dashesAvailable = Math.max(0, width - 2 /* corners */ - titleSegment.length - 2 /* dashes around title */);
+        const leftDashes = Math.floor(dashesAvailable / 2);
+        const rightDashes = dashesAvailable - leftDashes;
+        const topBar = "┌─" + titleSegment + "─".repeat(leftDashes) + (rightDashes > 0 ? "─".repeat(rightDashes) : "") + "┐";
+        process.stdout.write(`  ${style(FG.cyan, topBar)}\n`);
+        for (const line of lines) {
+            const padded = line.length >= innerWidth
+                ? line.slice(0, innerWidth)
+                : line + " ".repeat(innerWidth - line.length);
+            process.stdout.write(`  ${style(FG.cyan, "│")} ${padded} ${style(FG.cyan, "│")}\n`);
+        }
+        process.stdout.write(`  ${style(FG.cyan, "└" + "─".repeat(width - 2) + "┘")}\n`);
+    },
 };
