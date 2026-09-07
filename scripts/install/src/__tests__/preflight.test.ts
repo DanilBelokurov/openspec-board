@@ -12,7 +12,7 @@ function input(overrides: Partial<PreflightInput> = {}): PreflightInput {
 }
 
 describe("evaluatePreflight", () => {
-  it("returns ok=true when every required tool is present", () => {
+  it("returns ok=true when every tool is present", () => {
     const result = evaluatePreflight(input());
     expect(result.ok).toBe(true);
     expect(result.requiredMissing).toEqual([]);
@@ -20,7 +20,7 @@ describe("evaluatePreflight", () => {
     expect(result.checks).toHaveLength(4);
   });
 
-  it("returns ok=false with requiredMissing=node when node is absent", () => {
+  it("returns ok=false with requiredMissing=[node] when node is absent", () => {
     const result = evaluatePreflight(
       input({ node: { present: false } }),
     );
@@ -28,12 +28,40 @@ describe("evaluatePreflight", () => {
     expect(result.requiredMissing).toEqual(["node"]);
   });
 
-  it("lists optionalMissing tools (uv, gigacode) but keeps ok=true", () => {
+  it("returns ok=false with requiredMissing=[gigacode] when gigacode is absent", () => {
     const result = evaluatePreflight(
-      input({ uv: { present: false }, gigacode: { present: false } }),
+      input({ gigacode: { present: false } }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.requiredMissing).toEqual(["gigacode"]);
+  });
+
+  it("returns ok=false with requiredMissing=[uv] when uv is absent", () => {
+    const result = evaluatePreflight(
+      input({ uv: { present: false } }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.requiredMissing).toEqual(["uv"]);
+  });
+
+  it("returns ok=false listing all missing required tools at once", () => {
+    const result = evaluatePreflight(
+      input({
+        node: { present: false },
+        uv: { present: false },
+        gigacode: { present: false },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.requiredMissing.sort()).toEqual(["gigacode", "node", "uv"]);
+  });
+
+  it("keeps ok=true and lists python as optionalMissing only when python is absent", () => {
+    const result = evaluatePreflight(
+      input({ python: { present: false } }),
     );
     expect(result.ok).toBe(true);
-    expect(result.optionalMissing.sort()).toEqual(["gigacode", "uv"]);
+    expect(result.optionalMissing).toEqual(["python"]);
   });
 
   it("populates label, required flag, and consequence for every tool", () => {
@@ -41,12 +69,14 @@ describe("evaluatePreflight", () => {
     const byId = Object.fromEntries(result.checks.map((c) => [c.id, c]));
     expect(byId.node.required).toBe(true);
     expect(byId.python.required).toBe(false);
-    expect(byId.uv.required).toBe(false);
-    expect(byId.gigacode.required).toBe(false);
+    expect(byId.uv.required).toBe(true);
+    expect(byId.gigacode.required).toBe(true);
     expect(byId.node.consequence).toBeTruthy();
     expect(byId.uv.consequence).toBeTruthy();
     expect(byId.uv.instructions).toBeTruthy();
     expect(byId.gigacode.consequence).toBeTruthy();
+    expect(byId.gigacode.instructions).toBeTruthy();
+    expect(byId.python.consequence).toBeTruthy();
   });
 
   it("passes through the captured version string", () => {

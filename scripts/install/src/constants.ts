@@ -70,6 +70,10 @@ export const INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN = envOrDefault(
   "INSTALLER_INSTRUCTION_SOURCECONTROL_TOKEN",
   "https://example.com/get-sourcecontrol-token",
 );
+export const INSTALLER_INSTRUCTION_GIGACODE = envOrDefault(
+  "INSTALLER_INSTRUCTION_GIGACODE",
+  "https://example.com/get-gigacode-cli",
+);
 
 export const CODE_REVIEW_GRAPH_PACKAGE = envOrDefault(
   "CODE_REVIEW_GRAPH_PACKAGE",

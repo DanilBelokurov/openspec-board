@@ -1,5 +1,6 @@
 import { commandExists, runCommand } from "./shell";
 import {
+  INSTALLER_INSTRUCTION_GIGACODE,
   INSTALLER_INSTRUCTION_PIP,
   INSTALLER_INSTRUCTION_UV,
 } from "./constants";
@@ -118,21 +119,24 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
     {
       id: "uv",
       label: "uv",
-      required: false,
+      required: true,
       present: input.uv.present,
       version: input.uv.version,
       binary: input.uv.binary,
-      consequence: "Нужен для установки MCP-сервера code-review-graph через uv pip install.",
+      consequence:
+        "Нужен для установки MCP-сервера code-review-graph через uv pip install. uv использует собственный Python, системный python не требуется.",
       instructions: INSTALLER_INSTRUCTION_UV,
     },
     {
       id: "gigacode",
       label: "gigacode",
-      required: false,
+      required: true,
       present: input.gigacode.present,
       version: input.gigacode.version,
       binary: input.gigacode.binary,
-      consequence: "Используется самой доской (gigacode --prompt per-step).",
+      consequence:
+        "Используется самой доской на каждом шаге (gigacode --prompt). Без него прогон change-proposal невозможен.",
+      instructions: INSTALLER_INSTRUCTION_GIGACODE,
     },
   ];
 
