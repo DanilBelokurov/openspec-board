@@ -46,6 +46,14 @@ let lastDeveloperScanAt = 0;
  */
 let lastRemoteScanAt = 0;
 const DEFAULT_REMOTE_SCAN_MINUTES = 5;
+/**
+ * Timestamp of the last UEK-expert mode scan. Tracked separately
+ * from the developer/analyst scans so the UEK cadence (driven by
+ * `config.uekExpertScanIntervalMinutes`, default 5 minutes) doesn't
+ * share a clock with the other two.
+ */
+let lastUekScanAt = 0;
+const DEFAULT_UEK_SCAN_MINUTES = 5;
 
 /**
  * Cadence for the lightweight analyst-metadata refresh.
@@ -121,6 +129,39 @@ async function tick(): Promise<void> {
             await mergeRemoteFeatureScan(config.openspecDir);
           } catch (e) {
             console.warn("[watcher] remote feature scan failed:", e);
+          }
+        }
+      }
+    }
+
+    // Stage 0.55: UEK-expert review board scan.
+    //
+    // Polls the bitbucket MCP through gigacode (see
+    // lib/uek-expert/scanner.ts) on a separate cadence so the
+    // review-board load doesn't compete with the openspec-mode
+    // scans. Only fires in uek-expert mode; the cadence defaults
+    // to 5 minutes and 0 disables auto-scan entirely (the manual
+    // "Обновить" button still works).
+    if (config.mode === "uek-expert") {
+      const intervalMinutes =
+        config.uekExpertScanIntervalMinutes ?? DEFAULT_UEK_SCAN_MINUTES;
+      if (intervalMinutes > 0) {
+        const intervalMs = intervalMinutes * 60 * 1000;
+        if (Date.now() - lastUekScanAt >= intervalMs) {
+          lastUekScanAt = Date.now();
+          try {
+            const { scanUekPullRequests } = await import(
+              "@/lib/uek-expert/scanner"
+            );
+            const result = await scanUekPullRequests();
+            if (!result.ok) {
+              console.warn(
+                "[watcher] uek-expert scan failed:",
+                result.error,
+              );
+            }
+          } catch (e) {
+            console.warn("[watcher] uek-expert scan crashed:", e);
           }
         }
       }

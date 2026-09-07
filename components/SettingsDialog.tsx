@@ -40,6 +40,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   // DEFAULT_REMOTE_SCAN_MINUTES in lib/watcher.ts. 0 disables.
   const [remoteScanInterval, setRemoteScanInterval] = useState(5);
   const [initialRemoteScanInterval, setInitialRemoteScanInterval] = useState(5);
+  // UEK-expert mode scan cadence (uek-expert mode only). Default
+  // 5 min — see DEFAULT_UEK_SCAN_MINUTES in lib/watcher.ts. 0
+  // disables background polling; the manual "Обновить" button
+  // still works.
+  const [uekScanInterval, setUekScanInterval] = useState(5);
+  const [initialUekScanInterval, setInitialUekScanInterval] = useState(5);
   // User identity (multi-user read-only). Auto-populated from
   // `git config user.email` on first save; the user can override.
   const [userEmail, setUserEmail] = useState("");
@@ -109,6 +115,13 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             : 5;
         setRemoteScanInterval(rInterval);
         setInitialRemoteScanInterval(rInterval);
+        const uInterval =
+          typeof data?.uekExpertScanIntervalMinutes === "number" &&
+          Number.isFinite(data.uekExpertScanIntervalMinutes)
+            ? data.uekExpertScanIntervalMinutes
+            : 5;
+        setUekScanInterval(uInterval);
+        setInitialUekScanInterval(uInterval);
         // User identity — fall back to "" when not configured so
         // the input is empty (placeholder is shown instead).
         const u = data?.user ?? {};
@@ -180,6 +193,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           defaultBranch: defaultBranch.trim(),
           developerScanIntervalMinutes: developerScanInterval,
           remoteScanIntervalMinutes: remoteScanInterval,
+          uekExpertScanIntervalMinutes: uekScanInterval,
           user: userPayload,
         }),
       });
@@ -196,6 +210,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       );
       setInitialRemoteScanInterval(
         data.remoteScanIntervalMinutes ?? remoteScanInterval,
+      );
+      setInitialUekScanInterval(
+        data.uekExpertScanIntervalMinutes ?? uekScanInterval,
       );
       // Server normalises the user record; reflect whatever it
       // actually wrote back so the "Сохранить" button disables
@@ -305,6 +322,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     defaultBranch !== initialDefaultBranch ||
     developerScanInterval !== initialDeveloperScanInterval ||
     remoteScanInterval !== initialRemoteScanInterval ||
+    uekScanInterval !== initialUekScanInterval ||
     userEmail !== initialUserEmail ||
     userDisplayName !== initialUserDisplayName;
 
@@ -739,6 +757,43 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             </div>
           )}
             </>
+          )}
+
+          {/* UEK-expert mode scan cadence. Drives the bitbucket
+              MCP polling through gigacode (see
+              lib/uek-expert/scanner.ts). 0 disables background
+              polling; the manual "Обновить" button still works
+              either way. Placed outside the developer/analyst
+              block above because that block narrows `mode` and
+              would make this branch appear unreachable. */}
+          {mode === "uek-expert" && (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-slate-800">
+                Интервал сканирования bitbucket (мин)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={1440}
+                value={uekScanInterval}
+                onChange={(e) =>
+                  setUekScanInterval(
+                    Math.max(0, Number(e.target.value) || 0),
+                  )
+                }
+                placeholder="5"
+                className="h-8 w-32 rounded-md border border-border bg-white px-2 font-mono text-[12px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-300"
+              />
+              <span className="text-[11px] text-slate-500">
+                Каждые N минут watcher запрашивает у bitbucket-mcp
+                список ПР, где вы назначены ревьювером.{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px]">
+                  0
+                </code>{" "}
+                — отключить (список обновится только по кнопке
+                «Обновить»).
+              </span>
+            </label>
           )}
         </div>
 

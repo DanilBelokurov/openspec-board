@@ -115,6 +115,13 @@ export interface AppConfig {
    */
   remoteScanIntervalMinutes?: number;
   /**
+   * UEK-expert review board scan cadence, in minutes. Drives
+   * the bitbucket MCP polling while the board is in UEK-expert
+   * mode. 0 disables auto-scan entirely; the manual "Обновить"
+   * button still works. Default if unset: 5 minutes.
+   */
+  uekExpertScanIntervalMinutes?: number;
+  /**
    * Identity of the current user. Used to filter the board
    * ("Мои / Чужие") and to render authorship on remote tasks.
    * Optional — when unset, the board treats every task as
@@ -169,11 +176,29 @@ export async function readConfig(): Promise<AppConfig> {
         ? (parsed.repos as Record<string, RepoConfig>)
         : {};
     const user = normaliseUserIdentity(parsed.user);
+    const developerScanIntervalMinutes =
+      typeof parsed.developerScanIntervalMinutes === "number" &&
+      Number.isFinite(parsed.developerScanIntervalMinutes)
+        ? parsed.developerScanIntervalMinutes
+        : 0;
+    const remoteScanIntervalMinutes =
+      typeof parsed.remoteScanIntervalMinutes === "number" &&
+      Number.isFinite(parsed.remoteScanIntervalMinutes)
+        ? parsed.remoteScanIntervalMinutes
+        : 5;
+    const uekExpertScanIntervalMinutes =
+      typeof parsed.uekExpertScanIntervalMinutes === "number" &&
+      Number.isFinite(parsed.uekExpertScanIntervalMinutes)
+        ? parsed.uekExpertScanIntervalMinutes
+        : 5;
     return {
       openspecDir: parsed.openspecDir ?? "",
       mode,
       defaultBranch,
       repos,
+      developerScanIntervalMinutes,
+      remoteScanIntervalMinutes,
+      uekExpertScanIntervalMinutes,
       user,
     };
   } catch (e) {
@@ -206,6 +231,15 @@ export async function writeConfig(
   // partial PATCHes).
   if (typeof next.remoteScanIntervalMinutes !== "number" || !Number.isFinite(next.remoteScanIntervalMinutes)) {
     next.remoteScanIntervalMinutes = current.remoteScanIntervalMinutes ?? 0;
+  }
+  // uekExpertScanIntervalMinutes: same semantics — preserved on
+  // partial PATCHes, 0 means disabled, default 5.
+  if (
+    typeof next.uekExpertScanIntervalMinutes !== "number" ||
+    !Number.isFinite(next.uekExpertScanIntervalMinutes)
+  ) {
+    next.uekExpertScanIntervalMinutes =
+      current.uekExpertScanIntervalMinutes ?? 5;
   }
   // user: explicit `undefined` (PATCH sent `user: null`) clears
   // the identity record; missing field preserves the current value.

@@ -51,8 +51,18 @@ export function TopBar({ mode, authorFilter = "all", hasUserEmail = false }: Top
     setRefreshing(true);
     setRefreshError(null);
     const start = Date.now();
+    // Mode-aware refresh endpoint: the openspec-aware modes
+    // (developer / analyst) scan through `/api/refresh`, which
+    // runs the openspec pipelines and needs `config.openspecDir`.
+    // UEK-expert has its own MCP-driven scan at
+    // `/api/uek-expert/scan`, which does NOT touch the
+    // openspecDir — going through `/api/refresh` here would
+    // hit its "Сначала укажите директорию OpenSpec store" guard
+    // and refuse to run.
+    const endpoint =
+      mode === "uek-expert" ? "/api/uek-expert/scan" : "/api/refresh";
     try {
-      const res = await fetch("/api/refresh", { method: "POST" });
+      const res = await fetch(endpoint, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setRefreshError(body.error ?? `HTTP ${res.status}`);
