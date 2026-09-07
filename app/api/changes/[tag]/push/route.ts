@@ -4,7 +4,7 @@ import { readState, updateTask, findTaskByTag } from "@/lib/state";
 import { readConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
 import { spawnGitPush } from "@/lib/git-push";
-import { updateStageInOpenspecYaml } from "@/lib/openspec";
+import { writeOpenSpecMetadata } from "@/lib/openspec";
 
 function runGit(
   cwd: string,
@@ -115,16 +115,20 @@ export async function POST(
     .then((r) => r.stdout.trim())
     .catch(() => "");
 
-  // Publish the final stage into .openspec.yaml before the push so
-  // the remote scan (and other users' boards) reads "done" as ground
-  // truth rather than inferring it from artifact presence. Mirrors
-  // the per-stage publish-stage flow.
+  // Publish the final stage + title into .openspec.yaml before the push
+  // so the remote scan (and other users' boards) reads both as ground
+  // truth rather than re-parsing proposal.md. Mirrors the per-stage
+  // publish-stage flow — both keys ship in the same metadata commit
+  // carried by this push.
   try {
     const changeName = task.parentTag ?? task.summary.changeName;
-    const changed = await updateStageInOpenspecYaml(
+    const changed = await writeOpenSpecMetadata(
       task.openspecWorktreePath,
       changeName,
-      "done",
+      {
+        stage: "done",
+        title: task.summary.title || undefined,
+      },
     );
     if (changed) {
       const yamlRel = `openspec/changes/${changeName}/.openspec.yaml`;

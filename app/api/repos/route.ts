@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   deriveRepoNameFromUrl,
   isValidRepoBranch,
-  isValidRepoName,
   isValidRepoUrl,
+  normalizeRepoName,
 } from "@/lib/repo-name";
 import { readConfig, writeConfig } from "@/lib/config";
 import { isGitRepo } from "@/lib/git";
@@ -58,23 +58,23 @@ export async function POST(req: NextRequest) {
 
   // Derive the directory name from the URL — the user no longer
   // types it in. This keeps the two in sync and removes the
-  // chance of typos that conflict with existing repos.
-  const derivedName = deriveRepoNameFromUrl(url);
-  if (!derivedName) {
+  // chance of typos that conflict with existing repos. If the raw
+  // segment doesn't already match our kebab-case shape (snake_case,
+  // CamelCase, dots, etc.), run it through normalizeRepoName() so a
+  // friendlier canonical form is accepted transparently.
+  const derivedRaw = deriveRepoNameFromUrl(url);
+  if (!derivedRaw) {
     return NextResponse.json(
       { error: "Не удалось извлечь имя репозитория из URL" },
       { status: 400 },
     );
   }
-  if (!isValidRepoName(derivedName)) {
-    return NextResponse.json(
-      {
-        error: `Имя "${derivedName}" не подходит под kebab-case (строчные латинские буквы, цифры, одиночные дефисы, начинается с буквы)`,
-      },
-      { status: 400 },
-    );
+  const normalized = normalizeRepoName(derivedRaw);
+  if (!normalized.ok) {
+    return NextResponse.json({ error: normalized.error }, { status: 400 });
   }
-  const name = derivedName;
+  const name = normalized.name;
+  const originalName = name !== derivedRaw ? derivedRaw : undefined;
 
   if (!branch) {
     return NextResponse.json(
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   if (existing[name]) {
     return NextResponse.json(
       {
-        error: `Репозиторий "${name}" уже добавлен`,
+        error: `Репозиторий "${name}" уже добавлен (${existing[name]?.url ?? "URL неизвестен"})`,
       },
       { status: 409 },
     );
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(
     {
       created: true,
-      repo: { name, url, branch },
+      repo: { name, url, branch, originalName },
       path: result.path,
       onDisk: result.created ? "created" : "reused",
       build: {

@@ -390,9 +390,18 @@ export default async function ChangePage({
 // checks openspecNew + gigacodeContinue; delta-spec checks the
 // delta-spec create run. Remote tasks never show it: their mirror
 // worktree is read-only (commits would land in the author's branch).
+  // openspecNewSpawnError covers the case where spawnDetachedWithLog
+  // threw before a child PID was ever registered: in that branch
+  // neither pid nor exit code ever get written, so the original
+  // exit-code-only check silently treated it as "no error". We OR
+  // it into the proposal-stage failure flag alongside gigacode-continue
+  // for the same reason.
+  const openspecNewFailed =
+    !!task.openspecNewSpawnError ||
+    (task.openspecNewExitCode != null && task.openspecNewExitCode !== 0);
   const currentStageError =
     task.stage === "proposal"
-      ? (task.openspecNewExitCode != null && task.openspecNewExitCode !== 0) ||
+      ? openspecNewFailed ||
         (task.gigacodeContinueExitCode != null &&
           task.gigacodeContinueExitCode !== 0)
       : task.stage === "delta-spec"
@@ -458,6 +467,15 @@ export default async function ChangePage({
               : false);
   const showConfirmButton =
     task.remote !== true && currentStageReady && !currentStageError;
+  // "Опубликовать этап" mirrors the confirm-button gating: only when
+  // the artifact for the CURRENT stage is on disk AND no create/update
+  // step in this stage has failed. Mirrors `showConfirmButton` with
+  // an extra mode check — publishing is analyst-only.
+  const showPublishStageButton =
+    task.mode === "analyst" &&
+    task.remote !== true &&
+    currentStageReady &&
+    !currentStageError;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-surface">
@@ -602,20 +620,18 @@ export default async function ChangePage({
                     stage instead of inferring it from files. Hidden
                     for remote (read-only) tasks and for done — the
                     done-stage «Опубликовать ветку» covers the final
-                    publication. */}
-                {task.mode === "analyst" &&
-                  task.remote !== true &&
-                  (task.stage === "proposal" ||
-                    task.stage === "delta-spec" ||
-                    task.stage === "design" ||
-                    task.stage === "adr") && (
-                    <section className="mb-5">
-                      <PublishStageButton
-                        tag={tag}
-                        label={`Опубликовать этап (${task.stage})`}
-                      />
-                    </section>
-                  )}
+                    publication. Gated by `showPublishStageButton`
+                    which mirrors `showConfirmButton`: only appears
+                    when the artifact for THIS stage is on disk AND no
+                    create/update step in this stage has failed. */}
+                {showPublishStageButton && (
+                  <section className="mb-5">
+                    <PublishStageButton
+                      tag={tag}
+                      label={`Опубликовать этап (${task.stage})`}
+                    />
+                  </section>
+                )}
 
                 {showConfirmButton &&
                   !allServicesStarted &&
@@ -791,16 +807,32 @@ export default async function ChangePage({
           {/* First card (analyst mode, step 1): the openspec CLI that
               creates the change folder. Per user spec: no PID/command/log,
               no "завершено (exit 0)" suffix. exit code 0 = success, only
-              a non-zero exit code surfaces as an error. */}
-          {task.openspecNewPid && (
+              a non-zero exit code surfaces as an error.
+
+              Render gate used to be `task.openspecNewPid` truthy; that hid
+              the entire card when spawnDetachedWithLog threw before any
+              child was registered (pid stays null forever). Switching to
+              `task.openspecNewStartedAt` keeps it visible whenever an
+              attempt was made and lets us surface both flavours of failure
+              below: a recorded spawn error (the helper caught during
+              create) OR a non-zero exit from a process that did start.
+              ProcessStatusIcon still drives the icon for live/exited cases;
+              we override with a red alert badge when the spawn never even
+              happened, otherwise its `alive=false + exitCode=undefined`
+              state would render a green checkmark. */}
+          {task.openspecNewStartedAt && (
             <details
               className="group mt-5 rounded-md border border-border bg-white px-4 py-3 text-[12px] text-slate-600 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex items-center gap-2 font-semibold text-slate-800">
-                <ProcessStatusIcon
-                  alive={openspecNewAlive}
-                  exitCode={task.openspecNewExitCode}
-                />
+                {task.openspecNewSpawnError ? (
+                  <CircleAlert className="h-4 w-4 text-red-600" />
+                ) : (
+                  <ProcessStatusIcon
+                    alive={openspecNewAlive}
+                    exitCode={task.openspecNewExitCode}
+                  />
+                )}
                 <span>Создание директории change-proposal</span>
                 <ChevronRight className="ml-auto h-3.5 w-3.5 text-slate-400 transition-transform group-open:rotate-90" />
               </summary>
@@ -810,7 +842,23 @@ export default async function ChangePage({
                     Запущено: {formatDateTime(task.openspecNewStartedAt)}
                   </div>
                 )}
-                {!openspecNewAlive &&
+                {task.openspecNewSpawnError && (
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[11px] text-red-700">
+                      Не удалось запустить openspec new:{" "}
+                      <code className="rounded bg-red-50 px-1 py-0.5 font-mono text-[10px] text-red-800">
+                        {task.openspecNewSpawnError}
+                      </code>
+                    </div>
+                    <RestartSubtaskButton
+                      tag={tag}
+                      stage="proposal"
+                      sub="openspec-new"
+                    />
+                  </div>
+                )}
+                {!task.openspecNewSpawnError &&
+                  !openspecNewAlive &&
                   task.openspecNewExitCode != null &&
                   task.openspecNewExitCode !== 0 && (
                     <div className="flex items-center justify-between gap-2">

@@ -1,0 +1,46 @@
+.gitmodules
+
+
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build
+dist
+
+# app state
+.sdd-board/
+
+# qwen side-effects (created when qwen spawns in cwd without openspecDir passed)
+.qwen/
+openspec/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+.mcp/**
+
+repos/**
+
+example/** 
+
+.gigacode/**
+

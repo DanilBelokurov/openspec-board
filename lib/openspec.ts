@@ -571,7 +571,41 @@ async function readChangeSummaryFromPath(
   const hasDesign = await exists(designPath);
   const hasSpecs = await exists(specsDir);
 
-  let title = kebabToTitle(changeName);
+  // Title resolution mirrors the remote-feature-branches scanner:
+  //
+  //   1. `.openspec.yaml` `title:` — authoritative ground truth. The
+  //      publish-stage hook writes this on every confirm; we pre-seed
+  //      it from the create-task dialog too, so even before the CLI
+  //      generates proposal.md the card already shows the right text.
+  //   2. First `# Heading` in `proposal.md`. Used as a stand-in for
+  //      legacy / hand-crafted changes that pre-date our hook and
+  //      never emitted yaml.
+  //   3. `kebabToTitle(changeName)` — final fallback when neither
+  //      signal exists (empty dir, broken proposal).
+  //
+  // We probe the YAML first because it's much cheaper than parsing
+  // proposal.md AND because it's the value the user typed into the
+  // dialog. Mixing them up would silently regress the create flow.
+  //
+  // `readTitleFromOpenspecYaml(openspecStoreRoot, ...)` joins the path
+  // `<root>/openspec/changes/<name>/...`, which is wrong here: we're
+  // given the *change directory* itself, not the repo root. Read the
+  // file directly via `openspecYamlPath(changePath)` so we look at
+  // `<changePath>/.openspec.yaml` like the writer does.
+  const yamlPath = openspecYamlPath(changePath);
+  let yamlTitle: string | null = null;
+  try {
+    const rawYaml = await fs.readFile(yamlPath, "utf-8");
+    yamlTitle = readYamlScalar(rawYaml, "title");
+  } catch {
+    /* no metadata file — fall through */
+  }
+  let title = yamlTitle ?? "";
+  let titleSource: "yaml" | "proposal" | "fallback" | null = yamlTitle
+    ? "yaml"
+    : null;
+  if (!title) title = kebabToTitle(changeName);
+
   let updatedAt = "";
   const capabilityTags: string[] = [];
   const specCounts = emptySpecCounts();
@@ -583,7 +617,14 @@ async function readChangeSummaryFromPath(
   if (hasProposal) {
     const raw = await fs.readFile(proposalPath, "utf-8");
     const parsed = parseProposal(raw, changeName);
-    title = parsed.title;
+    // Only adopt the markdown heading when we don't have a yaml
+    // title — otherwise edits to proposal.md would clobber the
+    // operator's authored string every watcher tick. See test
+    // coverage in lib/openspec-yaml.test.ts for round-tripping.
+    if (titleSource !== "yaml") {
+      title = parsed.title;
+      titleSource = "proposal";
+    }
     newCapabilities = parsed.newCapabilities;
     modifiedCapabilities = parsed.modifiedCapabilities;
     const st = await fs.stat(proposalPath);
@@ -1155,6 +1196,73 @@ const YAML_STAGES = new Set([
 ]);
 
 /**
+ * Read what a single-line `key:` entry holds in a raw `.openspec.yaml`
+ * blob. Accepts the two flavours present in the wild: bare (`title:
+ * Some text`) and quoted (`title: "Some: text"`). Returns null when
+ * the key is absent or its value is empty.
+ *
+ * Quoted values go through `unescapeYamlString` so an embedded `\"`,
+ * `\\`, `\n`, etc. round-trips correctly. Bare values are taken
+ * verbatim up to end-of-line, trimmed on both sides.
+ */
+function readYamlScalar(raw: string, key: string): string | null {
+  const re = new RegExp(`^${key}:\\s*(.*?)\\s*$`, "m");
+  const m = raw.match(re);
+  if (!m) return null;
+  const v = m[1];
+  if (!v) return null;
+  if (v.startsWith('"') && v.endsWith('"')) {
+    return unescapeYamlString(v.slice(1, -1));
+  }
+  if (v.startsWith("'") && v.endsWith("'")) {
+    // Single-quoted YAML — minimal support: only `''` → `'`. We don't
+    // commit single-quoted values ourselves, but external tools may.
+    return v.slice(1, -1).replace(/''/g, "'");
+  }
+  return v;
+}
+
+function escapeYamlString(s: string): string {
+  // Escape characters that would terminate the double-quoted scalar
+  // or change its meaning. Newlines become `\n` so the file stays
+  // single-line per-key.
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, "\\n");
+}
+
+function unescapeYamlString(s: string): string {
+  return s
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+}
+
+/**
+ * Re-emit a single key with a fresh value while preserving every
+ * other line untouched. Returns the new content plus a flag
+ * indicating whether anything actually moved (used by callers to
+ * decide whether to skip the subsequent `git commit`).
+ */
+function replaceKeyLine(
+  raw: string,
+  key: string,
+  serializedValue: string,
+): { next: string; changed: boolean } {
+  const re = new RegExp(`^${key}:.*$`, "m");
+  if (re.test(raw)) {
+    const replaced = raw.replace(re, `${key}: ${serializedValue}`);
+    return { next: replaced, changed: replaced !== raw };
+  }
+  const addition = `${key}: ${serializedValue}\n`;
+  const next = raw.endsWith("\n") ? raw + addition : raw + "\n" + addition;
+  return { next, changed: true };
+}
+
+/**
  * Read the published `stage` from a change's `.openspec.yaml`.
  *
  * Parsing is intentionally a single-line regex (no YAML dependency):
@@ -1176,28 +1284,82 @@ export async function readStageFromOpenspecYaml(
   } catch {
     return null;
   }
-  const m = raw.match(/^stage:\s*["']?([\w-]+)["']?\s*$/m);
-  if (!m) return null;
-  const value = m[1];
-  return YAML_STAGES.has(value) ? (value as Stage) : null;
+  const value = readYamlScalar(raw, "stage");
+  if (!value || !YAML_STAGES.has(value)) return null;
+  return value as Stage;
 }
 
 /**
- * Update (or add) the `stage:` key in a change's `.openspec.yaml`
- * inside a local worktree. Returns true when the file content
- * changed. Never commits — the caller (publish-stage route) is
- * responsible for the git add/commit so the timing stays in one
- * place.
+ * Read the published `title` from a change's `.openspec.yaml` on a
+ * LOCAL worktree (i.e. where the file is reachable via plain `fs`).
+ * Returns null when the file is missing, unreadable, or carries no
+ * title key — the remote-task scanner has its own git-show variant
+ * because it cannot rely on the mirror being materialized.
+ *
+ * Titles are author-supplied free-form text (the first heading of
+ * `proposal.md`), so we accept both quoted and unquoted YAML forms
+ * here — see `readYamlScalar` for details.
  */
-export async function updateStageInOpenspecYaml(
+export async function readTitleFromOpenspecYaml(
   root: string,
   changeName: string,
-  stage: Stage,
+): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(
+      openspecYamlPath(path.join(root, "openspec", "changes", changeName)),
+      "utf-8",
+    );
+  } catch {
+    return null;
+  }
+  const value = readYamlScalar(raw, "title");
+  return value && value.length > 0 ? value : null;
+}
+
+export interface WriteOpenSpecMetadata {
+  /**
+   * Pipeline stage to record. When set and equal to what's already
+   * on disk, no rewrite happens (returns `false`). When set and
+   * different, the existing `stage:` line is replaced in place.
+   */
+  stage?: Stage;
+  /**
+   * Author-published title (first `# Heading` of `proposal.md`).
+   * Same idempotency rule as `stage`: identical values leave the
+   * file byte-identical so we can short-circuit the commit.
+   * Always emitted double-quoted so a colon-bearing title does not
+   * get reparsed as multiple keys downstream.
+   */
+  title?: string;
+}
+
+/**
+ * Persist one or more fields into a change's `.openspec.yaml`.
+ * Existing top-level keys that aren't `stage`/`title` stay
+ * untouched, so a hand-edited `version`, `dependencies`, or any
+ * future field co-exists with our writes.
+ *
+ * Each pass replaces/adds exactly the supplied keys — we never
+ * rewrite keys the caller didn't ask about. That keeps the diff
+ * trivially reviewable when the publish step adds a stale entry
+ * alongside a manual edit.
+ *
+ * Returns `true` when the resulting file differs from what was on
+ * disk beforehand. Idempotent: identical input → identical output
+ * → returns `false`. Never commits — callers (`publish-stage` /
+ * `push`) own the git add/commit lifecycle so timing stays in one
+ * place.
+ */
+export async function writeOpenSpecMetadata(
+  root: string,
+  changeName: string,
+  patch: WriteOpenSpecMetadata,
 ): Promise<boolean> {
   const yamlPath = openspecYamlPath(
     path.join(root, "openspec", "changes", changeName),
   );
-  const line = `stage: ${stage}`;
+
   let raw: string | null = null;
   try {
     raw = await fs.readFile(yamlPath, "utf-8");
@@ -1205,22 +1367,117 @@ export async function updateStageInOpenspecYaml(
     raw = null;
   }
 
-  let next: string;
+  // First-ever write: synthesise a clean file rather than layering
+  // patches on top of an empty buffer. `replaceKeyLine` would otherwise
+  // emit a stray blank line between the header and the appended keys —
+  // a one-line mismatch versus OpenSpec CLI output that surfaces as
+  // `extra blank line` in PR reviews.
   if (raw == null) {
-    // No metadata file yet (older changes created before the key
-    // existed) — synthesize a minimal one.
-    next = `changeName: ${changeName}\n${line}\n`;
-  } else if (/^stage:\s*.*$/m.test(raw)) {
-    next = raw.replace(/^stage:\s*.*$/m, line);
-  } else {
-    // File exists but has no stage key — append it.
-    next = raw.endsWith("\n") ? raw + line + "\n" : raw + "\n" + line + "\n";
+    const lines: string[] = [`changeName: ${changeName}`];
+    if (patch.stage !== undefined) {
+      lines.push(`stage: ${String(patch.stage)}`);
+    }
+    if (patch.title !== undefined) {
+      const serialized =
+        patch.title.length > 0
+          ? `"${escapeYamlString(patch.title)}"`
+          : '""';
+      lines.push(`title: ${serialized}`);
+    }
+    const content = lines.join("\n") + "\n";
+    await fs.mkdir(path.dirname(yamlPath), { recursive: true });
+    await atomicWriteFile(yamlPath, content);
+    return true;
   }
 
-  if (next === raw) return false;
+  // File exists. Patch each requested key independently and only
+  // commit when at least one key actually moved. Idempotent: calling
+  // with the same values as last time leaves the file byte-identical
+  // so the route can skip its subsequent `git commit`.
+  let workingContent = raw;
+  let dirty = false;
+  if (patch.stage !== undefined) {
+    const r = replaceKeyLine(workingContent, "stage", String(patch.stage));
+    if (r.changed) {
+      workingContent = r.next;
+      dirty = true;
+    }
+  }
+  if (patch.title !== undefined) {
+    const serialized =
+      patch.title.length > 0
+        ? `"${escapeYamlString(patch.title)}"`
+        : '""';
+    const r = replaceKeyLine(workingContent, "title", serialized);
+    if (r.changed) {
+      workingContent = r.next;
+      dirty = true;
+    }
+  }
+  if (!dirty) return false;
+
   await fs.mkdir(path.dirname(yamlPath), { recursive: true });
-  await atomicWriteFile(yamlPath, next);
+  await atomicWriteFile(yamlPath, workingContent);
   return true;
+}
+
+/**
+ * Back-compat shim around `writeOpenSpecMetadata` for callers that
+ * still want the original "set only stage, return whether anything
+ * changed" shape. Prefer `writeOpenSpecMetadata` directly when you
+ * also have a title handy — keeping both signatures lets the
+ * publish/push routes evolve independently without churning older
+ * call sites in one sweep.
+ */
+export async function updateStageInOpenspecYaml(
+  root: string,
+  changeName: string,
+  stage: Stage,
+): Promise<boolean> {
+  return writeOpenSpecMetadata(root, changeName, { stage });
+}
+
+// ============================================================================
+// Git-backed .openspec.yaml reading (remote tasks)
+// ============================================================================
+
+/**
+ * Read a small set of well-known keys out of `<sha>:openspec/changes/<tag>/.openspec.yaml`
+ * via a single `git show` invocation. Used by the remote-feature-branches
+ * scanner so the receive-side has the author's ground truth WITHOUT
+ * requiring the read-only mirror worktree to be on disk first —
+ * the scanner currently runs BEFORE materialization in many code
+ * paths and falling back to proposal.md parsing produces drift.
+ *
+ * Cost: one extra `git show` per branch (~tens of ms against a warm
+ * repo object store). Title is the bulk payload; cap at 1MB to
+ * avoid execFile buffer blowups on pathological inputs (real titles
+ * observed are <1KB; anything beyond almost certainly indicates a
+ * tool-authored mistake rather than human prose).
+ */
+export async function readChangeMetadataFromGit(
+  openspecDir: string,
+  sha: string,
+  tag: string,
+): Promise<{ stage: Stage | null; title: string | null }> {
+  try {
+    const { stdout } = await runGitIn(openspecDir, [
+      "show",
+      `${sha}:openspec/changes/${tag}/.openspec.yaml`,
+    ]);
+    const stageRaw = readYamlScalar(stdout, "stage");
+    const titleRaw = readYamlScalar(stdout, "title");
+    return {
+      stage:
+        stageRaw && YAML_STAGES.has(stageRaw) ? (stageRaw as Stage) : null,
+      title: titleRaw && titleRaw.length > 0 ? titleRaw : null,
+    };
+  } catch {
+    // Missing file / blob too large / transient I/O → behave like
+    // "no metadata available" so the scanner falls back to the
+    // proposal.md parsing path.
+    return { stage: null, title: null };
+  }
 }
 
 // ============================================================================

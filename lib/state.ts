@@ -69,6 +69,13 @@ export interface TaskEntry {
   openspecNewExitCode?: number | null;
   openspecNewExitSignal?: string | null;
   openspecNewLogPath?: string;
+  // Set when spawnDetachedWithLog threw before any child process
+  // was registered — distinguishes "spawn failed outright" from
+  // a clean non-zero exit (`openspecNewExitCode !== 0`). The detail
+  // page renders the failure card and exposes Restart for both,
+  // but this marker is what unblocks the gating logic in cases
+  // where pid/exit code never get written.
+  openspecNewSpawnError?: string | null;
   // Second proposal-creation step (analyst mode) — gigacode /opsx-continue,
   // auto-triggered from lib/continuation.ts once the change directory and
   // .openspec.yaml exist but proposal.md does not.
@@ -1171,16 +1178,61 @@ async function mergeRemoteFeatureScanImpl(
       // via the git fallback and the next scan retries.
       const id = randomUUID();
       const mirrorPath = await materializeMirror(p.remoteRef);
-      const stage =
-        (mirrorPath
-          ? await readStageFromOpenspecYaml(mirrorPath, tag)
-          : null) ??
-        inferAnalystStageFromArtifacts(p.hasSpecs, p.hasDesign, p.hasAdr);
+      // Resolution order for stage / title on a fresh discovery:
+      //
+      //   stage:  scanner's git-show reading of .openspec.yaml →
+      //           materialized-mirror fs read → conservative fallback.
+      //           The scanner already did a single `git show
+      //           <sha>:.../.openspec.yaml`, so when that succeeds
+      //           there's no reason to spend another fs round-trip on
+      //           the just-created worktree. We keep the fs read as
+      //           defence-in-depth for branches whose .openspec.yaml
+      //           somehow differs between refs and HEAD (e.g. an
+      //           unpushed local-only commit by the author).
+      //
+      //   When both `yamlStage` AND `yamlTitle` are absent we have no
+      //   signal at all from `.openspec.yaml` — the author either
+      //   shipped without our publish-stage hook or pushed a hand-
+      //   crafted branch. Treating such tasks as actively in-progress
+      //   based on artifact presence would surface stale half-done
+      //   changes as live cards. Instead default the stage to "done"
+      //   (the change was published end-to-end, that's why we're
+      //   seeing it on the remote scan), and fall through to the
+      //   regular yaml → artifact chain whenever the author DID emit
+      //   any metadata (even partial).
+      //
+      //   title:  scanner's yaml reading → parsed proposal.md heading
+      //           → tag as last resort. The published title is what
+      //           other users see across all stages; falling back to
+      //           the markdown heading keeps backward compatibility
+      //           for branches that predate the publish-stage hook,
+      //           and falling back to the change-id matches what we
+      //           want for un-published / hand-pushed branches where
+      //           proposal.md has no parseable `# Heading`.
+      const noAuthorMetadata = p.yamlStage == null && p.yamlTitle == null;
+      const stage = noAuthorMetadata
+        ? "done"
+        : p.yamlStage ??
+          (mirrorPath
+            ? await readStageFromOpenspecYaml(mirrorPath, tag)
+            : null) ??
+          inferAnalystStageFromArtifacts(
+            p.hasSpecs,
+            p.hasDesign,
+            p.hasAdr,
+          );
       const summary = {
         id,
         changeName: tag,
         path: "",
-        title: p.proposalTitle ?? tag,
+        // Mirror the refresh path below: when BOTH yaml signals are
+        // absent we don't trust the markdown heading either — the
+        // branch is treated as fully hand-published, so show the
+        // change-id directly rather than risking a stale heading
+        // from a long-finished proposal.
+        title: noAuthorMetadata
+          ? tag
+          : p.yamlTitle ?? p.proposalTitle ?? tag,
         stage,
         hasProposal: true,
         hasDesign: p.hasDesign,
@@ -1261,18 +1313,42 @@ async function mergeRemoteFeatureScanImpl(
 
     // SHA or author changed (force-push upstream, or someone
     // amended). Refresh the persisted fields. Reset the mirror to
-    // the new tip FIRST, then read the stage from the author's
-    // .openspec.yaml (ground truth) with the file-presence inference
-    // as fallback.
+    // the new tip FIRST, then read the stage/title from the author's
+    // .openspec.yaml (ground truth); fall back to the materialized
+    // mirror / proposal.md when the published metadata is missing.
+    //
+    // Same "no-metadata → done" fallback as on fresh discovery: when
+    // both `yamlStage` and `yamlTitle` are absent we can't tell which
+    // step the change is at, so we conservatively mark it done rather
+    // than guessing from artifact presence — see the comment block
+    // in the create-branch below for the full rationale.
+    //
+    // Title precedence on refresh matches fresh-discovery:
+    //   1. yaml-published title (single source of truth across stages),
+    //   2. parsed-from-proposal.md heading,
+    //   3. whatever was already on the card (never let it go blank).
+    //   Step 4 (only when BOTH yaml signals are missing): use the
+    //   change-id directly. Same shape as a brand-new branch without
+    //   any openspec.yaml at all.
     const mirrorPath = await materializeMirror(p.remoteRef);
-    const newStage =
-      (mirrorPath
-        ? await readStageFromOpenspecYaml(mirrorPath, tag)
-        : null) ??
-      inferAnalystStageFromArtifacts(p.hasSpecs, p.hasDesign, p.hasAdr);
+    const noAuthorMetadataRefresh =
+      p.yamlStage == null && p.yamlTitle == null;
+    const newStage = noAuthorMetadataRefresh
+      ? "done"
+      : p.yamlStage ??
+        (mirrorPath
+          ? await readStageFromOpenspecYaml(mirrorPath, tag)
+          : null) ??
+        inferAnalystStageFromArtifacts(
+          p.hasSpecs,
+          p.hasDesign,
+          p.hasAdr,
+        );
     const refreshedSummary = {
       ...existing.summary,
-      title: p.proposalTitle ?? existing.summary.title,
+      title: noAuthorMetadataRefresh
+        ? tag
+        : p.yamlTitle ?? p.proposalTitle ?? existing.summary.title,
       stage: newStage,
       hasDesign: p.hasDesign,
       hasSpecs: p.hasSpecs,

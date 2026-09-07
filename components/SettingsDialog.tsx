@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, FolderSearch, Plus, Loader2, Trash2 } from "lucide-react";
 import { MODES, isBoardModeId, type BoardModeId } from "@/lib/modes";
 import { useCreateProposal } from "./CreateProposalContext";
-import { deriveRepoNameFromUrl } from "@/lib/repo-name";
+import {
+  deriveRepoNameFromUrl,
+  normalizeRepoName,
+} from "@/lib/repo-name";
 
 interface RepoEntry {
   url: string;
@@ -168,6 +171,34 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Live preview of the repo name we'll feed to /api/repos.
+  // Mirrors the server pipeline (deriveRepoNameFromUrl →
+  // normalizeRepoName) so the user sees the exact kebab-case key
+  // before submitting, plus a small "из <raw>" hint when the URL
+  // segment wasn't already canonical. Without this they'd be
+  // surprised that "My_Repo.git" lands as repos/my-repo/.
+  //
+  // MUST run unconditionally — keeping it above the `if (!open)`
+  // early-return preserves the same hook order across renders and
+  // avoids React's "Rendered more hooks than during the previous
+  // render" error (the first mount can see open=false, while later
+  // mounts reach this line).
+  const newRepoPreview = useMemo(() => {
+    const raw = deriveRepoNameFromUrl(newRepoUrl);
+    if (!raw) return { ok: false as const, reason: "missing" as const };
+    const norm = normalizeRepoName(raw);
+    if (!norm.ok) return { ok: false as const, reason: "invalid" as const, error: norm.error };
+    return {
+      ok: true as const,
+      name: norm.name,
+      original: norm.name !== raw ? raw : null,
+    };
+  }, [newRepoUrl]);
+  const newRepoCanSubmit =
+    newRepoPreview.ok &&
+    newRepoBranch.trim() !== "" &&
+    !repoAdd.submitting;
 
   if (!open) return null;
 
@@ -690,10 +721,32 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               />
               {newRepoUrl.trim() && (
                 <div className="text-[11px] text-slate-500">
-                  Имя (из URL):{" "}
-                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
-                    {deriveRepoNameFromUrl(newRepoUrl) ?? "— не удалось извлечь —"}
-                  </code>
+                  {newRepoPreview.ok ? (
+                    <>
+                      Имя:{" "}
+                      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                        {newRepoPreview.name}
+                      </code>
+                      {newRepoPreview.original && (
+                        <span className="ml-1.5 text-slate-400">
+                          (из{" "}
+                          <code className="font-mono text-[10px]">
+                            {newRepoPreview.original}
+                          </code>
+                          )
+                        </span>
+                      )}
+                    </>
+                  ) : newRepoPreview.reason === "missing" ? (
+                    <>
+                      Имя (из URL):{" "}
+                      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
+                        — не удалось извлечь —
+                      </code>
+                    </>
+                  ) : (
+                    <span className="text-red-700">{newRepoPreview.error}</span>
+                  )}
                 </div>
               )}
               <div className="flex gap-2">
@@ -707,12 +760,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 <button
                   type="button"
                   onClick={addRepo}
-                  disabled={
-                    repoAdd.submitting ||
-                    newRepoUrl.trim() === "" ||
-                    newRepoBranch.trim() === "" ||
-                    !deriveRepoNameFromUrl(newRepoUrl)
-                  }
+                  disabled={!newRepoCanSubmit}
                   className="flex h-8 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-[12px] font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   {repoAdd.submitting ? (

@@ -3,7 +3,7 @@ import { readConfig } from "@/lib/config";
 import { findTaskByTagStrict, updateTask } from "@/lib/state";
 import { isGitRepo } from "@/lib/git";
 import {
-  updateStageInOpenspecYaml,
+  writeOpenSpecMetadata,
   readStageFromOpenspecYaml,
 } from "@/lib/openspec";
 import { execFile } from "child_process";
@@ -119,10 +119,21 @@ export async function POST(
     );
   }
 
-  // 1. Stage → .openspec.yaml (+ commit when the file changed).
+  // 1. Stage + title → .openspec.yaml (+ commit when the file changed).
+  //
+  // `title` is written alongside `stage` so remote scanners can
+  // use it as ground truth instead of falling back to parsing
+  // proposal.md. We always include both — even on intermediate
+  // stages where nothing about the title has changed — because
+  // the helper itself short-circuits when values already match,
+  // and a freshly-initialised `.openspec.yaml` (older changes
+  // predating this key) needs both keys seeded.
   let yamlCommitted = false;
   try {
-    const changed = await updateStageInOpenspecYaml(worktree, changeName, stage);
+    const changed = await writeOpenSpecMetadata(worktree, changeName, {
+      stage,
+      title: task.summary.title || undefined,
+    });
     if (changed) {
       const yamlRel = `openspec/changes/${changeName}/.openspec.yaml`;
       await git(worktree, ["add", "--", yamlRel]);

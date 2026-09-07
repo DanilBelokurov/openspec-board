@@ -58,11 +58,18 @@ function addChange(
     design = false,
     title = "Proposal title",
     yamlStage,
+    yamlTitle,
   }: {
     specs?: boolean;
     design?: boolean;
     title?: string;
     yamlStage?: string;
+    /**
+     * Optional `title:` line appended to `.openspec.yaml`. When set,
+     * it diverges from the proposal.md heading so the merge step
+     * can be observed preferring one over the other.
+     */
+    yamlTitle?: string;
   } = {},
 ) {
   const changeDir = path.join(clone, "openspec", "changes", tag);
@@ -79,11 +86,15 @@ function addChange(
   if (design) {
     fsSync.writeFileSync(path.join(changeDir, "design.md"), "# Design\n");
   }
-  if (yamlStage) {
-    fsSync.writeFileSync(
-      path.join(changeDir, ".openspec.yaml"),
-      `changeName: ${tag}\nstage: ${yamlStage}\n`,
-    );
+  if (yamlStage || yamlTitle) {
+    let yaml = `changeName: ${tag}\n`;
+    if (yamlStage) yaml += `stage: ${yamlStage}\n`;
+    if (yamlTitle) {
+      // Always double-quoted — mirrors what our publish flow writes.
+      const safe = yamlTitle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      yaml += `title: "${safe}"\n`;
+    }
+    fsSync.writeFileSync(path.join(changeDir, ".openspec.yaml"), yaml);
   }
   git(clone, ["add", "openspec/"]);
   git(clone, ["commit", "-m", `feat: ${tag}`]);
@@ -180,6 +191,29 @@ describe("scanRemoteFeatureBranches (integration, real git)", () => {
     const result = await scanRemoteFeatureBranches(clone);
     expect(result).toHaveLength(0);
   });
+
+  it("exposes yamlTitle / yamlStage from the published .openspec.yaml", async () => {
+    // The scanner should surface both metadata fields straight off
+    // a `git show <sha>:.../.openspec.yaml`, so downstream callers
+    // don't have to materialize the read-only mirror just to read
+    // two scalars.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      title: "Markdown heading",
+      yamlTitle: "YAML published title",
+      yamlStage: "design",
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { scanRemoteFeatureBranches } = await import(
+      "./feature-branches-scanner"
+    );
+    const [scanned] = await scanRemoteFeatureBranches(clone);
+
+    expect(scanned.proposalTitle).toBe("Markdown heading");
+    expect(scanned.yamlTitle).toBe("YAML published title");
+    expect(scanned.yamlStage).toBe("design");
+  });
 });
 
 describe("mergeRemoteFeatureScan (integration, real git + state.json)", () => {
@@ -200,13 +234,20 @@ describe("mergeRemoteFeatureScan (integration, real git + state.json)", () => {
     expect(task.publishedBy.email).toBe("alice@corp.com");
     expect(task.remoteBranch).toBe("origin/feature/OKECS-13078");
     expect(task.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
-    expect(task.stage).toBe("proposal");
+    expect(task.stage).toBe("done");
+    expect(task.summary.title).toBe("add-oauth");
     // A read-only mirror worktree is materialized on discovery.
     expect(task.openspecWorktreePath).toBeDefined();
     expect(task.openspecWorktreePath).toContain(".remote-worktrees");
   });
 
   it("refreshes sourceCommit and author on force-push", async () => {
+    // Both scans in this test operate on a branch without any
+    // `.openspec.yaml` metadata, so both fall through to the
+    // no-metadata-defaults ("done" / change-id). The thing under
+    // assertion here is purely the refresh mechanics —
+    // sourceCommit must update and lastScannedAt must move even
+    // when the resolved stage/title don't shift.
     const { clone } = repo!;
     addChange(clone, "feature/OKECS-13078", "add-oauth");
     git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
@@ -215,6 +256,7 @@ describe("mergeRemoteFeatureScan (integration, real git + state.json)", () => {
     await mergeRemoteFeatureScan(clone);
     const before = (await readStateFile()).tasks["analyst:add-oauth"];
     const shaBefore = before!.sourceCommit;
+    const scannedBefore = before!.lastScannedAt;
 
     // Amend the tip + force-push, then re-scan. Must be on the
     // feature branch (addChange leaves HEAD on master).
@@ -232,7 +274,15 @@ describe("mergeRemoteFeatureScan (integration, real git + state.json)", () => {
 
     const after = (await readStateFile()).tasks["analyst:add-oauth"];
     expect(after!.sourceCommit).not.toBe(shaBefore);
-    expect(after!.summary.title).toBe("Updated title");
+    expect(after!.stage).toBe("done");
+    expect(after!.summary.title).toBe("add-oauth");
+    // Sanity-check that lastScannedAt moved forward even though
+    // the merged summary fields are identical — guards against a
+    // future refactor accidentally short-circuiting the same-SHA
+    // fast-path on force-pushed branches.
+    expect(new Date(after!.lastScannedAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(scannedBefore).getTime(),
+    );
   });
 
   it("leaves a local task with the same tag untouched", async () => {
@@ -344,6 +394,161 @@ describe("mergeRemoteFeatureScan (integration, real git + state.json)", () => {
     const state = await readStateFile();
     const task = state.tasks["analyst:add-oauth"];
     expect(task.stage).toBe("delta-spec");
+  });
+
+  it("prefers yamlTitle over proposal.md heading for the card title", async () => {
+    // The author publishes an authoritative title in .openspec.yaml;
+    // proposal.md still carries its own heading. Cards must show the
+    // yaml value — that's what other users will see after every
+    // publish-step, and stale markdown-only edits would otherwise
+    // drift between operator boards.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      title: "Старое название из markdown",
+      yamlTitle: "Актуальное название из openspec.yaml",
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { mergeRemoteFeatureScan } = await import("./state");
+    await mergeRemoteFeatureScan(clone);
+
+    const state = await readStateFile();
+    const task = state.tasks["analyst:add-oauth"];
+    expect(task).toBeDefined();
+    expect(task.summary.title).toBe(
+      "Актуальное название из openspec.yaml",
+    );
+  });
+
+  it("falls back to proposal.md when no yamlTitle is published", async () => {
+    // Partial-metadata branch: author emitted `stage:` but skipped
+    // `title:`. The scanner's git-show still surfaces a real
+    // yamlStage, so this is NOT the "no metadata at all" path —
+    // the markdown heading should win for the card title while
+    // the published stage drives the badge.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      title: "Из proposal.md",
+      yamlStage: "design",
+      // yamlTitle intentionally omitted
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { mergeRemoteFeatureScan } = await import("./state");
+    await mergeRemoteFeatureScan(clone);
+
+    const state = await readStateFile();
+    const task = state.tasks["analyst:add-oauth"];
+    expect(task).toBeDefined();
+    expect(task.summary.title).toBe("Из proposal.md");
+    expect(task.stage).toBe("design");
+  });
+
+  it("defaults stage to 'done' and title to the change-id when neither yaml key is published", async () => {
+    // Author hand-pushed or shipped a branch predating the
+    // publish-stage hook — no `.openspec.yaml` on disk at all.
+    // We can't tell which step the change is at, so the merge
+    // step treats it as already-finished ("the branch exists,
+    // therefore it's done") rather than guessing from artifact
+    // presence. Title becomes the change-id folder name since
+    // there's nothing else to show.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      title: "Markdown heading ignored without yaml metadata",
+      specs: true,
+      design: true,
+      // neither yamlStage nor yamlTitle — addChange will not write
+      // `.openspec.yaml` in this case.
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { mergeRemoteFeatureScan } = await import("./state");
+    await mergeRemoteFeatureScan(clone);
+
+    const state = await readStateFile();
+    const task = state.tasks["analyst:add-oauth"];
+    expect(task).toBeDefined();
+    expect(task.stage).toBe("done");
+    expect(task.summary.stage).toBe("done");
+    expect(task.summary.title).toBe("add-oauth");
+  });
+
+  it("promotes an inferred card to 'done' / change-id when the author strips .openspec.yaml on force-push", async () => {
+    // Initial scan reads a branch WITH `.openspec.yaml` set to
+    // `stage: design`, so the card correctly surfaces as an in-
+    // progress analyst task. On the second scan the author
+    // amends the commit and deletes `.openspec.yaml` outright —
+    // no replacement keys at all. The refresh path must converge
+    // on stage="done" / title=change-id, treating the strip as a
+    // "the change is finished, we just don't have explicit
+    // markers anymore" signal rather than guessing from artifact
+    // presence.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      design: true,
+      yamlStage: "design",
+      yamlTitle: "OAuth redesign",
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { mergeRemoteFeatureScan } = await import("./state");
+    await mergeRemoteFeatureScan(clone);
+
+    let state = await readStateFile();
+    const before = state.tasks["analyst:add-oauth"];
+    expect(before).toBeDefined();
+    expect(before.stage).toBe("design");
+    expect(before.summary.title).toBe("OAuth redesign");
+
+    // Strip `.openspec.yaml` and amend → the new tip has no
+    // metadata whatsoever (`git show <sha>:.../.openspec.yaml`
+    // fails), even though `design.md` is still on disk.
+    git(clone, ["checkout", "feature/OKECS-13078"]);
+    fsSync.rmSync(
+      path.join(clone, "openspec", "changes", "add-oauth", ".openspec.yaml"),
+      { force: true },
+    );
+    git(clone, ["add", "-A", "openspec/"]);
+    git(clone, ["commit", "--amend", "-m", "feat: add-oauth (no yaml)"]);
+    git(clone, ["push", "-f", "-u", "origin", "feature/OKECS-13078"]);
+
+    const result = await mergeRemoteFeatureScan(clone);
+    expect(result.updated).toBe(1);
+
+    state = await readStateFile();
+    const after = state.tasks["analyst:add-oauth"];
+    expect(after.stage).toBe("done");
+    expect(after.summary.stage).toBe("done");
+    expect(after.summary.title).toBe("add-oauth");
+    expect(after.sourceCommit).not.toBe(before.sourceCommit);
+  });
+
+  it("keeps the published yamlStage when only that half of the metadata survives", async () => {
+    // Mirror image of the previous test: someone removed
+    // `title:` from `.openspec.yaml` but left `stage:` intact.
+    // Because one signal IS present, the conservative
+    // "both-null → done" gate does NOT fire — the author's
+    // explicit stage wins, exactly as before.
+    const { clone } = repo!;
+    addChange(clone, "feature/OKECS-13078", "add-oauth", {
+      yamlStage: "delta-spec",
+      // yamlTitle omitted
+    });
+    git(clone, ["push", "-u", "origin", "feature/OKECS-13078"]);
+
+    const { mergeRemoteFeatureScan } = await import("./state");
+    await mergeRemoteFeatureScan(clone);
+
+    const state = await readStateFile();
+    const task = state.tasks["analyst:add-oauth"];
+    expect(task).toBeDefined();
+    expect(task.stage).toBe("delta-spec");
+    expect(task.summary.stage).toBe("delta-spec");
+    // No yamlTitle + hasProposal=true means proposal.md parsing
+    // kicks in if available; addChange defaults to "Proposal title"
+    // when none is supplied, which is what ends up here.
+    expect(typeof task.summary.title).toBe("string");
+    expect(task.summary.title.length).toBeGreaterThan(0);
   });
 });
 

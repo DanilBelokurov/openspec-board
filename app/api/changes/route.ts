@@ -13,6 +13,7 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { repoBasename } from "@/lib/path-utils";
 import { createWorktreeFromBranch } from "@/lib/git-worktree";
+import { writeOpenSpecMetadata } from "@/lib/openspec";
 import { isGitRepo } from "@/lib/git";
 
 function nextTaskId(_tasks: Record<string, unknown>): string {
@@ -212,6 +213,34 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
+  // Persist the user-supplied title into `.openspec.yaml` BEFORE the
+  // openspec CLI runs, so it shows up as soon as the first watcher
+  // tick reads the change folder — and stays authoritative across
+  // every later re-scan (scanOneRoot + remote-feature-scanner both
+  // prefer yaml-title over proposal.md headings). Without this hook
+  // `refreshAnalystTaskSummary` would overwrite summary.title with
+  // whatever heading the CLI's template `proposal.md` shipped with,
+  // silently dropping the free-form text the analyst typed into
+  // the dialog. Other users' boards pick the same value off the
+  // branch via readChangeMetadataFromGit → git show <sha>:...yaml.
+  //
+  // Best-effort: a missing worktree path or unwritable dir here must
+  // not block task creation — the state.json record above already
+  // holds the typed-in title; the publish-stage flow on each later
+  // confirm will also re-emit the metadata commit. We only log.
+  try {
+    await writeOpenSpecMetadata(openspecWorktree, tag, {
+      stage: "proposal",
+      title: title.trim() || undefined,
+    });
+  } catch (e) {
+    console.warn(
+      `[api/changes] could not pre-seed .openspec.yaml title for ${tag}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+
   // --description writes the body into README.md inside the change folder,
   // preserved as ground truth for the proposal-generation step.
   // --schema is passed explicitly so the pipeline keeps working even if
@@ -292,7 +321,26 @@ async function spawnProposalOpenspecNew(
       );
     return result.pid || null;
   } catch (e) {
+    // spawnDetachedWithLog threw before any child process was
+    // registered — log path creation failure, ENOENT on the
+    // openspec binary, signal-handler setup race, etc. We can't
+    // synthesize an exit code here (the process never ran), so
+    // write a dedicated marker that the detail-page gating knows
+    // to treat as "this stage failed" alongside a non-zero exit.
+    // Without this flag both the failure card and the restart
+    // button stay hidden because they key off pid/exitCode, and
+    // publish-stage gets unblocked by accident whenever CLI
+    // managed to leave partial files behind.
+    const msg = e instanceof Error ? e.message : String(e);
     console.error(`openspec new change spawn threw:`, e);
+    try {
+      await updateTask("analyst", tag, { openspecNewSpawnError: msg });
+    } catch (writeErr) {
+      console.error(
+        `[api/changes] could not record openspec-new spawn error for ${tag}:`,
+        writeErr,
+      );
+    }
     return null;
   }
 }

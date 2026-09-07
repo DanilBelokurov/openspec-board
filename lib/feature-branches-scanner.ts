@@ -43,6 +43,7 @@
 
 import { execFile } from "child_process";
 import { parseProposalMarkdown } from "./openspec-scanner";
+import { readChangeMetadataFromGit } from "./openspec";
 import { JIRA_ID_PATTERN } from "./jira";
 
 function runGit(
@@ -117,6 +118,30 @@ export interface RemoteBranchProposal {
    * `adrCreate*` field semantics.
    */
   hasAdr: boolean;
+  /**
+   * Title parsed from the change's `.openspec.yaml`, if that file
+   * exists on the branch and carries a `title:` key. Takes priority
+   * over `proposalTitle` (parsed from proposal.md) in the merge step
+   * because the author re-emits `.openspec.yaml` at every publish,
+   * whereas proposal.md is only edited when the analyst actually
+   * rewrites the markdown — so yaml stays accurate even after a
+   * cosmetic title tweak the analyst forgot to propagate to
+   * proposal.md.
+   *
+   * Always present in the return value once we know there is a
+   * proposal.md; null when the file/key is missing or unreadable —
+   * callers fall back to `proposalTitle` in that case.
+   */
+  yamlTitle: string | null;
+  /**
+   * Stage read straight out of `.openspec.yaml` on the branch.
+   * Mirrors the ground-truth role the local-worktree
+   * `readStageFromOpenspecYaml` plays: when set, the merge step
+   * uses this verbatim instead of inferring it from artifact
+   * presence. Null when the file/key is missing/invalid —
+   * inference kicks in.
+   */
+  yamlStage: import("./openspec").Stage | null;
   /**
    * Per-branch error message. Set when one of the git calls for
    * THIS branch failed; the rest of the result fields may be
@@ -337,6 +362,10 @@ export async function scanRemoteFeatureBranches(
     try {
       tree = await inspectChangeTree(openspecDir, r.sha);
     } catch (e) {
+      // Failed branches emit a stub with no proposal and no yaml —
+      // these never reach the merge step (the missing-proposal guard
+      // below drops them), but we keep the shape uniform so callers
+      // don't have to special-case `error` objects.
       out.push({
         branch,
         remoteRef: r.ref,
@@ -348,6 +377,8 @@ export async function scanRemoteFeatureBranches(
         hasSpecs: false,
         hasDesign: false,
         hasAdr: false,
+        yamlTitle: null,
+        yamlStage: null,
         error: e instanceof Error ? e.message : String(e),
       });
       continue;
@@ -358,11 +389,23 @@ export async function scanRemoteFeatureBranches(
       continue;
     }
 
-    const proposal = await readProposalOnBranch(
-      openspecDir,
-      r.sha,
-      tree.tag,
-    );
+    // Read both the proposal body and the metadata side by side.
+    //
+    // proposal.md is the user-authored description — first heading
+    // there doubles as the card title when no .openspec.yaml is
+    // present (older changes / hand-published branches without our
+    // publish-stage hook). The yaml file, when present, carries the
+    // author's verified `title:` and `stage:`. We default the card to
+    // yaml fields and let the merge step downgrade to proposal.md only
+    // when both yaml signals are missing.
+    //
+    // Failure of either read is non-fatal — we still emit an entry so
+    // the next scan can retry; the merge step treats nulls as "use the
+    // other source".
+    const [proposal, yamlMeta] = await Promise.all([
+      readProposalOnBranch(openspecDir, r.sha, tree.tag),
+      readChangeMetadataFromGit(openspecDir, r.sha, tree.tag),
+    ]);
 
     out.push({
       branch,
@@ -378,6 +421,8 @@ export async function scanRemoteFeatureBranches(
       proposalTitle: proposal?.title,
       proposalDescription: proposal?.description,
       jiraUrl: proposal?.jiraUrl ?? null,
+      yamlTitle: yamlMeta.title,
+      yamlStage: yamlMeta.stage,
     });
   }
 

@@ -26,6 +26,74 @@ export function isValidRepoName(name: string): boolean {
 }
 
 /**
+ * Discriminated result of {@link normalizeRepoName}. Callers can
+ * surface `error` verbatim through the existing API error channel;
+ * UI uses it as an inline hint next to the live preview.
+ */
+export type NormalizeResult =
+  | { ok: true; name: string }
+  | { ok: false; error: string };
+
+/**
+ * Bring an arbitrary string into the kebab-case shape expected by
+ * {@link isValidRepoName}, so users don't have to rename upstream
+ * repositories whose canonical names contain `_`, `.`, uppercase
+ * letters, or other shell‑safe path segments.
+ *
+ * Pipeline:
+ *   1. Insert `-` at camelCase boundaries (`fooBar` → `foo-Bar`)
+ *      so Pascal/snake/mixed inputs converge on the same shape.
+ *   2. Lowercase everything.
+ *   3. Replace any run of non-[a-z0-9] with a single `-`.
+ *   4. Trim leading/trailing `-` and collapse repeats (the regex
+ *      from step 3 already collapses runs).
+ *   5. Reject empty results (e.g. input was all separators) or
+ *      anything still longer than 40 characters.
+ *
+ * Returns `{ ok: true, name }` when the normalized form also passes
+ * the strict {@link isValidRepoName} validator; otherwise
+ * `{ ok: false, error }` with a human-readable Russian reason the
+ * route handler / SettingsDialog can render.
+ *
+ * Deliberately does NOT touch the original URL — that stays in
+ * config under `RepoConfig.url` so round-trips to git keep the
+ * authoritative remote URL. Only the local directory key gets
+ * normalized.
+ */
+export function normalizeRepoName(raw: string): NormalizeResult {
+  // Step 1+2: split at `[a-z0-9][A-Z]` boundary first, then lowercase,
+  // so "MyService" → "My-Service" → "my-service". Order matters: if we
+  // lowercased first we'd lose the case information needed for splits.
+  const split = raw.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+  // Step 3+4: collapse every non-[a-z0-9] run into one `-`,
+  // then trim edges. After this point only `[a-z0-9-]` remains.
+  const dashed = split.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (dashed.length === 0) {
+    return {
+      ok: false,
+      error:
+        "Не удалось получить имя репозитория из этого сегмента URL (остались только разделители)",
+    };
+  }
+  if (dashed.length > 40) {
+    return {
+      ok: false,
+      error: `Имя после нормализации длиннее 40 символов (получилось ${dashed.length}): переименуйте репо или используйте более короткий alias`,
+    };
+  }
+  if (!isValidRepoName(dashed)) {
+    // The remaining failure mode is "starts with a digit"; surface
+    // it explicitly because no amount of normalization fixes that —
+    // upstream needs a letter prefix.
+    return {
+      ok: false,
+      error: `Имя "${raw}" не приводится к kebab-case (результат "${dashed}" начинается с цифры)`,
+    };
+  }
+  return { ok: true, name: dashed };
+}
+
+/**
  * Lightweight URL validation for the repos panel — accepts http(s)
  * and ssh-style git URLs. Not a full RFC-3986 check; just enough to
  * catch typos before we shell out to `git submodule add`.

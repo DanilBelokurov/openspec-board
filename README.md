@@ -38,21 +38,6 @@ git --version   # >= 2.30
 which gigacode  # должен вернуть путь к CLI
 ```
 
-### 3. Интерактивный установщик harness-окружения
-
-В корне проекта лежит `scripts/install.sh`. Он:
-
-- выводит информационный блок о составе harness-окружения;
-- запрашивает токен Jira в скрытом режиме и атомарно добавляет `jira-mcp` в `~/.gigacode/settings.json`;
-- прописывает `mcp__jira-mcp__add_labels` в `permissions.allow`;
-- предлагает выбор режима работы стрелками (`Аналитик/разработчик` или `Эксперт УЭК`).
-
-Запуск:
-
-```bash
-./scripts/install.sh
-```
-
 ### 4. Запуск в dev-режиме
 
 ```bash
@@ -168,29 +153,6 @@ git clone ssh://sc@api.sc-ci.sber.ru:7998/InSourceHub_AI/ai_market.git
 - Если PR открывается от имени бота, этот бот должен быть **заранее добавлен в репозиторий** с правом открывать PR.
 - Шаблон `templates/git/create-pull-request-template.md` явно запрещает fall-back на `gh` CLI / REST / `curl` — при сбое MCP ошибка должна всплысть as-is, чтобы было видно drift между sdd-board и хост-окружением.
 
-#### `bitbucket` (Stash / Bitbucket Server)
-
-Для remote-ссылок, hostname которых содержит `stash`, кнопка «Сделать pull request» вызывает `mcp__bitbucket__create_pull_request` из [bitbucket-mcp](https://github.com/MatanYemini/bitbucket-mcp). В prompt передаются project key как `workspace`, имя репозитория как `repo_slug`, а также head/base ветки.
-
-**Настройка в `settings.json`:**
-
-```json
-{
-  "bitbucket": {
-    "command": "npx",
-    "args": ["-y", "bitbucket-mcp@latest"],
-    "env": {
-      "BITBUCKET_URL": "https://<stash-host>/rest/api/1.0",
-      "BITBUCKET_TOKEN": "<BITBUCKET_TOKEN>"
-    }
-  }
-}
-```
-
-Добавьте `mcp__bitbucket__create_pull_request` в `permissions.allow`. Сервер должен быть доступен дочернему процессу `gigacode`; секреты в репозиторий не коммитятся. Для Stash/Bitbucket Server проверьте совместимость версии `bitbucket-mcp` с endpoint вашей инсталляции.
-
-Шаблон `templates/git/create-stash-pull-request-template.md` запрещает fallback на `sourcecontrol`, `gh`, REST и `curl`.
-
 ### `jira-mcp`
 
 **Что делает.** Применяет метку `sdd` к указанной Jira-задаче, читает и создаёт задачи.
@@ -261,7 +223,6 @@ gigacode --list-tools 2>&1 | grep -E 'code-review-graph|sourcecontrol|jira-mcp'
       "mcp__code-review-graph__get_minimal_context_tool",
       "mcp__code-review-graph__get_architecture_overview_tool",
       "mcp__sourcecontrol__git_create_pull_request",
-      "mcp__bitbucket__create_pull_request",
       "mcp__jira-mcp__add_labels",
       "Read(*)",
       "Bash(*)"
@@ -359,55 +320,7 @@ Pipeline работает в worktree на ветке `feature/<JiraID>`. Каж
 | **Browse…** | всегда | `<input type=file webkitdirectory>` — нативный фолдер-пикер, отдаёт имя выбранной папки, абсолютный путь вставить вручную |
 | **Главная ветка OpenSpec store** | всегда | Имя ветки (default: `master`). Используется в: (a) `git worktree add -b feature/<JiraID> <sourceBranch>` (создание worktree в analyst-flow), (b) `git fetch origin <sourceBranch>` перед созданием worktree |
 | **Интервал автосканирования (мин)** | только в `mode === "developer"` | Периодический developer-scan каждые N минут. 0 = выключить |
-| **Сканирование веток коллег (мин)** | только в `mode === "analyst"` | Периодический remote-scan `origin/feature/*` каждые N минут (default 5). Показывает proposal'ы, опубликованные другими пользователями — только для чтения. 0 = выключить (обновление — по кнопке ↻) |
-| **Идентификация** | всегда | Email + displayName текущего пользователя. Email авто-подставляется из `git config user.email` при первом открытии; используется для фильтра «мои / чужие» и бейджа «от <name>». Не влияет на автора коммитов |
 | **Репозитории (git submodules)** | всегда | Список добавленных репо с URL+branch. Кнопка «+» добавляет новое (name авто-извлекается из URL). Trashed icon удаляет |
-
-## Многопользовательская работа (режим «Аналитик», только чтение)
-
-Инстанс приложения у каждого пользователя хранит своё состояние в
-локальном `.sdd-board/state.json`. Для совместной работы **git остаётся
-единственным источником истины**: proposal'ы, specs, design.md, adr.md
-живут на feature-ветках в sdd-store и расшариваются через `git push`.
-
-### Сценарий
-
-1. **Пользователь А** создаёт proposal через «Новый proposal», проходит
-   стадии (proposal → delta-spec → design → adr), на стадии `done`
-   нажимает **«Опубликовать ветку»** → `git push -u origin
-   feature/<JiraID>`.
-2. **Пользователь Б** (тот же sdd-store remote) — его watcher каждые N
-   минут (или по кнопке ↻) запускает `mergeRemoteFeatureScan`, который:
-   - `git fetch origin --prune` подтягивает все feature-ветки;
-   - для каждой `feature/<JIRA-ID>` проверяет наличие
-     `openspec/changes/<tag>/proposal.md`;
-   - читает автора tip-коммита (`%an <%ae>`);
-   - парсит proposal.md (title/description/JiraUrl);
-   - создаёт в `state.json` **read-only** запись `analyst:<tag>` с
-     полями `publishedBy`, `remoteBranch`, `sourceCommit`, `remote: true`.
-3. На доске Б появляется карточка с **жёлтым бейджем `remote`**, именем
-   автора и short-SHA. Б может открыть карточку и **читать** proposal/specs/
-   design/adr, но **не может редактировать** — нет локального worktree,
-   кнопки пайплайна неактивны.
-
-### Что нельзя делать (на этом этапе)
-
-- **Публиковать** в чужую ветку / форкать ветку коллеги — отложено.
-- **Комментировать / оставлять ревью** на чужом proposal — отложено.
-  (См. «Дальнейшие шаги» ниже.)
-
-### Примечание про `remote` badge
-
-Жёлтая левая рамка + бейдж `remote` сигнализируют: «эта задача не ваша,
-вы её только наблюдаете». Локально созданные задачи (через «Новый
-proposal») `remote` не имеют — у них своя привычная карточка.
-
-### Если у обоих одинаковый тег
-
-Если А и Б независимо создали proposal'ы с **одинаковым тегом**, скан
-не перезаписывает локальную задачу Б-а — она «владеет» тегом. Чужая
-ветка просто не появится на доске, пока Б не сменит тег (OpenSpec
-конвенция: теги уникальны в рамках change-folder).
 
 ## Запуск
 

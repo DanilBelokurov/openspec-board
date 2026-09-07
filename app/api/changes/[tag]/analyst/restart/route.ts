@@ -270,6 +270,11 @@ async function handleOpenspecNewRestart(task: import("@/lib/state").TaskEntry) {
       openspecNewLogPath: logFile,
       openspecNewExitCode: null,
       openspecNewExitSignal: null,
+      // Clear the previous "spawn never started" marker so a fresh,
+      // live run isn't shadowed by stale red-alert UI from before
+      // the user pressed Restart. The next failure re-sets it via
+      // the create-route catch block.
+      openspecNewSpawnError: null,
     });
     return NextResponse.json(
       { ok: true, pid, logFile },
