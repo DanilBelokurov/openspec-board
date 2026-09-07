@@ -1,6 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InstallCommand = void 0;
+const node_path_1 = __importDefault(require("node:path"));
 const catalog_1 = require("./catalog");
 const detect_1 = require("./detect");
 const permissions_1 = require("./permissions");
@@ -12,6 +16,7 @@ const index_1 = require("./installers/index");
 const settings_1 = require("./settings");
 const preflight_1 = require("./preflight");
 const print_1 = require("./print");
+const sdd_launcher_1 = require("./binaries/sdd-launcher");
 class InstallCommand {
     options;
     constructor(options) {
@@ -37,7 +42,24 @@ class InstallCommand {
             mode,
             force: this.options.force,
         });
+        this.installSddCommand();
         process.exit(0);
+    }
+    installSddCommand() {
+        print_1.print.section("▶", "Команда sdd");
+        const result = (0, sdd_launcher_1.installSddLauncher)(this.options.projectRoot);
+        if (result.onPath) {
+            print_1.print.success(`sdd → ${result.path}`);
+            print_1.print.note("Откройте новый терминал и введите 'sdd' для запуска доски.");
+        }
+        else {
+            const binDir = node_path_1.default.dirname(result.path);
+            print_1.print.warn(`sdd установлена, но ${binDir} не в PATH.`);
+            print_1.print.note("Добавьте строку ниже в ваш ~/.zshrc или ~/.bashrc:");
+            print_1.print.note(`  export PATH="${binDir}:$PATH"`);
+            print_1.print.note("После этого откройте новый терминал и введите 'sdd'.");
+        }
+        print_1.print.blank();
     }
     get settingsFilePath() {
         return this.options.settingsFilePath ?? (0, settings_1.getSettingsPath)();

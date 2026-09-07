@@ -1,3 +1,4 @@
+import path from "node:path";
 import { MCP_CATALOG_ENTRIES } from "./catalog";
 import { detectInstalledMcpServers, isMcpInstalled } from "./detect";
 import { reconcileMcpServerKeys, syncRequiredPermissions } from "./permissions";
@@ -10,6 +11,7 @@ import { getSettingsPath } from "./settings";
 import { runPreflight } from "./preflight";
 import { print } from "./print";
 import type { InstallMode } from "./constants";
+import { installSddLauncher } from "./binaries/sdd-launcher";
 
 export interface InstallCommandOptions {
   projectRoot: string;
@@ -56,7 +58,25 @@ export class InstallCommand {
       force: this.options.force,
     });
 
+    this.installSddCommand();
+
     process.exit(0);
+  }
+
+  private installSddCommand(): void {
+    print.section("▶", "Команда sdd");
+    const result = installSddLauncher(this.options.projectRoot);
+    if (result.onPath) {
+      print.success(`sdd → ${result.path}`);
+      print.note("Откройте новый терминал и введите 'sdd' для запуска доски.");
+    } else {
+      const binDir = path.dirname(result.path);
+      print.warn(`sdd установлена, но ${binDir} не в PATH.`);
+      print.note("Добавьте строку ниже в ваш ~/.zshrc или ~/.bashrc:");
+      print.note(`  export PATH="${binDir}:$PATH"`);
+      print.note("После этого откройте новый терминал и введите 'sdd'.");
+    }
+    print.blank();
   }
 
   get settingsFilePath(): string {
