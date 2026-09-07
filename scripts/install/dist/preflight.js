@@ -87,7 +87,7 @@ function formatCheck(check) {
 async function runPreflight() {
     const input = await probeEnvironment();
     const result = evaluatePreflight(input);
-    print_1.print.section("Проверка окружения");
+    print_1.print.section("⚙", "Проверка окружения");
     for (const check of result.checks) {
         if (check.present) {
             print_1.print.success(formatCheck(check));
@@ -122,7 +122,7 @@ async function runPreflight() {
     return result;
 }
 async function runOpenspecCheck(result) {
-    print_1.print.section("Проверка openspec");
+    print_1.print.section("◈", "Проверка openspec");
     const openspec = await (0, openspec_1.ensureOpenspec)();
     print_1.print.blank();
     if (openspec.present) {

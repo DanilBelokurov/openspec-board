@@ -17,22 +17,39 @@ function style(code: string, text: string): string {
   return isTty() ? `${code}${text}${RESET}` : text;
 }
 
-function rule(width = 60): string {
-  return isTty() ? style(FG.gray, "─".repeat(width)) : "─".repeat(width);
+const RULE_WIDTH = 64;
+const RULE_LIGHT = "─";
+const RULE_HEAVY = "═";
+
+function lightRule(width: number = RULE_WIDTH): string {
+  return style(FG.gray, RULE_LIGHT.repeat(width));
+}
+
+function heavyRule(width: number = RULE_WIDTH): string {
+  return style(FG.cyan, RULE_HEAVY.repeat(width));
 }
 
 export const print = {
   banner(title: string, subtitle?: string): void {
-    process.stdout.write(`\n${rule()}\n`);
+    process.stdout.write(`\n${heavyRule()}\n`);
     process.stdout.write(`  ${style(BOLD + FG.cyan, title)}\n`);
     if (subtitle) {
       process.stdout.write(`  ${style(FG.gray, subtitle)}\n`);
     }
-    process.stdout.write(`${rule()}\n\n`);
+    process.stdout.write(`${heavyRule()}\n\n`);
   },
 
-  section(title: string): void {
-    process.stdout.write(`\n${style(BOLD, "▶ " + title)}\n`);
+  section(glyph: string, title: string): void {
+    process.stdout.write(`\n${heavyRule()}\n`);
+    process.stdout.write(
+      `  ${style(FG.cyan, glyph + " ")} ${style(BOLD, title)}\n`,
+    );
+    process.stdout.write(`${heavyRule()}\n`);
+  },
+
+  subsection(title: string): void {
+    process.stdout.write(`\n${style(BOLD, "▸ " + title)}\n`);
+    process.stdout.write(`${lightRule(40)}\n`);
   },
 
   step(message: string): void {
@@ -69,5 +86,10 @@ export const print = {
 
   raw(message: string): void {
     process.stdout.write(message);
+  },
+
+  // Heavy closing rule for prompt dialogs.
+  closingRule(): void {
+    process.stdout.write(`${heavyRule()}\n\n`);
   },
 };

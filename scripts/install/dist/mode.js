@@ -15,7 +15,7 @@ async function selectInstallMode(nonInteractive, override) {
     if (nonInteractive) {
         return "analyst-developer";
     }
-    print_1.print.section("Режим работы доски");
+    print_1.print.section("◉", "Режим работы доски");
     const value = await (0, prompts_1.selectArrowOption)("В каком режиме установить доску sdd?", 0, MODE_OPTIONS);
     print_1.print.success(`Выбран режим установки: ${value}`);
     return value;

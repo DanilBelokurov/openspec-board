@@ -135,7 +135,7 @@ export async function runPreflight(): Promise<PreflightResult> {
   const input = await probeEnvironment();
   const result = evaluatePreflight(input);
 
-  print.section("Проверка окружения");
+  print.section("⚙", "Проверка окружения");
   for (const check of result.checks) {
     if (check.present) {
       print.success(formatCheck(check));
@@ -175,7 +175,7 @@ export async function runPreflight(): Promise<PreflightResult> {
 }
 
 async function runOpenspecCheck(result: PreflightResult): Promise<void> {
-  print.section("Проверка openspec");
+  print.section("◈", "Проверка openspec");
   const openspec = await ensureOpenspec();
   print.blank();
 

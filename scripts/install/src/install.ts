@@ -44,7 +44,7 @@ export class InstallCommand {
     );
 
     if (mode === "analyst-developer") {
-      print.section("Code-review-graph MCP");
+      print.section("⚡", "Code-review-graph MCP");
       await installCodeReviewGraphMcp({
         settingsFilePath: this.settingsFilePath,
         force: this.options.force,
@@ -63,7 +63,7 @@ export class InstallCommand {
   }
 
   private async installSelectedMcps(): Promise<void> {
-    print.section("MCP-серверы");
+    print.section("⬢", "MCP-серверы");
 
     await reconcileMcpServerKeys(this.settingsFilePath);
 

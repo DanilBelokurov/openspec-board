@@ -10,7 +10,27 @@ exports.promptForToken = promptForToken;
 const node_readline_1 = __importDefault(require("node:readline"));
 const HIDE_CURSOR = "\x1b[?25l";
 const SHOW_CURSOR = "\x1b[?25h";
-const CLEAR_LINE_TO_END = "\x1b[K";
+const CLEAR_TO_END = "\x1b[J";
+const CURSOR_UP = (n) => `\x1b[${n}A`;
+const RESET = "\x1b[0m";
+const BOLD = "\x1b[1m";
+const FG = {
+    green: "\x1b[32m",
+    cyan: "\x1b[36m",
+    gray: "\x1b[90m",
+};
+const isTty = () => Boolean(process.stderr.isTTY);
+function style(code, text) {
+    return isTty() ? `${code}${text}${RESET}` : text;
+}
+const RULE_WIDTH = 64;
+const HEAVY_RULE_CHAR = "═";
+function heavyRule() {
+    return style(FG.cyan, HEAVY_RULE_CHAR.repeat(RULE_WIDTH));
+}
+function lightRule(width = RULE_WIDTH) {
+    return style(FG.gray, "─".repeat(width));
+}
 function parseRawLabels(rawLabels) {
     return rawLabels.map((raw) => {
         const colonIndex = raw.indexOf(":");
@@ -22,39 +42,52 @@ function parseRawLabels(rawLabels) {
         return { display, value };
     });
 }
+function setupStdin() {
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+    }
+    node_readline_1.default.emitKeypressEvents(process.stdin);
+    process.stderr.write(HIDE_CURSOR);
+    return () => {
+        process.stdin.removeAllListeners("keypress");
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(Boolean(wasRaw));
+        }
+        process.stderr.write(SHOW_CURSOR);
+    };
+}
 async function selectArrowOption(prompt, defaultIndex, options) {
     if (options.length === 0) {
         throw new Error("selectArrowOption: пустой список опций.");
     }
     let selected = Math.max(0, Math.min(defaultIndex, options.length - 1));
-    process.stderr.write(`${prompt}\n\n${HIDE_CURSOR}`);
+    const HEADER_ROWS = 4;
+    const FOOTER_ROWS = 2;
+    const TOTAL_ROWS = HEADER_ROWS + options.length + FOOTER_ROWS;
     const render = () => {
+        process.stderr.write(`${heavyRule()}\n`);
+        process.stderr.write(`  ${style(BOLD + FG.cyan, prompt)}\n`);
+        process.stderr.write(`  ${style(FG.gray, "↑↓ — навигация  ·  Enter — подтвердить")}\n`);
+        process.stderr.write(`${lightRule()}\n`);
         for (let i = 0; i < options.length; i++) {
-            if (i === selected) {
-                process.stderr.write(`\x1b[1m❯ ${options[i].label}\x1b[0m${CLEAR_LINE_TO_END}\n`);
-            }
-            else {
-                process.stderr.write(`  ${options[i].label}${CLEAR_LINE_TO_END}\n`);
-            }
+            const isCurrent = i === selected;
+            const arrow = isCurrent ? style(BOLD, "❯") : " ";
+            const label = isCurrent ? style(BOLD, options[i].label) : options[i].label;
+            process.stderr.write(`  ${arrow}  ${label}\n`);
         }
+        process.stderr.write("\n");
+        process.stderr.write(`  ${style(FG.gray, `выбрано: 1 из ${options.length}`)}\n`);
+        process.stderr.write(`${lightRule()}\n`);
+    };
+    const rerender = () => {
+        process.stderr.write(CURSOR_UP(TOTAL_ROWS));
+        process.stderr.write(CLEAR_TO_END);
+        render();
     };
     render();
     return new Promise((resolve, reject) => {
-        const wasRaw = process.stdin.isRaw;
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-        }
-        node_readline_1.default.emitKeypressEvents(process.stdin);
-        const cleanup = () => {
-            process.stdin.removeListener("keypress", onKey);
-            if (process.stdin.isTTY) {
-                process.stdin.setRawMode(Boolean(wasRaw));
-            }
-            process.stderr.write(SHOW_CURSOR);
-        };
-        const moveCursorUp = () => {
-            process.stderr.write(`\x1b[${options.length}A`);
-        };
+        const cleanup = setupStdin();
         const onKey = (_str, key) => {
             if (!key)
                 return;
@@ -79,8 +112,7 @@ async function selectArrowOption(prompt, defaultIndex, options) {
             else {
                 return;
             }
-            moveCursorUp();
-            render();
+            rerender();
         };
         process.stdin.on("keypress", onKey);
     });
@@ -91,44 +123,52 @@ async function selectCheckboxes(prompt, options) {
     }
     const selected = options.map((option) => (option.locked ? 1 : 0));
     let cursor = 0;
-    process.stderr.write(`${prompt}\nОтмечайте пробелом, подтвердите Enter.\n${HIDE_CURSOR}`);
+    const HEADER_ROWS = 4;
+    const FOOTER_ROWS = 2;
+    const ITEM_ROWS = options.length + 1; // +1 for blank line before footer
+    const TOTAL_ROWS = HEADER_ROWS + ITEM_ROWS + FOOTER_ROWS;
+    const lockedCount = options.filter((o) => o.locked).length;
+    const availableCount = options.length - lockedCount;
     const render = () => {
+        process.stderr.write(`${heavyRule()}\n`);
+        process.stderr.write(`  ${style(BOLD + FG.cyan, prompt)}\n`);
+        process.stderr.write(`  ${style(FG.gray, "Space — отметить  ·  ↑↓ — навигация  ·  Enter — подтвердить")}\n`);
+        process.stderr.write(`${lightRule()}\n`);
         for (let i = 0; i < options.length; i++) {
+            const opt = options[i];
+            const isCurrent = i === cursor;
+            const arrow = isCurrent ? style(BOLD, "❯") : " ";
             let marker;
-            if (options[i].locked) {
-                marker = "[●]";
+            if (opt.locked) {
+                marker = style(FG.gray, "[●]");
             }
             else if (selected[i]) {
-                marker = "[x]";
+                marker = style(FG.green, "[x]");
             }
             else {
                 marker = "[ ]";
             }
-            if (i === cursor) {
-                process.stderr.write(`\x1b[1m❯ ${marker} ${options[i].label}\x1b[0m${CLEAR_LINE_TO_END}\n`);
-            }
-            else {
-                process.stderr.write(`  ${marker} ${options[i].label}${CLEAR_LINE_TO_END}\n`);
-            }
+            const labelText = isCurrent ? style(BOLD, opt.label) : opt.label;
+            const hint = opt.hint ? `  ${style(FG.gray, "— " + opt.hint)}` : "";
+            process.stderr.write(`  ${arrow}  ${marker} ${labelText}${hint}\n`);
         }
+        process.stderr.write("\n");
+        const willInstall = selected.filter(Boolean).length - lockedCount;
+        const summary = lockedCount > 0
+            ? `выбрано: ${selected.filter(Boolean).length} из ${options.length}  ·  к установке: ${willInstall} новых`
+            : `выбрано: ${selected.filter(Boolean).length} из ${options.length}`;
+        process.stderr.write(`  ${style(FG.gray, summary)}\n`);
+        process.stderr.write(`${lightRule()}\n`);
+    };
+    const rerender = () => {
+        process.stderr.write(CURSOR_UP(TOTAL_ROWS));
+        process.stderr.write(CLEAR_TO_END);
+        render();
     };
     render();
+    void availableCount;
     return new Promise((resolve, reject) => {
-        const wasRaw = process.stdin.isRaw;
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-        }
-        node_readline_1.default.emitKeypressEvents(process.stdin);
-        const cleanup = () => {
-            process.stdin.removeListener("keypress", onKey);
-            if (process.stdin.isTTY) {
-                process.stdin.setRawMode(Boolean(wasRaw));
-            }
-            process.stderr.write(SHOW_CURSOR);
-        };
-        const moveCursorUp = () => {
-            process.stderr.write(`\x1b[${options.length}A`);
-        };
+        const cleanup = setupStdin();
         const onKey = (_str, key) => {
             if (!key)
                 return;
@@ -146,8 +186,7 @@ async function selectCheckboxes(prompt, options) {
             }
             else if (key.name === "space") {
                 if (options[cursor].locked) {
-                    moveCursorUp();
-                    render();
+                    rerender();
                     return;
                 }
                 selected[cursor] = selected[cursor] ? 0 : 1;
@@ -166,18 +205,19 @@ async function selectCheckboxes(prompt, options) {
             else {
                 return;
             }
-            moveCursorUp();
-            render();
+            rerender();
         };
         process.stdin.on("keypress", onKey);
     });
 }
 async function promptForToken(label, instructionUrl) {
-    process.stderr.write(`${label}\n`);
+    process.stderr.write(`${heavyRule()}\n`);
+    process.stderr.write(`  ${style(BOLD + FG.cyan, label)}\n`);
     if (instructionUrl) {
-        process.stderr.write(`Где взять токен: ${instructionUrl}\n`);
+        process.stderr.write(`  ${style(FG.gray, "Где взять токен: " + instructionUrl)}\n`);
     }
-    process.stderr.write("Введите токен: ");
+    process.stderr.write(`${lightRule(40)}\n`);
+    process.stderr.write("  Введите токен: ");
     return new Promise((resolve, reject) => {
         const rl = node_readline_1.default.createInterface({
             input: process.stdin,
@@ -188,14 +228,12 @@ async function promptForToken(label, instructionUrl) {
             rl.close();
             const value = line.replace(/\r$/, "");
             process.stderr.write("\n");
+            process.stderr.write(`${lightRule(40)}\n`);
             if (!value) {
                 reject(new Error("Токен не может быть пустым."));
                 return;
             }
             resolve(value);
-        });
-        rl.once("close", () => {
-            // If we get here without a 'line' event, treat as cancellation.
         });
     });
 }

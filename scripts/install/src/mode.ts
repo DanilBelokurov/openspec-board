@@ -18,7 +18,7 @@ export async function selectInstallMode(
   if (nonInteractive) {
     return "analyst-developer";
   }
-  print.section("Режим работы доски");
+  print.section("◉", "Режим работы доски");
   const value = await selectArrowOption(
     "В каком режиме установить доску sdd?",
     0,

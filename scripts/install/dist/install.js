@@ -27,7 +27,7 @@ class InstallCommand {
         await this.installSelectedMcps();
         const mode = await (0, mode_1.selectInstallMode)(this.options.nonInteractive, this.options.modeOverride);
         if (mode === "analyst-developer") {
-            print_1.print.section("Code-review-graph MCP");
+            print_1.print.section("⚡", "Code-review-graph MCP");
             await (0, code_review_graph_1.installCodeReviewGraphMcp)({
                 settingsFilePath: this.settingsFilePath,
                 force: this.options.force,
@@ -43,7 +43,7 @@ class InstallCommand {
         return this.options.settingsFilePath ?? (0, settings_1.getSettingsPath)();
     }
     async installSelectedMcps() {
-        print_1.print.section("MCP-серверы");
+        print_1.print.section("⬢", "MCP-серверы");
         await (0, permissions_1.reconcileMcpServerKeys)(this.settingsFilePath);
         const detectedKeys = (0, detect_1.detectInstalledMcpServers)(this.settingsFilePath);
         const lockedRawValues = [];
