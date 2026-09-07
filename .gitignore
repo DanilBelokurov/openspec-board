@@ -38,8 +38,6 @@ next-env.d.ts
 
 .mcp/**
 
-repos/**
-
 example/** 
 
 .gigacode/**

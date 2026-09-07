@@ -223,7 +223,7 @@ npm start          # порт 3000
 | Симптом | Причина | Решение |
 |---|---|---|
 | `gigacode: command not found` в `*.continue.*.log` | CLI не в `PATH` Next.js-процесса | Прописать абсолютный путь в `~/.bashrc` и перезапустить `npm run dev` |
-| Submodule `repos/<name>` не появляется | URL приватный, нет credentials | Настроить SSH-ключ или `git credential helper` |
+| Submodule `.sdd-board/repos/<name>` не появляется | URL приватный, нет credentials | Настроить SSH-ключ или `git credential helper` |
 | Worktree creation падает в analyst-flow | `defaultBranch` не совпадает с реальной веткой upstream | В Settings указать актуальное имя ветки |
 | Polling watcher не стартует | `experimental.instrumentationHook` отключён | Проверить `next.config.mjs` |
 | Порт `3000` занят | Другой процесс | `PORT=3001 npm run dev` |

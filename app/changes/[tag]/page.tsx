@@ -214,8 +214,8 @@ export default async function ChangePage({
     lastSelection = task.serviceRepos;
     // Project repos from config. The local path is resolved
     // by lib/config.ts → resolveRepoLocalPath (explicit
-    // localPath first, then the sdd-board/repos/<name>
-    // default).
+    // localPath first, then the
+    // <process.cwd()>/.sdd-board/repos/<name> default).
     const repos = config.repos ?? {};
     availableRepos = Object.entries(repos).map(([name, repo]) => ({
       name,

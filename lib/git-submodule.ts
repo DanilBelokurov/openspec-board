@@ -2,7 +2,7 @@
  * Git helpers for the user-tracked repos the Settings panel exposes.
  *
  * Each "repo" is a git submodule installed under
- *   <cwd>/repos/<name>/
+ *   <cwd>/.sdd-board/repos/<name>/
  * where `<cwd>` is the directory the Next.js process was launched
  * from (i.e. the sdd-board project's own working directory, NOT
  * the openspec store the user is editing). The submodule is
@@ -11,11 +11,13 @@
  * clone (idempotent on re-add) — they fetch origin and `git
  * checkout` the configured branch.
  *
- * Keeping the submodule inside the sdd-board project folder (rather
- * than next to openspecDir) means the graph index can sit alongside
- * the code that drives it, and the `.gitmodules`/`repos/` stay
- * version-controlled with the ssd-board repo if the user ever
- * commits them.
+ * Keeping the submodule under `.sdd-board/repos/` (the sdd-board
+ * project's own state folder) rather than at the top level means
+ * the graph index sits next to the code that drives it, and
+ * submodule content never mixes with the ssd-board repo's tracked
+ * files. `.sdd-board/` is gitignored, so `git submodule add` is
+ * invoked with `-f` to bypass the ignore match for the working-
+ * tree path.
  */
 
 import fs from "fs/promises";
@@ -69,9 +71,9 @@ export interface AddSubmoduleResult {
 }
 
 /**
- * Ensure `<cwd>/repos/<name>` exists as a checkout of <url> at
- * <branch>. Idempotent: if the path already has a clone, skip
- * `submodule add` and only re-run fetch + checkout.
+ * Ensure `<cwd>/.sdd-board/repos/<name>` exists as a checkout of
+ * <url> at <branch>. Idempotent: if the path already has a clone,
+ * skip `submodule add` and only re-run fetch + checkout.
  */
 export async function addOrCheckoutSubmodule(
   name: string,
@@ -86,19 +88,21 @@ export async function addOrCheckoutSubmodule(
     throw new Error(`cwd не существует: ${repoDir}`);
   }
 
-  const reposDir = path.join(repoDir, "repos");
+  const reposDir = path.join(repoDir, ".sdd-board", "repos");
   const target = path.join(reposDir, name);
 
   let created = false;
   if (!(await exists(target))) {
-    // `git submodule add <url> repos/<name>` clones, registers the
-    // submodule in .gitmodules, and checks out the default branch.
+    // `git submodule add -f <url> .sdd-board/repos/<name>` clones,
+    // registers the submodule in .gitmodules, and checks out the
+    // default branch. `-f` is required because the working-tree
+    // path lives under `.sdd-board/`, which is gitignored.
     // We don't pass -b here because the requested branch may not
     // exist locally yet — we fetch + checkout below to handle both
     // existing-branch and tag-name cases.
     await run(
       "git",
-      ["-C", repoDir, "submodule", "add", url, path.posix.join("repos", name)],
+      ["-C", repoDir, "submodule", "add", "-f", url, path.posix.join(".sdd-board", "repos", name)],
       { cwd: repoDir },
     );
     created = true;
@@ -107,7 +111,7 @@ export async function addOrCheckoutSubmodule(
     // manual clone). Make sure git knows about it.
     await run(
       "git",
-      ["-C", repoDir, "submodule", "update", "--init", path.posix.join("repos", name)],
+      ["-C", repoDir, "submodule", "update", "--init", path.posix.join(".sdd-board", "repos", name)],
       { cwd: repoDir },
     ).catch(() => {
       /* ignore — already initialised is fine */
@@ -181,15 +185,15 @@ export interface RemoveSubmoduleResult {
   modulesDirRemoved: boolean;
   /** Step 3: `git rm -f <path>`. */
   gitRm: "ok" | "failed" | "skipped";
-  /** Working tree at `<cwd>/repos/<name>` is gone (via step 3 or the fs.rm fallback). */
+  /** Working tree at `<cwd>/.sdd-board/repos/<name>` is gone (via step 3 or the fs.rm fallback). */
   workTreeRemoved: boolean;
   /** Step 4: `[submodule "<name>"]` block trimmed from `.gitmodules`. */
   gitmodulesTrimmed: boolean;
 }
 
 /**
- * Tear down the git submodule at `<cwd>/repos/<name>/`. Implements
- * the canonical three-step removal procedure:
+ * Tear down the git submodule at `<cwd>/.sdd-board/repos/<name>/`.
+ * Implements the canonical three-step removal procedure:
  *
  *   1. `git -C <cwd> submodule deinit -f -- <path>`
  *   2. `rm -rf <cwd>/.git/modules/<path>`
@@ -208,9 +212,16 @@ export async function removeSubmodule(
   pids?: { buildPid?: number | null; wikiPid?: number | null },
 ): Promise<RemoveSubmoduleResult> {
   const repoDir = process.cwd();
-  const subPath = path.posix.join("repos", name);
-  const target = path.join(repoDir, "repos", name);
-  const modulesDir = path.join(repoDir, ".git", "modules", "repos", name);
+  const subPath = path.posix.join(".sdd-board", "repos", name);
+  const target = path.join(repoDir, ".sdd-board", "repos", name);
+  const modulesDir = path.join(
+    repoDir,
+    ".git",
+    "modules",
+    ".sdd-board",
+    "repos",
+    name,
+  );
 
   // SIGTERM any in-flight build/wiki so they don't race the rm.
   const buildOutcome = killPid(pids?.buildPid);

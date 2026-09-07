@@ -65,7 +65,7 @@ npm start
 | Симптом | Причина | Решение |
 | --- | --- | --- |
 | `gigacode: command not found` в логах `*.continue.*.log` | CLI не в `PATH` Next.js-процесса | Прописать абсолютный путь в `~/.bashrc` и перезапустить `npm run dev` |
-| Submodule `repos/<name>` не появляется | URL приватный, нет credentials | Настроить SSH-ключ или `git credential helper` |
+| Submodule `.sdd-board/repos/<name>` не появляется | URL приватный, нет credentials | Настроить SSH-ключ или `git credential helper` |
 | Worktree creation падает в analyst-flow | `defaultBranch` не совпадает с реальной веткой upstream | В Settings указать актуальное имя ветки (`master`/`main`/...) |
 | Polling watcher не стартует | Singleton-guard в `lib/watcher.ts` не сработал | Проверить `experimental.instrumentationHook: true` в `next.config.mjs` |
 | Порт `3000` занят | Другой процесс | `PORT=3001 npm run dev` (Next.js подхватит переменную окружения) |
@@ -112,7 +112,7 @@ uv pip install code-review-graph
 
 **Права и команды.**
 
-- Полный **read** на дерево исходников каждого submodule в `repos/<name>`. По умолчанию сервер читает всё репо целиком (`.gitignore`-фильтр не применяется к индексу) — индекс может быть большим.
+- Полный **read** на дерево исходников каждого submodule в `.sdd-board/repos/<name>`. По умолчанию сервер читает всё репо целиком (`.gitignore`-фильтр не применяется к индексу) — индекс может быть большим.
 - **Write** в `<repoRoot>/.code-review-graph/` — индекс и wiki пишутся рядом с исходниками, отдельного параметра `data_dir` у инструмента нет.
 - Сетевого доступа не требует — сервер полностью локальный.
 - На крупных монорепо первый build может занимать десятки минут и заметную RAM (по умолчанию пул процессов под размер машины). При необходимости ограничьте через env-переменные пакета (см. его README).

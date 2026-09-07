@@ -15,7 +15,7 @@
  * double dashes. Used for both the openspec change name and the
  * repo submodule name; the two cannot collide because change
  * folders live inside openspec/changes/ while submodules live in
- * repos/.
+ * .sdd-board/repos/.
  */
 export function isValidRepoName(name: string): boolean {
   return (

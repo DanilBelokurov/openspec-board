@@ -56,14 +56,15 @@ async function ensureRepoLogDir(): Promise<void> {
 
 /**
  * The code-review-graph MCP tools walk a git working tree. The
- * submodules live under `<cwd>/repos/<name>/` where `<cwd>` is
- * the sdd-board project's own working directory (the same place
- * `.sdd-board/` lives in), NOT the openspec store. The graph
- * data itself is written by the tool to `<repoRoot>/.code-review-graph/`
- * (the tool has no `data_dir` parameter — that location is fixed).
+ * submodules live under `<cwd>/.sdd-board/repos/<name>/` where
+ * `<cwd>` is the sdd-board project's own working directory (the
+ * same place `.sdd-board/` lives in), NOT the openspec store.
+ * The graph data itself is written by the tool to
+ * `<repoRoot>/.code-review-graph/` (the tool has no `data_dir`
+ * parameter — that location is fixed).
  */
 function repoPath(repoName: string): string {
-  return path.join(process.cwd(), "repos", repoName);
+  return path.join(process.cwd(), ".sdd-board", "repos", repoName);
 }
 
 const BUILD_PROMPT_TEMPLATE_PATH = path.join(

@@ -44,10 +44,10 @@ export interface RepoConfig {
    * dev-mode TDD pipeline creates its worktree inside this
    * directory (under `<localPathParent>/<localPathBasename>.worktrees/<JIRA-ID>/`)
    * and runs `gigacode --prompt` there. Falls back to the
-   * submodule convention `<openspecDirParent>/repos/<name>/`
+   * submodule convention `<process.cwd()>/.sdd-board/repos/<name>/`
    * (where `name` is the key under `repos` in config) when
    * unset. Set this explicitly when the code repo lives outside
-   * the openspec-store parent directory.
+   * the sdd-board project folder.
    */
   localPath?: string;
   buildPid?: number | null;
@@ -92,7 +92,7 @@ export interface AppConfig {
   defaultBranch: string;
   // Tracked git submodules. Key = repo name (kebab-case), value =
   // URL + branch to track. Backed by `git submodule add` + checkout
-  // under <openspecDirParent>/repos/<name>/.
+  // under <process.cwd()>/.sdd-board/repos/<name>/.
   repos?: Record<string, RepoConfig>;
   /**
    * Developer-mode auto-scan cadence, in minutes. The watcher
@@ -289,26 +289,29 @@ export async function updateRepoEntry(
  * Lookup order:
  *  1. Explicit `localPath` on the repo's config entry (set
  *     in `.sdd-board/config.json` under `repos.<name>.localPath`).
- *  2. Default convention: `<process.cwd()>/repos/<repoName>` —
- *     i.e. the `repos/` subdirectory of the sdd-board project
- *     (where `next dev` runs). This is the typical layout when
- *     the code repos are checked out alongside the board.
+ *  2. Default convention: `<process.cwd()>/.sdd-board/repos/<repoName>`
+ *     — i.e. the `repos/` subdirectory of the sdd-board project's
+ *     own state folder (where `next dev` runs). Submodules live
+ *     under `.sdd-board/` (which is gitignored) so they don't
+ *     pollute the ssd-board repo's tracked files.
  *
  * Note: a previous revision used
+ * `<process.cwd()>/repos/<repoName>` (submodule at the top
+ * level), and an even older one used
  * `<path.dirname(openspecDir)>/repos/<repoName>` (the
  * "submodule" convention, treating repos as submodules of the
- * openspec-store). That breaks layouts where sdd-store and
- * sdd-board are sibling projects and the repos live in the
- * sdd-board project itself — the dev would see
- * `Worktree: <store-parent>/repos/<name> не является
+ * openspec-store). The openspec-store convention breaks layouts
+ * where sdd-store and sdd-board are sibling projects — the dev
+ * would see `Worktree: <store-parent>/repos/<name> не является
  * git-репозиторием` because the convention resolved a path
- * outside the sdd-board. The `process.cwd()`-based default
- * matches the layout we ship in this repo.
+ * outside the sdd-board. The top-level `repos/` was moved under
+ * `.sdd-board/` so the working tree matches the gitignore layout
+ * (`.sdd-board/` already covers it).
  */
 export function resolveRepoLocalPath(
   repoName: string,
   repoConfig: { localPath?: string } | undefined,
 ): string {
   if (repoConfig?.localPath) return repoConfig.localPath;
-  return path.join(process.cwd(), "repos", repoName);
+  return path.join(process.cwd(), ".sdd-board", "repos", repoName);
 }

@@ -706,7 +706,8 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             ) : (
               <div className="rounded-md border border-dashed border-border bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
                 Нет добавленных репозиториев. Заполните форму ниже, чтобы
-                установить submodule в <code className="font-mono">repos/&lt;имя&gt;</code>{" "}
+                установить submodule в{" "}
+                <code className="font-mono">.sdd-board/repos/&lt;имя&gt;</code>{" "}
                 и сразу перейти на указанную ветку.
               </div>
             )}
@@ -788,7 +789,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             <span className="text-[11px] text-slate-500">
               После добавления репозиторий появится в{" "}
               <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">
-                &lt;openspecDir&gt;/repos/&lt;имя&gt;
+                .sdd-board/repos/&lt;имя&gt;
               </code>{" "}
               как git submodule и сразу переключится на указанную ветку.
             </span>
