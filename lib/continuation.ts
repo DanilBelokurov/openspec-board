@@ -511,6 +511,48 @@ async function spawnCreateArtifactGigacode(
 ): Promise<CreateArtifactResult> {
   const worktree = task.openspecWorktreePath!;
 
+  // Gate: refuse to read `openspec instructions` for a change that
+  // wasn't actually initialized by `openspec new change`. The CLI
+  // resolves its store via a chain that ends at global defaultStore,
+  // and once we get there it walks the change dir looking for
+  // schema-defined templates (proposal.md, tasks.md, ...). When
+  // openspec-new failed — ENOENT on the binary, missing schema,
+  // partial install, etc. — the change dir was never populated, so
+  // the instructions call returns "change X not found" and burns
+  // a gigacode prompt that has nothing to fill in.
+  //
+  // Earlier versions of this gate didn't exist; the symptom was a
+  // confusing "change X not found" error on a brand-new task whose
+  // worktree had only a pre-seeded `.openspec.yaml`. The pre-seed
+  // was the actual culprit (see `app/api/changes/route.ts` for the
+  // matching fix that defers the title write until openspec-new
+  // exits with code 0), and this gate is the defensive belt to
+  // that fix's suspenders: if some other path still leaves us with
+  // a half-initialized change (manual surgery, network glitch, etc.)
+  // we surface a clear "restart openspec-new" message instead of
+  // the cryptic CLI error.
+  if (task.openspecNewExitCode !== 0) {
+    const detail =
+      task.openspecNewSpawnError ?? `exit ${task.openspecNewExitCode}`;
+    const errField = ((): keyof import("./state").TaskEntry => {
+      switch (config.stage) {
+        case "proposal":
+          return "commitError";
+        case "plan":
+          return "planCreateError";
+        default:
+          return "deltaSpecCommitError";
+      }
+    })();
+    const msg =
+      `openspec new change не завершился успешно (${detail}); ` +
+      `перезапустите шаг openspec-new, чтобы инициализировать change-папку.`;
+    await updateTask(task.mode, changeName, {
+      [errField]: msg,
+    } as Partial<import("./state").TaskEntry>);
+    return { ok: false, error: msg };
+  }
+
   // Get the artifact-generation instructions as JSON.
   let instructionsJson: string;
   try {

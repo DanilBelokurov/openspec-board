@@ -213,38 +213,21 @@ export async function POST(req: NextRequest) {
   };
   await writeState(next);
 
-  // Persist the user-supplied title into `.openspec.yaml` BEFORE the
-  // openspec CLI runs, so it shows up as soon as the first watcher
-  // tick reads the change folder — and stays authoritative across
-  // every later re-scan (scanOneRoot + remote-feature-scanner both
-  // prefer yaml-title over proposal.md headings). Without this hook
-  // `refreshAnalystTaskSummary` would overwrite summary.title with
-  // whatever heading the CLI's template `proposal.md` shipped with,
-  // silently dropping the free-form text the analyst typed into
-  // the dialog. Other users' boards pick the same value off the
-  // branch via readChangeMetadataFromGit → git show <sha>:...yaml.
-  //
-  // Best-effort: a missing worktree path or unwritable dir here must
-  // not block task creation — the state.json record above already
-  // holds the typed-in title; the publish-stage flow on each later
-  // confirm will also re-emit the metadata commit. We only log.
-  try {
-    await writeOpenSpecMetadata(openspecWorktree, tag, {
-      stage: "proposal",
-      title: title.trim() || undefined,
-    });
-  } catch (e) {
-    console.warn(
-      `[api/changes] could not pre-seed .openspec.yaml title for ${tag}: ${
-        e instanceof Error ? e.message : String(e)
-      }`,
-    );
-  }
-
   // --description writes the body into README.md inside the change folder,
   // preserved as ground truth for the proposal-generation step.
   // --schema is passed explicitly so the pipeline keeps working even if
   // the project's openspec/config.yaml gets deleted/renamed.
+  //
+  // Note: the user-supplied title used to be pre-seeded into
+  // `.openspec.yaml` BEFORE the spawn, so it would show up on the
+  // card as soon as the first watcher tick read the change folder.
+  // That created a race: if `openspec new change` failed (ENOENT on
+  // the CLI binary, missing schema, etc.), the watcher still saw a
+  // `.openspec.yaml` on disk and fired step 2 (`openspec
+  // instructions proposal`), which then died with "change X not
+  // found" because the change dir was missing the schema-defined
+  // templates. The title write now happens in the spawn exit handler
+  // below, after the CLI has actually populated the change dir.
   const logFile = processLogPath(tag, "new", "proposal");
   await ensureLogDir();
 
@@ -256,6 +239,7 @@ export async function POST(req: NextRequest) {
     description,
     logFile,
     openspecWorktree,
+    title,
   );
   if (openspecNewPid != null) {
     next.tasks[taskKey("analyst", tag)] = {
@@ -289,6 +273,7 @@ async function spawnProposalOpenspecNew(
   description: string,
   logFile: string,
   cwd: string,
+  title: string,
 ): Promise<number | null> {
   try {
     const result = spawnDetachedWithLog({
@@ -307,14 +292,31 @@ async function spawnProposalOpenspecNew(
       cwd,
     });
     // Fire-and-forget: when openspec exits, write exit code/signal back to
-    // state. The continuation auto-trigger watches for `.openspec.yaml`
-    // appearing on disk — that's the readiness signal this step produces.
+    // state AND (on success) persist the user-supplied title into
+    // `.openspec.yaml`. The title is written only after the CLI has
+    // actually populated the change dir with schema-defined templates —
+    // writing it earlier creates a half-initialized change that the
+    // watcher will pick up and feed to `openspec instructions`, which
+    // then dies with "change X not found".
     result.promise
       .then(async ({ exitCode, signal }) => {
         await updateTask("analyst", tag, {
           openspecNewExitCode: exitCode,
           openspecNewExitSignal: signal,
         });
+        if (exitCode === 0) {
+          try {
+            await writeOpenSpecMetadata(cwd, tag, {
+              stage: "proposal",
+              title: title.trim() || undefined,
+            });
+          } catch (e) {
+            console.warn(
+              `[api/changes] could not write .openspec.yaml title for ${tag}:`,
+              e instanceof Error ? e.message : String(e),
+            );
+          }
+        }
       })
       .catch((e) =>
         console.error(`openspec-new exit handler error:`, e),
