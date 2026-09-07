@@ -38,7 +38,28 @@ function makeSpawn(
   return { spawn, calls };
 }
 
-describe("setupSddStore", () => {
+async function makeSourceFixture(): Promise<string> {
+  const source = path.join(scratchDir, "schema-src");
+  await fs.mkdir(path.join(source, "templates"), { recursive: true });
+  await fs.writeFile(
+    path.join(source, "schema.yaml"),
+    "name: spec-driven-with-adr\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(source, "templates", "proposal.md"),
+    "# proposal template\n",
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(source, ".DS_Store"),
+    "macos metadata noise\n",
+    "utf8",
+  );
+  return source;
+}
+
+describe("setupSddStore — local schema copy", () => {
   it("returns ok=false when storePath does not exist", async () => {
     const missing = path.join(scratchDir, "does-not-exist");
     const { spawn } = makeSpawn([]);
@@ -49,6 +70,7 @@ describe("setupSddStore", () => {
     expect(result.ok).toBe(false);
     expect(result.initialized).toBe(false);
     expect(result.storeRegistered).toBe(false);
+    expect(result.schemaInstalled).toBe(false);
   });
 
   it("returns ok=false when openspec is missing", async () => {
@@ -66,7 +88,8 @@ describe("setupSddStore", () => {
   it("runs openspec init then openspec store setup in the right cwd", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
-    // Step plan: openspec init, openspec store setup, git add, git commit, git branch --show-current, git branch -M (skipped — already master)
+    const source = await makeSourceFixture();
+
     const { spawn, calls } = makeSpawn([
       { bin: "openspec", args: ["init", ".", "--tools=none"], status: 0 },
       { bin: "openspec", args: ["store", "setup", "my-store", "--path", storeDir], status: 0 },
@@ -74,16 +97,23 @@ describe("setupSddStore", () => {
       { bin: "git", args: ["commit", "-m", "chore: install spec-drive-with-adr schema"], status: 0 },
       { bin: "git", args: ["branch", "--show-current"], status: 0 },
     ]);
+    const wrappedSpawn: SpawnFn = async (bin, args, options) => {
+      const r = await spawn(bin, args, options);
+      if (bin === "git" && args[0] === "branch" && args[1] === "--show-current") {
+        return { status: 0, stdout: "master\n", stderr: "" };
+      }
+      return r;
+    };
 
     const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
-      { spawn, hasBinary: () => true },
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
+      { spawn: wrappedSpawn, hasBinary: () => true },
     );
 
     expect(result.initialized).toBe(true);
     expect(result.storeRegistered).toBe(true);
-
-    // First two calls must target the store dir
+    expect(result.schemaInstalled).toBe(true);
+    expect(result.configUpdated).toBe(false);
     expect(calls[0]).toEqual({
       bin: "openspec",
       args: ["init", ".", "--tools=none"],
@@ -93,69 +123,179 @@ describe("setupSddStore", () => {
     expect(calls[1].bin).toBe("openspec");
   });
 
-  it("stops at openspec init failure", async () => {
+  it("copies schema files from local source to <store>/openspec/schemas/<name>/", async () => {
+    const storeDir = path.join(scratchDir, "store");
+    await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
+
+    const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
+    ]);
+    const wrappedSpawn: SpawnFn = async (bin, args, options) => {
+      const r = await spawn(bin, args, options);
+      if (bin === "git" && args[0] === "branch" && args[1] === "--show-current") {
+        return { status: 0, stdout: "master\n", stderr: "" };
+      }
+      return r;
+    };
+
+    const result = await setupSddStore(
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
+      { spawn: wrappedSpawn, hasBinary: () => true },
+    );
+
+    expect(result.schemaInstalled).toBe(true);
+    const target = path.join(storeDir, "openspec", "schemas", "spec-driven-with-adr");
+    expect(await fs.stat(target).then((s) => s.isDirectory())).toBe(true);
+    const schemaYaml = await fs.readFile(path.join(target, "schema.yaml"), "utf8");
+    expect(schemaYaml).toContain("spec-driven-with-adr");
+    const proposal = await fs.readFile(path.join(target, "templates", "proposal.md"), "utf8");
+    expect(proposal).toContain("proposal template");
+  });
+
+  it("filters out .DS_Store during schema copy", async () => {
+    const storeDir = path.join(scratchDir, "store");
+    await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
+
+    const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
+    ]);
+    const wrappedSpawn: SpawnFn = async (bin, args, options) => {
+      const r = await spawn(bin, args, options);
+      if (bin === "git" && args[0] === "branch" && args[1] === "--show-current") {
+        return { status: 0, stdout: "master\n", stderr: "" };
+      }
+      return r;
+    };
+
+    await setupSddStore(
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
+      { spawn: wrappedSpawn, hasBinary: () => true },
+    );
+
+    const target = path.join(storeDir, "openspec", "schemas", "spec-driven-with-adr");
+    await expect(fs.stat(path.join(target, ".DS_Store"))).rejects.toThrow();
+  });
+
+  it("returns schemaInstalled=false when source path is null", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
     const { spawn } = makeSpawn([
-      { bin: "openspec", status: 1 },
+      { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
+      { bin: "git", status: 0 },
     ]);
+    const wrappedSpawn: SpawnFn = async (bin, args, options) => {
+      const r = await spawn(bin, args, options);
+      if (bin === "git" && args[0] === "branch" && args[1] === "--show-current") {
+        return { status: 0, stdout: "master\n", stderr: "" };
+      }
+      return r;
+    };
+
     const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
-      { spawn, hasBinary: () => true },
+      {
+        storePath: storeDir,
+        storeName: "my-store",
+        schemaSourcePath: "/definitely/does/not/exist",
+      },
+      { spawn: wrappedSpawn, hasBinary: () => true },
     );
-    expect(result.initialized).toBe(false);
-    expect(result.storeRegistered).toBe(false);
-    expect(result.committedToMaster).toBe(false);
+
+    expect(result.schemaInstalled).toBe(false);
+    expect(result.ok).toBe(false);
   });
 
-  it("stops at openspec store setup failure", async () => {
+  it("returns schemaInstalled=false when copySchema throws", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
+    const { spawn } = makeSpawn([
+      { bin: "openspec", status: 0 },
+      { bin: "openspec", status: 0 },
+    ]);
+    const wrappedSpawn: SpawnFn = async (bin, args, options) => {
+      const r = await spawn(bin, args, options);
+      return r;
+    };
+
+    const result = await setupSddStore(
+      {
+        storePath: storeDir,
+        storeName: "my-store",
+        schemaSourcePath: path.join(scratchDir, "any-existing-dir"),
+        copySchema: async () => {
+          throw new Error("disk full");
+        },
+      },
+      { spawn: wrappedSpawn, hasBinary: () => true },
+    );
+
+    expect(result.schemaInstalled).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("stops at openspec init failure (no store setup, no copy)", async () => {
+    const storeDir = path.join(scratchDir, "store");
+    await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
+    const copyCalls: string[] = [];
+
+    const { spawn } = makeSpawn([{ bin: "openspec", status: 1 }]);
+    const result = await setupSddStore(
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
+      {
+        spawn,
+        hasBinary: () => true,
+      },
+    );
+
+    expect(result.initialized).toBe(false);
+    expect(result.storeRegistered).toBe(false);
+    expect(result.schemaInstalled).toBe(false);
+    expect(copyCalls).toEqual([]);
+  });
+
+  it("stops at openspec store setup failure (no copy, no commit)", async () => {
+    const storeDir = path.join(scratchDir, "store");
+    await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
     const { spawn } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 1 },
     ]);
     const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
       { spawn, hasBinary: () => true },
     );
     expect(result.initialized).toBe(true);
     expect(result.storeRegistered).toBe(false);
-    expect(result.committedToMaster).toBe(false);
-  });
-
-  it("does not install schema when SDD_SCHEMA_REPO_URL is the example.com placeholder", async () => {
-    const storeDir = path.join(scratchDir, "store");
-    await fs.mkdir(storeDir, { recursive: true });
-    const { spawn } = makeSpawn([
-      { bin: "openspec", status: 0 },
-      { bin: "openspec", status: 0 },
-      { bin: "git", status: 0 },
-      { bin: "git", status: 0 },
-      { bin: "git", status: 0 },
-    ]);
-    const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
-      { spawn, hasBinary: () => true },
-    );
-    // schema not installed (placeholder), but config and commit still run
     expect(result.schemaInstalled).toBe(false);
-    // config.yaml won't exist (no init artifacts in this mock), so configUpdated=false
-    // That's fine — we only verify the placeholder path was taken
+    expect(result.committedToMaster).toBe(false);
   });
 
   it("renames branch to master when current branch is not master", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(storeDir, { recursive: true });
+    const source = await makeSourceFixture();
     const { spawn, calls } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
-      { bin: "git", status: 0 }, // branch --show-current returns "main"
+      { bin: "git", status: 0 }, // branch --show-current
       { bin: "git", status: 0 }, // branch -M master
     ]);
-    // Override spawn for the branch step to actually return "main"
     const wrappedSpawn: SpawnFn = async (bin, args, options) => {
       const r = await spawn(bin, args, options);
       if (bin === "git" && args[0] === "branch" && args[1] === "--show-current") {
@@ -163,17 +303,16 @@ describe("setupSddStore", () => {
       }
       return r;
     };
-    const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
+    await setupSddStore(
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
       { spawn: wrappedSpawn, hasBinary: () => true },
     );
-    // Last call should be `git branch -M master`
     const lastCall = calls[calls.length - 1];
     expect(lastCall.bin).toBe("git");
     expect(lastCall.args).toEqual(["branch", "-M", "master"]);
   });
 
-  it("ok=true only when every step succeeds (including config.yaml update)", async () => {
+  it("ok=true when every step succeeds including config update", async () => {
     const storeDir = path.join(scratchDir, "store");
     await fs.mkdir(path.join(storeDir, "openspec"), { recursive: true });
     await fs.writeFile(
@@ -181,12 +320,13 @@ describe("setupSddStore", () => {
       "schema: spec-driven\n",
       "utf8",
     );
+    const source = await makeSourceFixture();
     const { spawn } = makeSpawn([
       { bin: "openspec", status: 0 },
       { bin: "openspec", status: 0 },
       { bin: "git", status: 0 },
       { bin: "git", status: 0 },
-      { bin: "git", status: 0 }, // branch check returns "master"
+      { bin: "git", status: 0 },
     ]);
     const wrappedSpawn: SpawnFn = async (bin, args, options) => {
       const r = await spawn(bin, args, options);
@@ -196,13 +336,15 @@ describe("setupSddStore", () => {
       return r;
     };
     const result = await setupSddStore(
-      { storePath: storeDir, storeName: "my-store" },
+      { storePath: storeDir, storeName: "my-store", schemaSourcePath: source },
       { spawn: wrappedSpawn, hasBinary: () => true },
     );
     expect(result.initialized).toBe(true);
     expect(result.storeRegistered).toBe(true);
-    // schema not installed because placeholder URL → ok stays false
-    expect(result.ok).toBe(false);
+    expect(result.schemaInstalled).toBe(true);
+    expect(result.configUpdated).toBe(true);
+    expect(result.committedToMaster).toBe(true);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -216,7 +358,6 @@ describe("config.yaml mutation (real file)", () => {
       ["schema: spec-driven", "other: keep", ""].join("\n"),
       "utf8",
     );
-    // Re-implement inline to avoid the open/open branch
     const raw = await fs.readFile(configPath, "utf8");
     const lines = raw.split("\n");
     for (let i = 0; i < lines.length; i++) {

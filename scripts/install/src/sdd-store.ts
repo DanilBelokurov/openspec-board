@@ -1,14 +1,16 @@
+import { cp } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { commandExists, runCommand } from "./shell";
 import { print } from "./print";
-import { SDD_SCHEMA_NAME, SDD_SCHEMA_REPO_URL } from "./constants";
+import { SCHEMA_SOURCE_PATH, SDD_SCHEMA_NAME } from "./constants";
 
 export interface SddStoreSetupOptions {
   storePath: string;
   storeName: string;
   schemaName?: string;
-  schemaRepoUrl?: string;
+  schemaSourcePath?: string;
+  copySchema?: (src: string, dst: string) => Promise<void>;
 }
 
 export interface SddStoreSetupResult {
@@ -49,7 +51,7 @@ export async function setupSddStore(
   const spawn = deps.spawn ?? defaultSpawn;
   const hasBinary = deps.hasBinary ?? commandExists;
   const schemaName = options.schemaName ?? SDD_SCHEMA_NAME;
-  const schemaRepoUrl = options.schemaRepoUrl ?? SDD_SCHEMA_REPO_URL;
+  const copySchema = options.copySchema ?? defaultCopySchema;
 
   const result: SddStoreSetupResult = {
     ok: false,
@@ -98,12 +100,13 @@ export async function setupSddStore(
     return result;
   }
 
-  print.step(`Установка схемы ${schemaName} из ${schemaRepoUrl} ...`);
-  result.schemaInstalled = await installSchema({
+  print.step(`Копирование схемы ${schemaName} в openspec/schemas/ ...`);
+  result.schemaInstalled = await installLocalSchema({
     storePath: options.storePath,
     schemaName,
-    schemaRepoUrl,
-    spawn,
+    schemaSourcePath:
+      options.schemaSourcePath ?? resolveSchemaSourcePath(),
+    copySchema,
   });
 
   print.step(`Правка openspec/config.yaml (schema → ${schemaName}) ...`);
@@ -127,52 +130,73 @@ export async function setupSddStore(
   return result;
 }
 
-interface InstallSchemaDeps {
+interface InstallLocalSchemaDeps {
   storePath: string;
   schemaName: string;
-  schemaRepoUrl: string;
-  spawn: SpawnFn;
+  schemaSourcePath: string | null;
+  copySchema: (src: string, dst: string) => Promise<void>;
 }
 
-async function installSchema(deps: InstallSchemaDeps): Promise<boolean> {
-  const { storePath, schemaName, schemaRepoUrl, spawn } = deps;
+async function installLocalSchema(deps: InstallLocalSchemaDeps): Promise<boolean> {
+  const { storePath, schemaName, schemaSourcePath, copySchema } = deps;
   const target = path.join(storePath, "openspec", "schemas", schemaName);
 
-  if (
-    schemaRepoUrl.includes("example.com") ||
-    !/^https?:\/\//.test(schemaRepoUrl)
-  ) {
-    print.warn(
-      `SDD_SCHEMA_REPO_URL — placeholder (${schemaRepoUrl}). ` +
-        "Схема будет скопирована при следующем запуске инсталлятора с реальной ссылкой.",
+  if (!schemaSourcePath) {
+    print.error(
+      "Не удалось найти исходную директорию схемы (scripts/schemas/spec-driven-with-adr).",
+    );
+    print.note(
+      "Задайте SCHEMA_SOURCE_PATH=/абсолютный/путь/к/схеме или скопируйте файлы вручную в " +
+        target,
+    );
+    return false;
+  }
+
+  if (!existsSync(schemaSourcePath)) {
+    print.error(`Локальная директория схемы не найдена: ${schemaSourcePath}`);
+    print.note(
+      "Проверьте, что scripts/schemas/<" + schemaName + "> существует, " +
+        "или задайте SCHEMA_SOURCE_PATH.",
     );
     return false;
   }
 
   mkdirSync(target, { recursive: true });
-
-  // Stage the clone into a temp dir and copy contents into target.
-  // Using spawn(...) for cp -R keeps the shell-out explicit.
-  const tmp = path.join(storePath, ".sdd-schema-stage");
-  const cloneResult = await spawn("git", ["clone", "--depth", "1", schemaRepoUrl, tmp], {
-    cwd: storePath,
-    stdio: "inherit",
-  });
-  if (cloneResult.status !== 0) {
-    print.error(`Не удалось склонировать ${schemaRepoUrl}.`);
+  try {
+    await copySchema(schemaSourcePath, target);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    print.error(`Не удалось скопировать схему в ${target}: ${message}`);
     return false;
   }
-  const copyResult = await spawn("cp", ["-R", `${tmp}/.`, target], {
-    cwd: storePath,
-    stdio: "inherit",
-  });
-  await spawn("rm", ["-rf", tmp], { cwd: storePath, stdio: "pipe" });
-  if (copyResult.status !== 0) {
-    print.error(`Не удалось скопировать схему в ${target}.`);
-    return false;
-  }
-  print.success(`Схема установлена: ${target}`);
+  print.success(`Схема скопирована: ${schemaSourcePath} → ${target}`);
   return true;
+}
+
+async function defaultCopySchema(src: string, dst: string): Promise<void> {
+  await cp(src, dst, {
+    recursive: true,
+    filter: (entry) => !path.basename(entry).startsWith(".DS_Store"),
+  });
+}
+
+export function resolveSchemaSourcePath(): string | null {
+  if (process.env.SCHEMA_SOURCE_PATH) {
+    const explicit = path.resolve(process.env.SCHEMA_SOURCE_PATH);
+    if (existsSync(explicit)) return explicit;
+    return explicit;
+  }
+  // The compiled installer lives at scripts/install/dist/cli.js.
+  // Walk up to the repo root and into scripts/schemas/<schemaName>.
+  const candidates = [
+    path.resolve(process.cwd(), SCHEMA_SOURCE_PATH),
+    path.resolve(__dirname, "..", "..", "..", SCHEMA_SOURCE_PATH),
+    path.resolve(__dirname, "..", "..", SCHEMA_SOURCE_PATH),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0] ?? null;
 }
 
 interface UpdateConfigDeps {

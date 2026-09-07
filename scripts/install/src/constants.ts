@@ -81,19 +81,23 @@ export const INSTALLER_INSTRUCTION_OPENSPEC = envOrDefault(
   "https://example.com/install-openspec",
 );
 
-// Git URL of the spec-drive-with-adr schema repository. Cloned into
-// <sdd-store>/openspec/schemas/spec-drive-with-adr/ during setup.
-// The user will provide the real link later; override via env var.
-export const SDD_SCHEMA_REPO_URL = envOrDefault(
-  "SDD_SCHEMA_REPO_URL",
-  "https://example.com/spec-drive-with-adr-schema",
+// Path to the local schema directory bundled with this repo.
+// Copied verbatim into <sdd-store>/openspec/schemas/<name>/ on setup.
+// Default is relative to the compiled installer's dist directory
+// (scripts/install/dist/../../schemas/spec-driven-with-adr).
+// Override with SCHEMA_SOURCE_PATH=<absolute path> when running
+// the installer from a non-standard location.
+export const SCHEMA_SOURCE_PATH = envOrDefault(
+  "SCHEMA_SOURCE_PATH",
+  "scripts/schemas/spec-driven-with-adr",
 );
 
 // Logical schema name, written into the sdd-store's openspec/config.yaml
-// under the `schema:` key.
+// under the `schema:` key. The source directory above is expected to
+// match this name (so the default resolves to scripts/schemas/<name>).
 export const SDD_SCHEMA_NAME = envOrDefault(
   "SDD_SCHEMA_NAME",
-  "spec-drive-with-adr",
+  "spec-driven-with-adr",
 );
 
 export const CODE_REVIEW_GRAPH_PACKAGE = envOrDefault(

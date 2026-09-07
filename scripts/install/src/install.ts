@@ -120,6 +120,7 @@ export class InstallCommand {
     const result = await setupSddStore({
       storePath,
       storeName,
+      schemaSourcePath: process.env.SCHEMA_SOURCE_PATH,
     });
 
     if (result.ok) {
